@@ -1,0 +1,87 @@
+{% extends 'base.html' %}
+{% block title %}Mark Letter Sent — Impound Manager{% endblock %}
+
+{% block content %}
+<div class="row justify-content-center">
+  <div class="col-md-6">
+    <div class="d-flex align-items-center mb-4 gap-3">
+      <a href="{{ url_for('dashboard') }}" class="btn btn-outline-secondary btn-sm">
+        <i class="bi bi-arrow-left"></i>
+      </a>
+      <div>
+        <h2 class="h4 mb-0 fw-bold">Mark Letter as Sent</h2>
+        <small class="text-muted">{{ letter.vehicle.display_name }}</small>
+      </div>
+    </div>
+
+    {# Letter summary card #}
+    <div class="card shadow-sm mb-4 {% if letter.is_overdue %}border-danger{% endif %}">
+      <div class="card-body">
+        <dl class="row small mb-0">
+          <dt class="col-sm-4 text-muted">Vehicle</dt>
+          <dd class="col-sm-8 fw-semibold">{{ letter.vehicle.display_name }}</dd>
+
+          {% if letter.vehicle.plate %}
+          <dt class="col-sm-4 text-muted">Plate</dt>
+          <dd class="col-sm-8">{{ letter.vehicle.plate }} ({{ letter.vehicle.plate_state }})</dd>
+          {% endif %}
+
+          <dt class="col-sm-4 text-muted">Letter</dt>
+          <dd class="col-sm-8">{{ letter.label }}</dd>
+
+          <dt class="col-sm-4 text-muted">Due By</dt>
+          <dd class="col-sm-8 {% if letter.is_overdue %}text-danger fw-semibold{% endif %}">
+            {{ letter.due_date|mdY }}
+            {% if letter.is_overdue %}
+            <span class="badge bg-danger ms-1">{{ letter.days_overdue }} days overdue</span>
+            {% endif %}
+          </dd>
+
+          <dt class="col-sm-4 text-muted">Impound Type</dt>
+          <dd class="col-sm-8">
+            <span class="badge bg-secondary">{{ letter.vehicle.impound_type }}</span>
+          </dd>
+        </dl>
+      </div>
+    </div>
+
+    {# What happens next notice #}
+    {% if letter.vehicle.impound_type == 'PPI' and letter.letter_number == 1 %}
+    <div class="alert alert-info small">
+      <i class="bi bi-info-circle-fill me-1"></i>
+      <strong>After marking sent:</strong> Letter 2 will be automatically scheduled for 30 days from today.
+    </div>
+    {% endif %}
+
+    <form method="POST" action="{{ url_for('letters_mark_sent', letter_id=letter.id) }}">
+      <div class="card shadow-sm">
+        <div class="card-body">
+          <div class="mb-3">
+            <label for="sent_date" class="form-label fw-semibold">Date Sent <span class="text-danger">*</span></label>
+            <input type="date" class="form-control" id="sent_date" name="sent_date"
+                   value="{{ today.isoformat() }}" required>
+          </div>
+          <div class="mb-3">
+            <label for="tracking_number" class="form-label fw-semibold">USPS Tracking Number</label>
+            <input type="text" class="form-control font-monospace" id="tracking_number" name="tracking_number"
+                   placeholder="9400 1000 0000 0000 0000 00">
+            <div class="form-text">From the certified mail receipt (optional but recommended).</div>
+          </div>
+          <div class="mb-3">
+            <label for="notes" class="form-label fw-semibold">Notes</label>
+            <textarea class="form-control" id="notes" name="notes" rows="2"
+                      placeholder="Any relevant notes..."></textarea>
+          </div>
+
+          <div class="d-flex gap-2">
+            <button type="submit" class="btn btn-primary px-4">
+              <i class="bi bi-send-fill"></i> Mark as Sent
+            </button>
+            <a href="{{ url_for('dashboard') }}" class="btn btn-outline-secondary">Cancel</a>
+          </div>
+        </div>
+      </div>
+    </form>
+  </div>
+</div>
+{% endblock %}

@@ -1,0 +1,180 @@
+{% extends 'base.html' %}
+{% block title %}Import Results — Impound Manager{% endblock %}
+
+{% block content %}
+<div class="d-flex align-items-center mb-4 gap-3">
+  <a href="{{ url_for('import_quantum_view') }}" class="btn btn-outline-secondary btn-sm">
+    <i class="bi bi-arrow-left"></i>
+  </a>
+  <div>
+    <h2 class="h4 mb-0 fw-bold">Import Results</h2>
+    <small class="text-muted">{{ filename }} &bull; {{ today|human_date }}</small>
+  </div>
+</div>
+
+{# ── Summary stats ── #}
+<div class="row g-3 mb-4">
+  <div class="col-6 col-md-3">
+    <div class="card shadow-sm text-center py-3">
+      <div class="fw-bold fs-3 text-secondary">{{ total_rows }}</div>
+      <div class="text-muted small">Rows in File</div>
+    </div>
+  </div>
+  <div class="col-6 col-md-3">
+    <div class="card shadow-sm text-center py-3 {% if updated %}border-success{% endif %}">
+      <div class="fw-bold fs-3 {% if updated %}text-success{% else %}text-secondary{% endif %}">{{ updated|length }}</div>
+      <div class="text-muted small">Deliveries Recorded</div>
+    </div>
+  </div>
+  <div class="col-6 col-md-3">
+    <div class="card shadow-sm text-center py-3">
+      <div class="fw-bold fs-3 text-secondary">{{ already_confirmed|length }}</div>
+      <div class="text-muted small">Already Confirmed</div>
+    </div>
+  </div>
+  <div class="col-6 col-md-3">
+    <div class="card shadow-sm text-center py-3">
+      <div class="fw-bold fs-3 text-secondary">{{ not_found|length }}</div>
+      <div class="text-muted small">No Match Found</div>
+    </div>
+  </div>
+</div>
+
+{% if tracking_col %}
+<p class="text-muted small mb-4">Tracking number column detected: <code>{{ tracking_col }}</code></p>
+{% endif %}
+
+{# ── Updated ── #}
+{% if updated %}
+<div class="card shadow-sm mb-4 border-success">
+  <div class="card-header bg-success text-white fw-semibold py-2">
+    <i class="bi bi-check-circle-fill me-1"></i> Delivery Confirmed — {{ updated|length }} Letter{{ 's' if updated|length != 1 }}
+  </div>
+  <div class="card-body p-0">
+    <table class="table table-hover align-middle mb-0">
+      <thead class="table-light">
+        <tr>
+          <th>Vehicle</th>
+          <th>Letter</th>
+          <th>Tracking #</th>
+          <th>Delivered</th>
+          <th>UPS Status</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for row, letter in updated %}
+        <tr>
+          <td>
+            <a href="{{ url_for('vehicles_detail', vehicle_id=letter.vehicle_id) }}" class="fw-semibold row-link">
+              {{ letter.vehicle.display_name }}
+            </a>
+          </td>
+          <td>{{ letter.label }}</td>
+          <td class="font-monospace small">{{ row.raw_tracking }}</td>
+          <td class="text-success fw-semibold">{{ row.delivered_date|mdY if row.delivered_date else 'Today' }}</td>
+          <td class="text-muted small">{{ row.raw_status }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endif %}
+
+{# ── Not delivered yet ── #}
+{% if not_delivered %}
+<div class="card shadow-sm mb-4">
+  <div class="card-header fw-semibold py-2">
+    <i class="bi bi-hourglass-split me-1 text-warning"></i>
+    In Transit / Not Delivered — {{ not_delivered|length }}
+  </div>
+  <div class="card-body p-0">
+    <table class="table table-hover align-middle mb-0">
+      <thead class="table-light">
+        <tr><th>Vehicle</th><th>Letter</th><th>Tracking #</th><th>Status</th></tr>
+      </thead>
+      <tbody>
+        {% for row, letter in not_delivered %}
+        <tr>
+          <td>
+            <a href="{{ url_for('vehicles_detail', vehicle_id=letter.vehicle_id) }}" class="fw-semibold row-link">
+              {{ letter.vehicle.display_name }}
+            </a>
+          </td>
+          <td>{{ letter.label }}</td>
+          <td class="font-monospace small">{{ row.raw_tracking }}</td>
+          <td class="text-muted small">{{ row.raw_status or 'No status' }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endif %}
+
+{# ── Already confirmed ── #}
+{% if already_confirmed %}
+<div class="card shadow-sm mb-4">
+  <div class="card-header fw-semibold py-2 text-muted">
+    <i class="bi bi-check2 me-1"></i>
+    Already Confirmed — {{ already_confirmed|length }} (skipped)
+  </div>
+  <div class="card-body p-0">
+    <table class="table table-hover align-middle mb-0">
+      <thead class="table-light">
+        <tr><th>Vehicle</th><th>Letter</th><th>Tracking #</th><th>Previously Confirmed</th></tr>
+      </thead>
+      <tbody>
+        {% for row, letter in already_confirmed %}
+        <tr>
+          <td>
+            <a href="{{ url_for('vehicles_detail', vehicle_id=letter.vehicle_id) }}" class="row-link text-muted">
+              {{ letter.vehicle.display_name }}
+            </a>
+          </td>
+          <td class="text-muted">{{ letter.label }}</td>
+          <td class="font-monospace small text-muted">{{ row.raw_tracking }}</td>
+          <td class="text-muted">{{ letter.delivery_confirmed_date|mdY }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endif %}
+
+{# ── Not matched ── #}
+{% if not_found %}
+<div class="card shadow-sm mb-4">
+  <div class="card-header fw-semibold py-2 text-muted">
+    <i class="bi bi-question-circle me-1"></i>
+    No Match Found — {{ not_found|length }} Tracking Number{{ 's' if not_found|length != 1 }}
+    <small class="fw-normal ms-2">(tracking numbers in file not linked to any letter)</small>
+  </div>
+  <div class="card-body p-0">
+    <table class="table align-middle mb-0">
+      <thead class="table-light">
+        <tr><th>Tracking #</th><th>Status</th></tr>
+      </thead>
+      <tbody>
+        {% for row in not_found %}
+        <tr>
+          <td class="font-monospace small text-muted">{{ row.raw_tracking }}</td>
+          <td class="text-muted small">{{ row.raw_status or '—' }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endif %}
+
+<div class="d-flex gap-2 mt-2">
+  <a href="{{ url_for('import_quantum_view') }}" class="btn btn-outline-secondary">
+    <i class="bi bi-cloud-upload"></i> Import Another File
+  </a>
+  <a href="{{ url_for('dashboard') }}" class="btn btn-primary">
+    <i class="bi bi-house-door"></i> Back to Dashboard
+  </a>
+</div>
+{% endblock %}

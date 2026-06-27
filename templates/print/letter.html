@@ -1,0 +1,232 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>{{ letter.label }} — {{ vehicle.display_name }}</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: "Times New Roman", Times, serif;
+      font-size: 12pt;
+      color: #000;
+      padding: 1in;
+      max-width: 8.5in;
+      margin: 0 auto;
+      line-height: 1.5;
+    }
+    .no-print { margin-bottom: 24px; font-family: Arial, sans-serif; font-size: 11pt; }
+    .disclaimer {
+      background: #fff3cd; border: 1px solid #ffc107;
+      padding: 8px 12px; font-size: 10pt;
+      font-family: Arial, sans-serif; margin-bottom: 20px;
+    }
+    .letterhead { margin-bottom: 32px; }
+    .letterhead .company { font-size: 16pt; font-weight: bold; }
+    .letterhead .address { font-size: 10pt; color: #333; margin-top: 2px; }
+    .letter-date { margin-bottom: 24px; }
+    .via-certified {
+      font-weight: bold; text-transform: uppercase;
+      font-size: 10pt; margin-bottom: 20px;
+      letter-spacing: .05em;
+    }
+    .addressee { margin-bottom: 28px; }
+    .re-line { margin-bottom: 24px; }
+    .re-line strong { display: inline-block; min-width: 80px; }
+    .body-text { margin-bottom: 16px; text-align: justify; }
+    .vehicle-box {
+      border: 1px solid #999; padding: 12px 16px; margin: 20px 0;
+      background: #fafafa;
+    }
+    .vehicle-box table { width: 100%; border-collapse: collapse; font-size: 11pt; }
+    .vehicle-box td { padding: 2px 8px 2px 0; vertical-align: top; }
+    .vehicle-box td:first-child { font-weight: bold; width: 140px; color: #333; }
+    .signature-block { margin-top: 48px; }
+    .signature-line { border-bottom: 1px solid #000; width: 280px; margin-top: 40px; }
+    .second-notice {
+      text-align: center; font-size: 14pt; font-weight: bold;
+      text-transform: uppercase; letter-spacing: .1em;
+      border: 2px solid #000; padding: 8px; margin-bottom: 24px;
+    }
+    @media print {
+      .no-print, .disclaimer { display: none; }
+      body { padding: .75in; }
+    }
+  </style>
+</head>
+<body>
+
+<div class="no-print">
+  <button onclick="window.print()" style="padding:6px 18px; cursor:pointer; margin-right:12px;">
+    🖨 Print Letter
+  </button>
+  <a href="{{ url_for('vehicles_detail', vehicle_id=vehicle.id) }}">← Back to Vehicle</a>
+</div>
+
+<div class="disclaimer">
+  <strong>DRAFT — For office use only.</strong>
+  Have your attorney verify this language meets current Ohio statutory requirements
+  before sending to vehicle owners. Ohio statutes governing this notice:
+  {% if vehicle.impound_type == 'PPI' %}ORC §4513.62{% else %}ORC §4513.61{% endif %}.
+</div>
+
+{# ── Letterhead ── #}
+<div class="letterhead">
+  <div class="company">{{ company_name }}</div>
+  <div class="address">{{ company_address }}</div>
+  <div class="address">Tel: {{ company_phone }}</div>
+</div>
+
+{# ── Date ── #}
+<div class="letter-date">{{ today|human_date }}</div>
+
+{# ── Via Certified Mail ── #}
+<div class="via-certified">
+  Via Certified Mail
+  {% if letter.tracking_number %}— Tracking # {{ letter.tracking_number }}{% endif %}
+  — Return Receipt Requested
+</div>
+
+{# ── Addressee ── #}
+<div class="addressee">
+  {% if vehicle.owner_name %}
+  {{ vehicle.owner_name }}<br>
+  {% else %}
+  [REGISTERED OWNER NAME]<br>
+  {% endif %}
+  {% if vehicle.owner_address %}
+  {{ vehicle.owner_address | replace('\n', '<br>') | safe }}
+  {% else %}
+  [OWNER ADDRESS — obtain from BMV registration records]
+  {% endif %}
+</div>
+
+{# ── RE Line ── #}
+<div class="re-line">
+  <strong>Re:</strong>
+  Notice of Impounded/Abandoned Vehicle —
+  {{ vehicle.display_name }}
+  {% if vehicle.plate %}({{ vehicle.plate }}, {{ vehicle.plate_state }}){% endif %}
+  {% if vehicle.vin %}&bull; VIN: {{ vehicle.vin }}{% endif %}
+</div>
+
+{# ── Second notice banner (Letter 2 only) ── #}
+{% if letter.letter_number == 2 %}
+<div class="second-notice">Second and Final Notice</div>
+{% endif %}
+
+{# ── Salutation ── #}
+<p class="body-text">
+  Dear {% if vehicle.owner_name %}{{ vehicle.owner_name }}{% else %}Vehicle Owner{% endif %}:
+</p>
+
+{# ── Body copy ── #}
+{% if vehicle.impound_type == 'PPI' and letter.letter_number == 1 %}
+
+<p class="body-text">
+  This letter serves as your official notice that the motor vehicle described below
+  was removed from private property on <strong>{{ vehicle.impound_date|mdY }}</strong>
+  pursuant to Ohio Revised Code §4513.62 and is currently being stored at:
+</p>
+<p class="body-text" style="margin-left:24px;">
+  <strong>{{ storage_address }}</strong>
+</p>
+<p class="body-text">
+  To reclaim your vehicle, you must contact us at <strong>{{ company_phone }}</strong>
+  and pay all applicable towing and storage fees.
+  <strong>Storage fees accrue daily and must be paid in full prior to release.</strong>
+</p>
+<p class="body-text">
+  If this vehicle is not claimed within <strong>thirty (30) days</strong> of the date of this
+  notice, it will be deemed abandoned and {{ company_name }} will initiate proceedings
+  to obtain an Ohio certificate of title by abandonment pursuant to ORC §4513.62.
+  You will forfeit all ownership rights to this vehicle.
+</p>
+
+{% elif vehicle.impound_type == 'PPI' and letter.letter_number == 2 %}
+
+<p class="body-text">
+  This is your <strong>SECOND AND FINAL NOTICE</strong>. The motor vehicle described below,
+  previously noticed by certified letter dated
+  {% if vehicle.letter1 and vehicle.letter1.sent_date %}
+  <strong>{{ vehicle.letter1.sent_date|mdY }}</strong>,
+  {% endif %}
+  remains unclaimed at:
+</p>
+<p class="body-text" style="margin-left:24px;">
+  <strong>{{ storage_address }}</strong>
+</p>
+<p class="body-text">
+  You are hereby notified that {{ company_name }} will proceed with the title by
+  abandonment process pursuant to Ohio Revised Code §4513.62.
+  <strong>You have thirty (30) days from the date of this notice to claim your vehicle
+  before title proceedings are finalized.</strong>
+</p>
+<p class="body-text">
+  To claim your vehicle, contact us immediately at <strong>{{ company_phone }}</strong>.
+  All towing and storage charges must be paid in full at time of release.
+  Failure to respond will result in permanent loss of your ownership rights.
+</p>
+
+{% elif vehicle.impound_type == 'POLICE' %}
+
+<p class="body-text">
+  This letter serves as your official notice pursuant to Ohio Revised Code §4513.61
+  that the motor vehicle described below was impounded on
+  <strong>{{ vehicle.impound_date|mdY }}</strong>
+  {% if vehicle.police_report_number %}
+  (Police Report No. <strong>{{ vehicle.police_report_number }}</strong>)
+  {% endif %}
+  and is currently being stored at:
+</p>
+<p class="body-text" style="margin-left:24px;">
+  <strong>{{ storage_address }}</strong>
+</p>
+<p class="body-text">
+  To reclaim your vehicle, you must contact us at <strong>{{ company_phone }}</strong>
+  and pay all applicable towing and storage fees.
+</p>
+<p class="body-text">
+  If this vehicle is not claimed within <strong>thirty (30) days</strong> of the date of
+  this notice, it will be deemed abandoned and title by abandonment proceedings will be
+  initiated pursuant to ORC §4513.61. You will forfeit all ownership rights to this vehicle.
+</p>
+
+{% endif %}
+
+{# ── Vehicle description box ── #}
+<div class="vehicle-box">
+  <table>
+    <tr>
+      <td>Year / Make / Model:</td>
+      <td>
+        {% set ymm = [] %}
+        {% if vehicle.year %}{% set _ = ymm.append(vehicle.year|string) %}{% endif %}
+        {% if vehicle.make %}{% set _ = ymm.append(vehicle.make) %}{% endif %}
+        {% if vehicle.model_name %}{% set _ = ymm.append(vehicle.model_name) %}{% endif %}
+        {{ ymm|join(' ') or '—' }}
+      </td>
+    </tr>
+    <tr><td>Color:</td><td>{{ vehicle.color or '—' }}</td></tr>
+    <tr><td>VIN:</td><td>{{ vehicle.vin or '—' }}</td></tr>
+    <tr><td>License Plate:</td>
+        <td>{{ vehicle.plate or '—' }}{% if vehicle.plate %} ({{ vehicle.plate_state }}){% endif %}</td>
+    </tr>
+    <tr><td>Impound Date:</td><td>{{ vehicle.impound_date|mdY }}</td></tr>
+    <tr><td>Storage Location:</td><td>{{ vehicle.storage_location or storage_address }}</td></tr>
+  </table>
+</div>
+
+<p class="body-text">
+  If you have any questions regarding this notice, please contact our office
+  at <strong>{{ company_phone }}</strong> during normal business hours.
+</p>
+<p class="body-text">Sincerely,</p>
+
+<div class="signature-block">
+  <div class="signature-line"></div>
+  <div style="margin-top:6px;">{{ company_name }}</div>
+  <div style="font-size:10pt; color:#555;">Authorized Representative</div>
+</div>
+
+</body>
+</html>

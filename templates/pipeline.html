@@ -1,0 +1,179 @@
+{% extends 'base.html' %}
+{% block title %}30-Day Pipeline — Impound Manager{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-4">
+  <div>
+    <h2 class="h4 fw-bold mb-1">30-Day Pipeline</h2>
+    <p class="text-muted mb-0">{{ today|human_date }} through {{ horizon|mdY }}</p>
+  </div>
+  <a href="{{ url_for('print_post_office') }}" class="btn btn-outline-secondary" target="_blank">
+    <i class="bi bi-printer"></i> Print Post Office List
+  </a>
+</div>
+
+{# ── Already eligible now ── #}
+{% if eligible_now %}
+<div class="card shadow-sm mb-4 border-success border-2">
+  <div class="card-header bg-success text-white fw-semibold py-2">
+    <i class="bi bi-file-earmark-check-fill me-1"></i>
+    Ready to File Now — {{ eligible_now|length }} Vehicle{{ 's' if eligible_now|length != 1 }}
+  </div>
+  <div class="card-body p-0">
+    <table class="table table-hover align-middle mb-0">
+      <thead class="table-light">
+        <tr>
+          <th>Vehicle</th>
+          <th>Type</th>
+          <th>Eligible Since</th>
+          <th>Days in Storage</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for v in eligible_now %}
+        <tr>
+          <td>
+            <a href="{{ url_for('vehicles_detail', vehicle_id=v.id) }}" class="fw-semibold row-link">
+              {{ v.display_name }}
+            </a>
+            {% if v.plate %}<br><small class="text-muted">{{ v.plate }} &bull; {{ v.plate_state }}</small>{% endif %}
+          </td>
+          <td><span class="badge bg-secondary section-badge">{{ v.impound_type }}</span></td>
+          <td class="text-success fw-semibold">{{ v.title_eligible_date|mdY }}</td>
+          <td>{{ v.days_in_storage }} days</td>
+          <td class="text-end pe-3">
+            <a href="{{ url_for('file_title', vehicle_id=v.id) }}" class="btn btn-success btn-sm">
+              <i class="bi bi-file-earmark-arrow-up"></i> File Title
+            </a>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endif %}
+
+{# ── Letters due in next 30 days ── #}
+{% if grouped_letters %}
+<div class="mb-3">
+  <h5 class="fw-semibold text-primary">
+    <i class="bi bi-envelope me-1"></i> Upcoming Letters
+  </h5>
+</div>
+
+{% for week_label, letters in grouped_letters %}
+<div class="card shadow-sm mb-3">
+  <div class="card-header fw-semibold py-2 bg-light">
+    <i class="bi bi-calendar-week me-1 text-primary"></i> {{ week_label }}
+    <span class="badge bg-primary ms-2">{{ letters|length }}</span>
+  </div>
+  <div class="card-body p-0">
+    <table class="table table-hover align-middle mb-0">
+      <thead class="table-light">
+        <tr>
+          <th>Vehicle</th>
+          <th>Type</th>
+          <th>Letter</th>
+          <th>Due Date</th>
+          <th>Days Until Due</th>
+          <th>Owner</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for letter in letters %}
+        <tr {% if letter.due_date < today %}class="table-danger"{% elif letter.due_date == today %}class="table-warning"{% endif %}>
+          <td>
+            <a href="{{ url_for('vehicles_detail', vehicle_id=letter.vehicle_id) }}" class="fw-semibold row-link">
+              {{ letter.vehicle.display_name }}
+            </a>
+            {% if letter.vehicle.plate %}<br><small class="text-muted">{{ letter.vehicle.plate }}</small>{% endif %}
+          </td>
+          <td><span class="badge bg-secondary section-badge">{{ letter.vehicle.impound_type }}</span></td>
+          <td>{{ letter.label }}</td>
+          <td class="{% if letter.due_date < today %}text-danger fw-semibold{% elif letter.due_date == today %}text-warning fw-semibold{% endif %}">
+            {{ letter.due_date|mdY }}
+            {% if letter.due_date < today %}
+              <span class="badge bg-danger ms-1">{{ letter.days_overdue }}d overdue</span>
+            {% elif letter.due_date == today %}
+              <span class="badge bg-warning text-dark ms-1">Today</span>
+            {% endif %}
+          </td>
+          <td>
+            {% if letter.due_date < today %}
+              <span class="text-danger">{{ letter.days_overdue }} days ago</span>
+            {% elif letter.due_date == today %}
+              <span class="text-warning fw-semibold">Today</span>
+            {% else %}
+              in {{ letter.days_until_due }} day{{ 's' if letter.days_until_due != 1 }}
+            {% endif %}
+          </td>
+          <td class="text-muted small">{{ letter.vehicle.owner_name or '—' }}</td>
+          <td class="text-end pe-3">
+            <a href="{{ url_for('letters_mark_sent', letter_id=letter.id) }}"
+               class="btn btn-sm {% if letter.due_date <= today %}btn-danger{% else %}btn-outline-primary{% endif %}">
+              <i class="bi bi-send"></i> Mark Sent
+            </a>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endfor %}
+{% endif %}
+
+{# ── Vehicles becoming eligible ── #}
+{% if upcoming_eligibility %}
+<div class="mb-3 mt-4">
+  <h5 class="fw-semibold text-success">
+    <i class="bi bi-hourglass-split me-1"></i> Becoming Title-Eligible This Month
+  </h5>
+</div>
+<div class="card shadow-sm mb-4">
+  <div class="card-body p-0">
+    <table class="table table-hover align-middle mb-0">
+      <thead class="table-light">
+        <tr>
+          <th>Vehicle</th>
+          <th>Type</th>
+          <th>Impound Date</th>
+          <th>Eligible On</th>
+          <th>Days Until Eligible</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for v in upcoming_eligibility %}
+        <tr>
+          <td>
+            <a href="{{ url_for('vehicles_detail', vehicle_id=v.id) }}" class="fw-semibold row-link">
+              {{ v.display_name }}
+            </a>
+            {% if v.plate %}<br><small class="text-muted">{{ v.plate }}</small>{% endif %}
+          </td>
+          <td><span class="badge bg-secondary section-badge">{{ v.impound_type }}</span></td>
+          <td>{{ v.impound_date|mdY }}</td>
+          <td class="text-success fw-semibold">{{ v.title_eligible_date|mdY }}</td>
+          <td>
+            <span class="badge bg-success">
+              in {{ (v.title_eligible_date - today).days }} days
+            </span>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endif %}
+
+{% if not grouped_letters and not eligible_now and not upcoming_eligibility %}
+<div class="text-center text-muted py-5">
+  <i class="bi bi-check2-circle display-4 d-block mb-3 text-success"></i>
+  <p>Nothing due or becoming eligible in the next 30 days.</p>
+</div>
+{% endif %}
+{% endblock %}

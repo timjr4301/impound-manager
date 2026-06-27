@@ -1,0 +1,92 @@
+{% extends 'base.html' %}
+{% block title %}Search — Impound Manager{% endblock %}
+
+{% block content %}
+<div class="mb-4">
+  <h2 class="h4 fw-bold mb-1">Search Results</h2>
+  {% if q %}
+  <p class="text-muted mb-0">
+    {{ results|length }} result{{ 's' if results|length != 1 }} for <strong>"{{ q }}"</strong>
+  </p>
+  {% endif %}
+</div>
+
+{% if q and not results %}
+<div class="alert alert-secondary">
+  No vehicles found matching <strong>"{{ q }}"</strong>.
+  Try a license plate, VIN, owner name, make, or police report number.
+</div>
+{% endif %}
+
+{% if results %}
+<div class="card shadow-sm">
+  <div class="card-body p-0">
+    <table class="table table-hover align-middle mb-0">
+      <thead class="table-light">
+        <tr>
+          <th>Vehicle</th>
+          <th>Plate</th>
+          <th>Owner</th>
+          <th>Type</th>
+          <th>Impound Date</th>
+          <th>Status</th>
+          <th>Next Action</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for v in results %}
+        <tr>
+          <td>
+            <a href="{{ url_for('vehicles_detail', vehicle_id=v.id) }}" class="fw-semibold row-link">
+              {{ v.display_name }}
+            </a>
+            {% if v.vin %}
+            <br><small class="text-muted font-monospace">{{ v.vin }}</small>
+            {% endif %}
+          </td>
+          <td>
+            {% if v.plate %}{{ v.plate }} <small class="text-muted">{{ v.plate_state }}</small>{% else %}—{% endif %}
+          </td>
+          <td class="text-muted small">{{ v.owner_name or '—' }}</td>
+          <td><span class="badge bg-secondary section-badge">{{ v.impound_type }}</span></td>
+          <td>{{ v.impound_date|mdY }}</td>
+          <td>
+            <span class="badge
+              {% if v.status == 'ACTIVE' %}bg-success
+              {% elif v.status == 'TITLE_FILED' %}bg-primary
+              {% else %}bg-secondary{% endif %}">
+              {{ v.status.replace('_', ' ') }}
+            </span>
+          </td>
+          <td class="small">
+            {% if v.next_action_label %}
+              {% if 'OVERDUE' in v.next_action_label %}
+                <span class="text-danger fw-semibold">{{ v.next_action_label }}</span>
+              {% elif 'Ready' in v.next_action_label %}
+                <span class="text-success fw-semibold">{{ v.next_action_label }}</span>
+              {% else %}
+                <span class="text-muted">{{ v.next_action_label }}</span>
+              {% endif %}
+            {% else %}
+              <span class="text-muted">{{ v.status.replace('_',' ') }}</span>
+            {% endif %}
+          </td>
+          <td class="text-end pe-3">
+            <a href="{{ url_for('vehicles_detail', vehicle_id=v.id) }}" class="btn btn-sm btn-outline-secondary">View</a>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endif %}
+
+{% if not q %}
+<div class="text-center text-muted py-5">
+  <i class="bi bi-search display-4 d-block mb-3"></i>
+  <p>Enter a license plate, VIN, owner name, make, or police report number above.</p>
+</div>
+{% endif %}
+{% endblock %}

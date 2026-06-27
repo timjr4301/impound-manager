@@ -1,0 +1,187 @@
+{% extends 'base.html' %}
+{% block title %}Add New Impound — Impound Manager{% endblock %}
+
+{% block content %}
+<div class="row justify-content-center">
+  <div class="col-lg-8">
+    <div class="d-flex align-items-center mb-4">
+      <a href="{{ url_for('dashboard') }}" class="btn btn-outline-secondary btn-sm me-3">
+        <i class="bi bi-arrow-left"></i>
+      </a>
+      <h2 class="h4 mb-0 fw-bold">Add New Impound</h2>
+    </div>
+
+    <form method="POST" action="{{ url_for('vehicles_new') }}">
+
+      {# ── Impound Details ── #}
+      <div class="card shadow-sm mb-4">
+        <div class="card-header fw-semibold">Impound Details</div>
+        <div class="card-body">
+          <div class="row g-3">
+            <div class="col-sm-6">
+              <label class="form-label fw-semibold">Impound Type <span class="text-danger">*</span></label>
+              <div class="d-flex gap-3 mt-1">
+                <div class="form-check">
+                  <input class="form-check-input" type="radio" name="impound_type" id="type_ppi" value="PPI"
+                    {% if form.get('impound_type','PPI') == 'PPI' %}checked{% endif %} required>
+                  <label class="form-check-label" for="type_ppi">
+                    <strong>PPI</strong> — Private Property
+                  </label>
+                </div>
+                <div class="form-check">
+                  <input class="form-check-input" type="radio" name="impound_type" id="type_police" value="POLICE"
+                    {% if form.get('impound_type') == 'POLICE' %}checked{% endif %}>
+                  <label class="form-check-label" for="type_police">
+                    <strong>Police</strong> — Law Enforcement
+                  </label>
+                </div>
+              </div>
+            </div>
+            <div class="col-sm-6">
+              <label for="impound_date" class="form-label fw-semibold">Impound Date <span class="text-danger">*</span></label>
+              <input type="date" class="form-control" id="impound_date" name="impound_date"
+                value="{{ form.get('impound_date', today.isoformat()) }}" required>
+            </div>
+            <div class="col-sm-6">
+              <label for="storage_location" class="form-label fw-semibold">Storage Location</label>
+              <input type="text" class="form-control" id="storage_location" name="storage_location"
+                value="{{ form.get('storage_location','') }}" placeholder="e.g. Row C, Spot 14">
+            </div>
+            <div class="col-sm-6" id="police_report_field">
+              <label for="police_report_number" class="form-label fw-semibold">Police Report #</label>
+              <input type="text" class="form-control" id="police_report_number" name="police_report_number"
+                value="{{ form.get('police_report_number','') }}" placeholder="Columbus PD case number">
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {# ── Vehicle Info ── #}
+      <div class="card shadow-sm mb-4">
+        <div class="card-header fw-semibold">Vehicle Information</div>
+        <div class="card-body">
+          <div class="row g-3">
+            <div class="col-sm-6">
+              <label for="plate" class="form-label fw-semibold">License Plate</label>
+              <div class="input-group">
+                <input type="text" class="form-control" id="plate" name="plate"
+                  value="{{ form.get('plate','') }}" placeholder="ABC1234" style="text-transform:uppercase;">
+                <input type="text" class="form-control" id="plate_state" name="plate_state"
+                  value="{{ form.get('plate_state','OH') }}" placeholder="OH" maxlength="2"
+                  style="max-width:60px; text-transform:uppercase;">
+              </div>
+            </div>
+            <div class="col-sm-6">
+              <label for="vin" class="form-label fw-semibold">VIN</label>
+              <input type="text" class="form-control" id="vin" name="vin"
+                value="{{ form.get('vin','') }}" placeholder="17-character VIN" maxlength="17"
+                style="text-transform:uppercase;">
+            </div>
+            <div class="col-sm-3">
+              <label for="year" class="form-label fw-semibold">Year</label>
+              <input type="number" class="form-control" id="year" name="year"
+                value="{{ form.get('year','') }}" placeholder="2018" min="1950" max="2030">
+            </div>
+            <div class="col-sm-4">
+              <label for="make" class="form-label fw-semibold">Make</label>
+              <input type="text" class="form-control" id="make" name="make"
+                value="{{ form.get('make','') }}" placeholder="Toyota">
+            </div>
+            <div class="col-sm-5">
+              <label for="model_name" class="form-label fw-semibold">Model</label>
+              <input type="text" class="form-control" id="model_name" name="model_name"
+                value="{{ form.get('model_name','') }}" placeholder="Camry">
+            </div>
+            <div class="col-sm-4">
+              <label for="color" class="form-label fw-semibold">Color</label>
+              <input type="text" class="form-control" id="color" name="color"
+                value="{{ form.get('color','') }}" placeholder="Silver">
+            </div>
+            <div class="col-12">
+              <label for="notes" class="form-label fw-semibold">Notes</label>
+              <textarea class="form-control" id="notes" name="notes" rows="2"
+                placeholder="Any additional notes...">{{ form.get('notes','') }}</textarea>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {# ── Owner / Addressee ── #}
+      <div class="card shadow-sm mb-4">
+        <div class="card-header fw-semibold">Last Registered Owner <small class="fw-normal text-muted">(for certified letter addressing)</small></div>
+        <div class="card-body">
+          <div class="row g-3">
+            <div class="col-12">
+              <label for="owner_name" class="form-label fw-semibold">Owner Name</label>
+              <input type="text" class="form-control" id="owner_name" name="owner_name"
+                value="{{ form.get('owner_name','') }}" placeholder="Jane Smith">
+            </div>
+            <div class="col-12">
+              <label for="owner_address" class="form-label fw-semibold">Owner Address</label>
+              <textarea class="form-control" id="owner_address" name="owner_address" rows="3"
+                placeholder="123 Main St&#10;Columbus, OH 43215">{{ form.get('owner_address','') }}</textarea>
+              <div class="form-text">Full mailing address — will appear on the printed certified letter.</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {# ── Timeline Preview ── #}
+      <div class="card shadow-sm mb-4 bg-light border-0" id="timeline_preview">
+        <div class="card-body">
+          <h6 class="fw-semibold mb-2"><i class="bi bi-calendar3 me-1"></i> Timeline Preview</h6>
+          <div id="timeline_text" class="text-muted small">Select impound type and date above to see the letter schedule.</div>
+        </div>
+      </div>
+
+      <div class="d-flex gap-2">
+        <button type="submit" class="btn btn-success px-4">
+          <i class="bi bi-plus-lg"></i> Add Impound
+        </button>
+        <a href="{{ url_for('dashboard') }}" class="btn btn-outline-secondary">Cancel</a>
+      </div>
+    </form>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+  function updateTimeline() {
+    const dateVal = document.getElementById('impound_date').value;
+    const type = document.querySelector('input[name="impound_type"]:checked')?.value;
+    const el = document.getElementById('timeline_text');
+
+    if (!dateVal || !type) {
+      el.textContent = 'Select impound type and date above to see the letter schedule.';
+      return;
+    }
+
+    const d = new Date(dateVal + 'T12:00:00');
+    const fmt = (dt) => (dt.getMonth()+1).toString().padStart(2,'0') + '/' +
+                         dt.getDate().toString().padStart(2,'0') + '/' + dt.getFullYear();
+    const addDays = (dt, n) => { const r = new Date(dt); r.setDate(r.getDate()+n); return r; };
+
+    let html = '';
+    if (type === 'PPI') {
+      const l1 = addDays(d, 5);
+      const l2 = addDays(l1, 30);
+      const titleMin = addDays(d, 60);
+      const titleActual = titleMin > addDays(l2, 30) ? titleMin : addDays(l2, 30);
+      html = `<strong>Letter 1</strong> due by <strong>${fmt(l1)}</strong><br>` +
+             `<strong>Letter 2</strong> due ~${fmt(l2)} (30 days after Letter 1 is sent)<br>` +
+             `<strong>Earliest title filing</strong>: ${fmt(titleActual)} (60 days from impound AND 30 days after Letter 2)`;
+    } else {
+      const l1 = addDays(d, 10);
+      const title = addDays(l1, 30);
+      html = `<strong>Notification Letter</strong> due by <strong>${fmt(l1)}</strong><br>` +
+             `<strong>Earliest title filing</strong>: ~${fmt(title)} (30 days after notification sent)`;
+    }
+    el.innerHTML = html;
+  }
+
+  document.querySelectorAll('input[name="impound_type"]').forEach(r => r.addEventListener('change', updateTimeline));
+  document.getElementById('impound_date').addEventListener('change', updateTimeline);
+  updateTimeline();
+</script>
+{% endblock %}

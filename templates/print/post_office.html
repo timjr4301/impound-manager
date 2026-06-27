@@ -1,0 +1,202 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Post Office Run — {{ today|mdY }}</title>
+  <style>
+    * { box-sizing: border-box; }
+    body {
+      font-family: Arial, sans-serif;
+      font-size: 13px;
+      color: #000;
+      margin: 0;
+      padding: 20px;
+    }
+    h1 { font-size: 20px; margin: 0 0 4px; }
+    .subtitle { color: #555; font-size: 12px; margin-bottom: 20px; }
+    .no-print { margin-bottom: 16px; }
+    section { margin-bottom: 28px; }
+    h2 {
+      font-size: 13px;
+      text-transform: uppercase;
+      letter-spacing: .06em;
+      border-bottom: 2px solid #000;
+      padding-bottom: 4px;
+      margin-bottom: 10px;
+    }
+    h2.overdue { border-color: #c00; color: #c00; }
+    h2.today { border-color: #b35900; color: #b35900; }
+    h2.week { border-color: #555; color: #555; }
+    table { width: 100%; border-collapse: collapse; }
+    th {
+      font-size: 10px; text-transform: uppercase; letter-spacing: .05em;
+      text-align: left; padding: 4px 6px; border-bottom: 1px solid #ccc;
+      background: #f5f5f5;
+    }
+    td { padding: 6px 6px; border-bottom: 1px solid #eee; vertical-align: top; }
+    tr:last-child td { border-bottom: none; }
+    .check { width: 20px; text-align: center; font-size: 16px; }
+    .vehicle { font-weight: bold; }
+    .sub { color: #555; font-size: 11px; }
+    .badge {
+      display: inline-block; padding: 1px 6px; border-radius: 3px;
+      font-size: 10px; font-weight: bold; text-transform: uppercase;
+    }
+    .badge-ppi { background: #e8e8e8; }
+    .badge-police { background: #d0e8ff; }
+    .overdue-days { color: #c00; font-weight: bold; }
+    .signature-row td { padding-top: 20px; border: none; color: #555; font-size: 11px; }
+    @media print {
+      .no-print { display: none; }
+      body { padding: 12px; }
+    }
+  </style>
+</head>
+<body>
+
+<div class="no-print">
+  <button onclick="window.print()" style="padding:8px 20px; font-size:14px; cursor:pointer;">
+    🖨 Print This Page
+  </button>
+  &nbsp;
+  <a href="/" style="font-size:13px;">← Back to Dashboard</a>
+</div>
+
+<h1>Post Office Run Checklist</h1>
+<div class="subtitle">{{ today|human_date }} &bull; Impound Manager &bull; Columbus Towing</div>
+
+{% if not overdue and not due_today and not due_this_week %}
+<p>Nothing to send today.</p>
+{% endif %}
+
+{% if overdue %}
+<section>
+  <h2 class="overdue">⚠ Overdue — Send Immediately ({{ overdue|length }})</h2>
+  <table>
+    <thead>
+      <tr>
+        <th class="check">✓</th>
+        <th>Vehicle</th>
+        <th>Plate / VIN</th>
+        <th>Letter</th>
+        <th>Was Due</th>
+        <th>Days Over</th>
+        <th>Tracking #</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for letter in overdue %}
+      <tr>
+        <td class="check">☐</td>
+        <td>
+          <span class="vehicle">{{ letter.vehicle.display_name }}</span><br>
+          <span class="sub">{{ letter.vehicle.storage_location or '' }}</span>
+        </td>
+        <td class="sub">
+          {% if letter.vehicle.plate %}{{ letter.vehicle.plate }} ({{ letter.vehicle.plate_state }}){% endif %}
+          {% if letter.vehicle.vin %}<br>{{ letter.vehicle.vin }}{% endif %}
+        </td>
+        <td>
+          {{ letter.label }}<br>
+          <span class="badge badge-{{ letter.vehicle.impound_type|lower }}">{{ letter.vehicle.impound_type }}</span>
+        </td>
+        <td class="overdue-days">{{ letter.due_date|mdY }}</td>
+        <td class="overdue-days">{{ letter.days_overdue }}d</td>
+        <td style="min-width:140px; border-bottom:1px solid #aaa;">&nbsp;</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</section>
+{% endif %}
+
+{% if due_today %}
+<section>
+  <h2 class="today">Due Today — Send Now ({{ due_today|length }})</h2>
+  <table>
+    <thead>
+      <tr>
+        <th class="check">✓</th>
+        <th>Vehicle</th>
+        <th>Plate / VIN</th>
+        <th>Letter</th>
+        <th>Impound Date</th>
+        <th>Tracking #</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for letter in due_today %}
+      <tr>
+        <td class="check">☐</td>
+        <td>
+          <span class="vehicle">{{ letter.vehicle.display_name }}</span><br>
+          <span class="sub">{{ letter.vehicle.storage_location or '' }}</span>
+        </td>
+        <td class="sub">
+          {% if letter.vehicle.plate %}{{ letter.vehicle.plate }} ({{ letter.vehicle.plate_state }}){% endif %}
+          {% if letter.vehicle.vin %}<br>{{ letter.vehicle.vin }}{% endif %}
+        </td>
+        <td>
+          {{ letter.label }}<br>
+          <span class="badge badge-{{ letter.vehicle.impound_type|lower }}">{{ letter.vehicle.impound_type }}</span>
+        </td>
+        <td>{{ letter.vehicle.impound_date|mdY }}</td>
+        <td style="min-width:140px; border-bottom:1px solid #aaa;">&nbsp;</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</section>
+{% endif %}
+
+{% if due_this_week %}
+<section>
+  <h2 class="week">Coming Up This Week ({{ due_this_week|length }})</h2>
+  <table>
+    <thead>
+      <tr>
+        <th class="check">✓</th>
+        <th>Vehicle</th>
+        <th>Plate / VIN</th>
+        <th>Letter</th>
+        <th>Due Date</th>
+        <th>Days Until Due</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for letter in due_this_week %}
+      <tr>
+        <td class="check">☐</td>
+        <td>
+          <span class="vehicle">{{ letter.vehicle.display_name }}</span><br>
+          <span class="sub">{{ letter.vehicle.storage_location or '' }}</span>
+        </td>
+        <td class="sub">
+          {% if letter.vehicle.plate %}{{ letter.vehicle.plate }} ({{ letter.vehicle.plate_state }}){% endif %}
+          {% if letter.vehicle.vin %}<br>{{ letter.vehicle.vin }}{% endif %}
+        </td>
+        <td>
+          {{ letter.label }}<br>
+          <span class="badge badge-{{ letter.vehicle.impound_type|lower }}">{{ letter.vehicle.impound_type }}</span>
+        </td>
+        <td>{{ letter.due_date|mdY }}</td>
+        <td>in {{ letter.days_until_due }} day{{ 's' if letter.days_until_due != 1 }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</section>
+{% endif %}
+
+{% if overdue or due_today %}
+<table>
+  <tr class="signature-row">
+    <td width="35%">Prepared by: ________________________</td>
+    <td width="35%">Date mailed: ________________________</td>
+    <td width="30%">Post office receipt attached: ☐ Yes &nbsp; ☐ No</td>
+  </tr>
+</table>
+{% endif %}
+
+</body>
+</html>

@@ -1,0 +1,257 @@
+{% extends 'base.html' %}
+{% block title %}Morning Dashboard — Impound Manager{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-start mb-4">
+  <div>
+    <h1 class="h3 mb-1 fw-bold">Good morning, Heather!</h1>
+    <p class="text-muted mb-0">{{ today|human_date }}</p>
+  </div>
+  <div class="d-flex gap-2">
+    <a href="{{ url_for('print_post_office') }}" class="btn btn-outline-secondary" target="_blank">
+      <i class="bi bi-printer"></i> Print Post Office List
+    </a>
+    <a href="{{ url_for('vehicles_new') }}" class="btn btn-success">
+      <i class="bi bi-plus-lg"></i> New Impound
+    </a>
+  </div>
+</div>
+
+{# ── Stats Row ────────────────────────────────────────────────────────────── #}
+<div class="row g-3 mb-4">
+  <div class="col-6 col-md-3">
+    <div class="card stat-card shadow-sm h-100">
+      <div class="card-body text-center py-3">
+        <div class="stat-number text-secondary">{{ total_active }}</div>
+        <div class="text-muted small mt-1">Active Impounds</div>
+      </div>
+    </div>
+  </div>
+  <div class="col-6 col-md-3">
+    <div class="card stat-card shadow-sm h-100 {% if overdue %}border-danger{% endif %}">
+      <div class="card-body text-center py-3">
+        <div class="stat-number {% if overdue %}text-danger{% else %}text-secondary{% endif %}">
+          {{ overdue|length }}
+        </div>
+        <div class="text-muted small mt-1">Overdue Letters</div>
+      </div>
+    </div>
+  </div>
+  <div class="col-6 col-md-3">
+    <div class="card stat-card shadow-sm h-100 {% if due_today %}border-warning{% endif %}">
+      <div class="card-body text-center py-3">
+        <div class="stat-number {% if due_today %}text-warning{% else %}text-secondary{% endif %}">
+          {{ due_today|length }}
+        </div>
+        <div class="text-muted small mt-1">Due Today</div>
+      </div>
+    </div>
+  </div>
+  <div class="col-6 col-md-3">
+    <div class="card stat-card shadow-sm h-100 {% if title_eligible %}border-success{% endif %}">
+      <div class="card-body text-center py-3">
+        <div class="stat-number {% if title_eligible %}text-success{% else %}text-secondary{% endif %}">
+          {{ title_eligible|length }}
+        </div>
+        <div class="text-muted small mt-1">Ready to File</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+{% if not overdue and not due_today and not title_eligible %}
+<div class="alert alert-success d-flex align-items-center gap-2">
+  <i class="bi bi-check-circle-fill fs-5"></i>
+  <div><strong>You're all caught up!</strong> No letters are overdue or due today, and nothing is ready to file.</div>
+</div>
+{% endif %}
+
+{# ── Overdue ──────────────────────────────────────────────────────────────── #}
+{% if overdue %}
+<div class="card shadow-sm mb-4 border-danger border-2">
+  <div class="card-header bg-danger text-white py-3">
+    <h5 class="mb-0">
+      <i class="bi bi-exclamation-triangle-fill me-2"></i>
+      Overdue &mdash; {{ overdue|length }} Letter{{ 's' if overdue|length != 1 }}
+    </h5>
+  </div>
+  <div class="card-body p-0">
+    <table class="table table-hover align-middle mb-0">
+      <thead class="table-light">
+        <tr>
+          <th>Vehicle</th>
+          <th>Type</th>
+          <th>Letter</th>
+          <th>Was Due</th>
+          <th>Days Overdue</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for letter in overdue %}
+        <tr>
+          <td>
+            <a href="{{ url_for('vehicles_detail', vehicle_id=letter.vehicle_id) }}" class="fw-semibold row-link">
+              {{ letter.vehicle.display_name }}
+            </a>
+            {% if letter.vehicle.plate %}
+            <br><small class="text-muted">{{ letter.vehicle.plate }} &bull; {{ letter.vehicle.plate_state }}</small>
+            {% endif %}
+          </td>
+          <td>
+            <span class="badge bg-secondary section-badge">{{ letter.vehicle.impound_type }}</span>
+          </td>
+          <td>{{ letter.label }}</td>
+          <td class="text-danger fw-semibold">{{ letter.due_date|mdY }}</td>
+          <td>
+            <span class="badge bg-danger">{{ letter.days_overdue }} day{{ 's' if letter.days_overdue != 1 }}</span>
+          </td>
+          <td class="text-end pe-3">
+            <a href="{{ url_for('letters_mark_sent', letter_id=letter.id) }}" class="btn btn-danger btn-sm action-btn">
+              <i class="bi bi-send-fill"></i> Mark Sent
+            </a>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endif %}
+
+{# ── Due Today ────────────────────────────────────────────────────────────── #}
+{% if due_today %}
+<div class="card shadow-sm mb-4 border-warning border-2">
+  <div class="card-header bg-warning py-3">
+    <h5 class="mb-0">
+      <i class="bi bi-envelope-fill me-2"></i>
+      Due Today &mdash; {{ due_today|length }} Letter{{ 's' if due_today|length != 1 }} to Send
+    </h5>
+  </div>
+  <div class="card-body p-0">
+    <table class="table table-hover align-middle mb-0">
+      <thead class="table-light">
+        <tr>
+          <th>Vehicle</th>
+          <th>Type</th>
+          <th>Letter</th>
+          <th>Impound Date</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for letter in due_today %}
+        <tr>
+          <td>
+            <a href="{{ url_for('vehicles_detail', vehicle_id=letter.vehicle_id) }}" class="fw-semibold row-link">
+              {{ letter.vehicle.display_name }}
+            </a>
+            {% if letter.vehicle.plate %}
+            <br><small class="text-muted">{{ letter.vehicle.plate }} &bull; {{ letter.vehicle.plate_state }}</small>
+            {% endif %}
+          </td>
+          <td><span class="badge bg-secondary section-badge">{{ letter.vehicle.impound_type }}</span></td>
+          <td>{{ letter.label }}</td>
+          <td>{{ letter.vehicle.impound_date|mdY }}</td>
+          <td class="text-end pe-3">
+            <a href="{{ url_for('letters_mark_sent', letter_id=letter.id) }}" class="btn btn-warning btn-sm action-btn">
+              <i class="bi bi-send-fill"></i> Mark Sent
+            </a>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endif %}
+
+{# ── Ready to File ────────────────────────────────────────────────────────── #}
+{% if title_eligible %}
+<div class="card shadow-sm mb-4 border-success border-2">
+  <div class="card-header bg-success text-white py-3">
+    <h5 class="mb-0">
+      <i class="bi bi-file-earmark-check-fill me-2"></i>
+      Ready to File &mdash; {{ title_eligible|length }} Vehicle{{ 's' if title_eligible|length != 1 }}
+    </h5>
+  </div>
+  <div class="card-body p-0">
+    <table class="table table-hover align-middle mb-0">
+      <thead class="table-light">
+        <tr>
+          <th>Vehicle</th>
+          <th>Type</th>
+          <th>Impound Date</th>
+          <th>Days in Storage</th>
+          <th>Eligible Since</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for vehicle in title_eligible %}
+        <tr>
+          <td>
+            <a href="{{ url_for('vehicles_detail', vehicle_id=vehicle.id) }}" class="fw-semibold row-link">
+              {{ vehicle.display_name }}
+            </a>
+            {% if vehicle.plate %}
+            <br><small class="text-muted">{{ vehicle.plate }} &bull; {{ vehicle.plate_state }}</small>
+            {% endif %}
+          </td>
+          <td><span class="badge bg-secondary section-badge">{{ vehicle.impound_type }}</span></td>
+          <td>{{ vehicle.impound_date|mdY }}</td>
+          <td>{{ vehicle.days_in_storage }} days</td>
+          <td class="text-success fw-semibold">{{ vehicle.title_eligible_date|mdY }}</td>
+          <td class="text-end pe-3">
+            <a href="{{ url_for('file_title', vehicle_id=vehicle.id) }}" class="btn btn-success btn-sm action-btn">
+              <i class="bi bi-file-earmark-arrow-up"></i> File Title
+            </a>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endif %}
+
+{# ── Coming Up This Week ───────────────────────────────────────────────────── #}
+{% if due_this_week %}
+<div class="card shadow-sm mb-4">
+  <div class="card-header py-3">
+    <h5 class="mb-0 text-primary">
+      <i class="bi bi-calendar-week me-2"></i>
+      Coming Up This Week &mdash; {{ due_this_week|length }} Letter{{ 's' if due_this_week|length != 1 }}
+    </h5>
+  </div>
+  <div class="card-body p-0">
+    <table class="table table-hover align-middle mb-0">
+      <thead class="table-light">
+        <tr>
+          <th>Vehicle</th>
+          <th>Type</th>
+          <th>Letter</th>
+          <th>Due Date</th>
+          <th>Days Until Due</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for letter in due_this_week %}
+        <tr>
+          <td>
+            <a href="{{ url_for('vehicles_detail', vehicle_id=letter.vehicle_id) }}" class="fw-semibold row-link">
+              {{ letter.vehicle.display_name }}
+            </a>
+          </td>
+          <td><span class="badge bg-secondary section-badge">{{ letter.vehicle.impound_type }}</span></td>
+          <td>{{ letter.label }}</td>
+          <td>{{ letter.due_date|mdY }}</td>
+          <td><span class="badge bg-primary">in {{ letter.days_until_due }} day{{ 's' if letter.days_until_due != 1 }}</span></td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endif %}
+{% endblock %}

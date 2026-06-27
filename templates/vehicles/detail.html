@@ -1,0 +1,361 @@
+{% extends 'base.html' %}
+{% block title %}{{ vehicle.display_name }} — Impound Manager{% endblock %}
+
+{% block content %}
+<div class="d-flex align-items-center mb-4 gap-3">
+  <a href="{{ url_for('dashboard') }}" class="btn btn-outline-secondary btn-sm">
+    <i class="bi bi-arrow-left"></i>
+  </a>
+  <div>
+    <h2 class="h4 mb-0 fw-bold">{{ vehicle.display_name }}</h2>
+    <small class="text-muted">
+      {{ vehicle.impound_type }} Impound &bull;
+      {{ vehicle.impound_date|mdY }} &bull;
+      {{ vehicle.days_in_storage }} days in storage
+    </small>
+  </div>
+  {% if vehicle.status == 'ACTIVE' %}
+  <a href="{{ url_for('vehicles_edit', vehicle_id=vehicle.id) }}" class="btn btn-outline-secondary btn-sm ms-auto me-2">
+    <i class="bi bi-pencil"></i> Edit
+  </a>
+  {% endif %}
+  <span class="badge {% if vehicle.status != 'ACTIVE' %}ms-auto{% endif %}
+    {% if vehicle.status == 'ACTIVE' %}bg-success
+    {% elif vehicle.status == 'TITLE_FILED' %}bg-primary
+    {% else %}bg-secondary{% endif %}
+    fs-6">
+    {{ vehicle.status.replace('_', ' ') }}
+  </span>
+</div>
+
+<div class="row g-4">
+  {# ── Left Column ── #}
+  <div class="col-md-5">
+
+    {# Vehicle Info #}
+    <div class="card shadow-sm mb-4">
+      <div class="card-header fw-semibold">Vehicle Information</div>
+      <div class="card-body">
+        <dl class="row mb-0 small">
+          <dt class="col-sm-5 text-muted">Plate</dt>
+          <dd class="col-sm-7">{{ vehicle.plate or '—' }}{% if vehicle.plate %} ({{ vehicle.plate_state }}){% endif %}</dd>
+
+          <dt class="col-sm-5 text-muted">VIN</dt>
+          <dd class="col-sm-7 font-monospace">{{ vehicle.vin or '—' }}</dd>
+
+          <dt class="col-sm-5 text-muted">Year / Make / Model</dt>
+          <dd class="col-sm-7">
+            {% set ymm = [] %}
+            {% if vehicle.year %}{% set _ = ymm.append(vehicle.year|string) %}{% endif %}
+            {% if vehicle.make %}{% set _ = ymm.append(vehicle.make) %}{% endif %}
+            {% if vehicle.model_name %}{% set _ = ymm.append(vehicle.model_name) %}{% endif %}
+            {{ ymm|join(' ') or '—' }}
+          </dd>
+
+          <dt class="col-sm-5 text-muted">Color</dt>
+          <dd class="col-sm-7">{{ vehicle.color or '—' }}</dd>
+
+          <dt class="col-sm-5 text-muted">Impound Type</dt>
+          <dd class="col-sm-7"><span class="badge bg-secondary">{{ vehicle.impound_type }}</span></dd>
+
+          <dt class="col-sm-5 text-muted">Impound Date</dt>
+          <dd class="col-sm-7">{{ vehicle.impound_date|mdY }}</dd>
+
+          <dt class="col-sm-5 text-muted">Storage Location</dt>
+          <dd class="col-sm-7">{{ vehicle.storage_location or '—' }}</dd>
+
+          {% if vehicle.police_report_number %}
+          <dt class="col-sm-5 text-muted">Police Report #</dt>
+          <dd class="col-sm-7">{{ vehicle.police_report_number }}</dd>
+          {% endif %}
+
+          {% if vehicle.notes %}
+          <dt class="col-sm-5 text-muted">Notes</dt>
+          <dd class="col-sm-7">{{ vehicle.notes }}</dd>
+          {% endif %}
+        </dl>
+      </div>
+    </div>
+
+    {# Owner / Addressee #}
+    <div class="card shadow-sm mb-4">
+      <div class="card-header fw-semibold d-flex justify-content-between align-items-center">
+        Last Registered Owner
+        <a href="{{ url_for('vehicles_edit', vehicle_id=vehicle.id) }}" class="btn btn-outline-secondary btn-sm py-0 px-2">
+          <i class="bi bi-pencil"></i>
+        </a>
+      </div>
+      <div class="card-body small">
+        {% if vehicle.owner_name or vehicle.owner_address %}
+          <div class="fw-semibold">{{ vehicle.owner_name or '—' }}</div>
+          {% if vehicle.owner_address %}
+          <div class="text-muted" style="white-space:pre-line;">{{ vehicle.owner_address }}</div>
+          {% endif %}
+        {% else %}
+          <span class="text-muted fst-italic">Not recorded — add via Edit to enable letter printing.</span>
+        {% endif %}
+      </div>
+    </div>
+
+    {# Actions #}
+    {% if vehicle.status == 'ACTIVE' %}
+    <div class="card shadow-sm mb-4">
+      <div class="card-header fw-semibold">Actions</div>
+      <div class="card-body d-flex flex-column gap-2">
+        {% if vehicle.is_title_eligible and not vehicle.title_filing %}
+        <a href="{{ url_for('file_title', vehicle_id=vehicle.id) }}" class="btn btn-success">
+          <i class="bi bi-file-earmark-arrow-up"></i> File for Title
+        </a>
+        {% endif %}
+        <form method="POST" action="{{ url_for('vehicles_release', vehicle_id=vehicle.id) }}"
+              onsubmit="return confirm('Mark this vehicle as released?')">
+          <button type="submit" class="btn btn-outline-secondary w-100">
+            <i class="bi bi-box-arrow-right"></i> Mark as Released
+          </button>
+        </form>
+      </div>
+    </div>
+    {% endif %}
+
+    {# Title Filing Info #}
+    {% if vehicle.title_filing %}
+    <div class="card shadow-sm mb-4 border-primary">
+      <div class="card-header fw-semibold bg-primary text-white">Title Filing</div>
+      <div class="card-body">
+        <dl class="row mb-0 small">
+          <dt class="col-sm-5 text-muted">Filed Date</dt>
+          <dd class="col-sm-7">{{ vehicle.title_filing.filed_date|mdY }}</dd>
+          <dt class="col-sm-5 text-muted">BMV Receipt #</dt>
+          <dd class="col-sm-7">{{ vehicle.title_filing.bmv_receipt_number or '—' }}</dd>
+          <dt class="col-sm-5 text-muted">Status</dt>
+          <dd class="col-sm-7">{{ vehicle.title_filing.status }}</dd>
+          {% if vehicle.title_filing.notes %}
+          <dt class="col-sm-5 text-muted">Notes</dt>
+          <dd class="col-sm-7">{{ vehicle.title_filing.notes }}</dd>
+          {% endif %}
+        </dl>
+      </div>
+    </div>
+    {% endif %}
+
+  </div>
+
+  {# ── Right Column: Letter Timeline + Notes ── #}
+  <div class="col-md-7">
+
+    <div class="card shadow-sm mb-4">
+      <div class="card-header fw-semibold">
+        <i class="bi bi-envelope me-1"></i> Certified Letter Timeline
+      </div>
+      <div class="card-body">
+
+        {# ── Letter 1 ── #}
+        {% set l1 = vehicle.letter1 %}
+        <div class="mb-4">
+          <div class="d-flex align-items-center gap-2 mb-2">
+            {% if l1 and l1.sent_date %}
+              <span class="badge bg-success"><i class="bi bi-check-lg"></i> Sent</span>
+            {% elif l1 and l1.is_overdue %}
+              <span class="badge bg-danger"><i class="bi bi-exclamation-triangle"></i> Overdue</span>
+            {% elif l1 and l1.is_due_today %}
+              <span class="badge bg-warning text-dark">Due Today</span>
+            {% else %}
+              <span class="badge bg-light text-dark border">Pending</span>
+            {% endif %}
+            <strong>{{ l1.label if l1 else ('Letter 1' if vehicle.impound_type == 'PPI' else 'Notification Letter') }}</strong>
+            {% if l1 %}
+            <a href="{{ url_for('print_letter', letter_id=l1.id) }}" class="btn btn-outline-secondary btn-sm ms-auto py-0" target="_blank">
+              <i class="bi bi-printer"></i> Print Letter
+            </a>
+            {% endif %}
+          </div>
+
+          {% if l1 %}
+          <dl class="row small ms-1 mb-2">
+            <dt class="col-sm-4 text-muted">Due By</dt>
+            <dd class="col-sm-8 {% if l1.is_overdue %}text-danger fw-semibold{% endif %}">
+              {{ l1.due_date|mdY }}
+              {% if l1.is_overdue %}<small class="text-danger">({{ l1.days_overdue }} days overdue)</small>{% endif %}
+            </dd>
+            {% if l1.sent_date %}
+            <dt class="col-sm-4 text-muted">Sent</dt>
+            <dd class="col-sm-8">{{ l1.sent_date|mdY }}</dd>
+            {% if l1.tracking_number %}
+            <dt class="col-sm-4 text-muted">Tracking #</dt>
+            <dd class="col-sm-8 font-monospace">{{ l1.tracking_number }}</dd>
+            {% endif %}
+            {% if l1.delivery_confirmed_date %}
+            <dt class="col-sm-4 text-muted">Delivered</dt>
+            <dd class="col-sm-8 text-success"><i class="bi bi-check-circle-fill me-1"></i>{{ l1.delivery_confirmed_date|mdY }}</dd>
+            {% endif %}
+            {% endif %}
+          </dl>
+
+          {% if not l1.sent_date and vehicle.status == 'ACTIVE' %}
+          <a href="{{ url_for('letters_mark_sent', letter_id=l1.id) }}"
+             class="btn btn-sm {% if l1.is_overdue %}btn-danger{% elif l1.is_due_today %}btn-warning{% else %}btn-outline-primary{% endif %}">
+            <i class="bi bi-send"></i> Mark as Sent
+          </a>
+          {% elif l1.sent_date and not l1.delivery_confirmed_date and vehicle.status == 'ACTIVE' %}
+          <form method="POST" action="{{ url_for('letters_confirm_delivery', letter_id=l1.id) }}" class="d-inline-flex gap-2 align-items-center">
+            <input type="date" name="delivery_date" class="form-control form-control-sm" style="width:160px" value="{{ today.isoformat() }}">
+            <button type="submit" class="btn btn-sm btn-outline-success">
+              <i class="bi bi-check2"></i> Confirm Delivery
+            </button>
+          </form>
+          {% endif %}
+          {% else %}
+          <p class="text-muted small ms-1">Letter not yet created.</p>
+          {% endif %}
+        </div>
+
+        {# ── Letter 2 (PPI only) ── #}
+        {% if vehicle.impound_type == 'PPI' %}
+        <hr>
+        {% set l2 = vehicle.letter2 %}
+        <div class="mb-3">
+          <div class="d-flex align-items-center gap-2 mb-2">
+            {% if l2 and l2.sent_date %}
+              <span class="badge bg-success"><i class="bi bi-check-lg"></i> Sent</span>
+            {% elif l2 and l2.is_overdue %}
+              <span class="badge bg-danger"><i class="bi bi-exclamation-triangle"></i> Overdue</span>
+            {% elif l2 and l2.is_due_today %}
+              <span class="badge bg-warning text-dark">Due Today</span>
+            {% elif l2 %}
+              <span class="badge bg-light text-dark border">Pending</span>
+            {% else %}
+              <span class="badge bg-light text-muted border">Waiting for Letter 1</span>
+            {% endif %}
+            <strong>Letter 2</strong>
+            {% if l2 %}
+            <a href="{{ url_for('print_letter', letter_id=l2.id) }}" class="btn btn-outline-secondary btn-sm ms-auto py-0" target="_blank">
+              <i class="bi bi-printer"></i> Print Letter
+            </a>
+            {% endif %}
+          </div>
+
+          {% if l2 %}
+          <dl class="row small ms-1 mb-2">
+            <dt class="col-sm-4 text-muted">Due By</dt>
+            <dd class="col-sm-8 {% if l2.is_overdue %}text-danger fw-semibold{% endif %}">
+              {{ l2.due_date|mdY }}
+              {% if l2.is_overdue %}<small class="text-danger">({{ l2.days_overdue }} days overdue)</small>{% endif %}
+            </dd>
+            {% if l2.sent_date %}
+            <dt class="col-sm-4 text-muted">Sent</dt>
+            <dd class="col-sm-8">{{ l2.sent_date|mdY }}</dd>
+            {% if l2.tracking_number %}
+            <dt class="col-sm-4 text-muted">Tracking #</dt>
+            <dd class="col-sm-8 font-monospace">{{ l2.tracking_number }}</dd>
+            {% endif %}
+            {% if l2.delivery_confirmed_date %}
+            <dt class="col-sm-4 text-muted">Delivered</dt>
+            <dd class="col-sm-8 text-success"><i class="bi bi-check-circle-fill me-1"></i>{{ l2.delivery_confirmed_date|mdY }}</dd>
+            {% endif %}
+            {% endif %}
+          </dl>
+
+          {% if not l2.sent_date and vehicle.status == 'ACTIVE' %}
+          <a href="{{ url_for('letters_mark_sent', letter_id=l2.id) }}"
+             class="btn btn-sm {% if l2.is_overdue %}btn-danger{% elif l2.is_due_today %}btn-warning{% else %}btn-outline-primary{% endif %}">
+            <i class="bi bi-send"></i> Mark as Sent
+          </a>
+          {% elif l2.sent_date and not l2.delivery_confirmed_date and vehicle.status == 'ACTIVE' %}
+          <form method="POST" action="{{ url_for('letters_confirm_delivery', letter_id=l2.id) }}" class="d-inline-flex gap-2 align-items-center">
+            <input type="date" name="delivery_date" class="form-control form-control-sm" style="width:160px" value="{{ today.isoformat() }}">
+            <button type="submit" class="btn btn-sm btn-outline-success">
+              <i class="bi bi-check2"></i> Confirm Delivery
+            </button>
+          </form>
+          {% endif %}
+          {% else %}
+          <p class="text-muted small ms-1">Will be created when Letter 1 is marked sent.</p>
+          {% endif %}
+        </div>
+        {% endif %}
+
+        {# ── Title Eligibility ── #}
+        <hr>
+        <div>
+          <strong><i class="bi bi-file-earmark-check me-1"></i> Title Filing Eligibility</strong>
+          <div class="mt-2 small ms-1">
+            {% if vehicle.title_eligible_date %}
+              {% if vehicle.is_title_eligible %}
+              <span class="text-success fw-semibold">
+                <i class="bi bi-check-circle-fill"></i>
+                Eligible since {{ vehicle.title_eligible_date|mdY }} — ready to file!
+              </span>
+              {% else %}
+              <span class="text-muted">
+                Eligible on {{ vehicle.title_eligible_date|mdY }}
+                ({{ (vehicle.title_eligible_date - today).days }} days from now)
+              </span>
+              {% endif %}
+            {% elif vehicle.impound_type == 'PPI' %}
+            <span class="text-muted">
+              Eligibility calculated after both letters are sent.<br>
+              Will be the later of: 60 days from impound or 30 days after Letter 2.
+            </span>
+            {% else %}
+            <span class="text-muted">Eligibility calculated after notification letter is sent (sent date + 30 days).</span>
+            {% endif %}
+          </div>
+        </div>
+
+      </div>
+    </div>
+
+    {# ── Notes / Activity Log ── #}
+    <div class="card shadow-sm">
+      <div class="card-header fw-semibold">
+        <i class="bi bi-journal-text me-1"></i> Notes
+        <span class="badge bg-secondary ms-1 fw-normal">{{ vehicle.note_entries|length }}</span>
+      </div>
+      <div class="card-body">
+
+        {# Add note form #}
+        <form method="POST" action="{{ url_for('vehicles_add_note', vehicle_id=vehicle.id) }}" class="mb-4">
+          <div class="mb-2">
+            <textarea class="form-control form-control-sm" name="body" rows="2"
+                      placeholder="Add a note… e.g. Owner called 06/27, said vehicle was sold" required></textarea>
+          </div>
+          <div class="d-flex gap-2 align-items-center">
+            <input type="text" name="author" class="form-control form-control-sm" style="width:120px"
+                   value="Heather" placeholder="Your name">
+            <button type="submit" class="btn btn-sm btn-outline-primary">
+              <i class="bi bi-plus-lg"></i> Add Note
+            </button>
+          </div>
+        </form>
+
+        {# Existing notes #}
+        {% if vehicle.sorted_notes %}
+          {% for note in vehicle.sorted_notes %}
+          <div class="note-card rounded p-2 mb-2 d-flex justify-content-between align-items-start">
+            <div>
+              <div class="small">{{ note.body }}</div>
+              <div class="text-muted" style="font-size:.7rem;">
+                {{ note.author }} &bull;
+                {% if note.created_at %}
+                  {{ note.created_at.strftime('%m/%d/%Y %I:%M %p') }}
+                {% endif %}
+              </div>
+            </div>
+            <form method="POST" action="{{ url_for('notes_delete', note_id=note.id) }}"
+                  onsubmit="return confirm('Delete this note?')" class="ms-2">
+              <button type="submit" class="btn btn-sm btn-link text-danger p-0" title="Delete">
+                <i class="bi bi-trash"></i>
+              </button>
+            </form>
+          </div>
+          {% endfor %}
+        {% else %}
+          <p class="text-muted small mb-0">No notes yet.</p>
+        {% endif %}
+
+      </div>
+    </div>
+
+  </div>
+</div>
+{% endblock %}

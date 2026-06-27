@@ -1,0 +1,97 @@
+{% extends 'base.html' %}
+{% block title %}All Vehicles — Impound Manager{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-4">
+  <h2 class="h4 mb-0 fw-bold">All Vehicles</h2>
+  <a href="{{ url_for('vehicles_new') }}" class="btn btn-success">
+    <i class="bi bi-plus-lg"></i> New Impound
+  </a>
+</div>
+
+{# Status filter tabs #}
+<ul class="nav nav-tabs mb-4">
+  <li class="nav-item">
+    <a class="nav-link {% if status_filter == 'ACTIVE' %}active{% endif %}"
+       href="{{ url_for('vehicles_list', status='ACTIVE') }}">
+      Active
+    </a>
+  </li>
+  <li class="nav-item">
+    <a class="nav-link {% if status_filter == 'TITLE_FILED' %}active{% endif %}"
+       href="{{ url_for('vehicles_list', status='TITLE_FILED') }}">
+      Title Filed
+    </a>
+  </li>
+  <li class="nav-item">
+    <a class="nav-link {% if status_filter == 'RELEASED' %}active{% endif %}"
+       href="{{ url_for('vehicles_list', status='RELEASED') }}">
+      Released
+    </a>
+  </li>
+</ul>
+
+{% if vehicles %}
+<div class="card shadow-sm">
+  <div class="card-body p-0">
+    <table class="table table-hover align-middle mb-0">
+      <thead class="table-light">
+        <tr>
+          <th>Vehicle</th>
+          <th>Plate</th>
+          <th>Type</th>
+          <th>Impound Date</th>
+          <th>Days in Storage</th>
+          <th>Next Action</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for v in vehicles %}
+        <tr>
+          <td>
+            <a href="{{ url_for('vehicles_detail', vehicle_id=v.id) }}" class="fw-semibold row-link">
+              {{ v.display_name }}
+            </a>
+            {% if v.vin %}
+            <br><small class="text-muted font-monospace">{{ v.vin }}</small>
+            {% endif %}
+          </td>
+          <td>
+            {% if v.plate %}{{ v.plate }} <small class="text-muted">{{ v.plate_state }}</small>{% else %}—{% endif %}
+          </td>
+          <td><span class="badge bg-secondary section-badge">{{ v.impound_type }}</span></td>
+          <td>{{ v.impound_date|mdY }}</td>
+          <td>{{ v.days_in_storage }}</td>
+          <td>
+            {% if v.next_action_label %}
+              {% set action = v.next_action_label %}
+              {% if 'OVERDUE' in action %}
+                <span class="text-danger small fw-semibold">{{ action }}</span>
+              {% elif 'Ready to file' in action %}
+                <span class="text-success small fw-semibold"><i class="bi bi-check-circle"></i> {{ action }}</span>
+              {% else %}
+                <span class="text-muted small">{{ action }}</span>
+              {% endif %}
+            {% else %}
+              <span class="text-muted small">{{ v.status.replace('_', ' ') }}</span>
+            {% endif %}
+          </td>
+          <td class="text-end pe-3">
+            <a href="{{ url_for('vehicles_detail', vehicle_id=v.id) }}" class="btn btn-sm btn-outline-secondary">
+              View
+            </a>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% else %}
+<div class="text-center text-muted py-5">
+  <i class="bi bi-inbox display-4 d-block mb-3"></i>
+  No {{ status_filter.lower().replace('_', ' ') }} vehicles.
+</div>
+{% endif %}
+{% endblock %}

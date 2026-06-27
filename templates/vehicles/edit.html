@@ -1,0 +1,110 @@
+{% extends 'base.html' %}
+{% block title %}Edit {{ vehicle.display_name }} — Impound Manager{% endblock %}
+
+{% block content %}
+<div class="row justify-content-center">
+  <div class="col-lg-7">
+    <div class="d-flex align-items-center mb-4 gap-3">
+      <a href="{{ url_for('vehicles_detail', vehicle_id=vehicle.id) }}" class="btn btn-outline-secondary btn-sm">
+        <i class="bi bi-arrow-left"></i>
+      </a>
+      <div>
+        <h2 class="h4 mb-0 fw-bold">Edit Vehicle</h2>
+        <small class="text-muted">{{ vehicle.display_name }}</small>
+      </div>
+    </div>
+
+    <div class="alert alert-info small">
+      <i class="bi bi-info-circle me-1"></i>
+      Impound type and date cannot be changed here — they affect letter deadlines.
+      If there's an error, contact your supervisor.
+    </div>
+
+    <form method="POST" action="{{ url_for('vehicles_edit', vehicle_id=vehicle.id) }}">
+      <div class="card shadow-sm mb-4">
+        <div class="card-header fw-semibold">Vehicle Information</div>
+        <div class="card-body">
+          <div class="row g-3">
+            <div class="col-sm-6">
+              <label for="plate" class="form-label fw-semibold">License Plate</label>
+              <div class="input-group">
+                <input type="text" class="form-control" id="plate" name="plate"
+                  value="{{ vehicle.plate or '' }}" style="text-transform:uppercase;">
+                <input type="text" class="form-control" id="plate_state" name="plate_state"
+                  value="{{ vehicle.plate_state or 'OH' }}" maxlength="2"
+                  style="max-width:60px; text-transform:uppercase;">
+              </div>
+            </div>
+            <div class="col-sm-6">
+              <label for="vin" class="form-label fw-semibold">VIN</label>
+              <input type="text" class="form-control" id="vin" name="vin"
+                value="{{ vehicle.vin or '' }}" maxlength="17" style="text-transform:uppercase;">
+            </div>
+            <div class="col-sm-3">
+              <label for="year" class="form-label fw-semibold">Year</label>
+              <input type="number" class="form-control" id="year" name="year"
+                value="{{ vehicle.year or '' }}" min="1950" max="2030">
+            </div>
+            <div class="col-sm-4">
+              <label for="make" class="form-label fw-semibold">Make</label>
+              <input type="text" class="form-control" id="make" name="make"
+                value="{{ vehicle.make or '' }}">
+            </div>
+            <div class="col-sm-5">
+              <label for="model_name" class="form-label fw-semibold">Model</label>
+              <input type="text" class="form-control" id="model_name" name="model_name"
+                value="{{ vehicle.model_name or '' }}">
+            </div>
+            <div class="col-sm-4">
+              <label for="color" class="form-label fw-semibold">Color</label>
+              <input type="text" class="form-control" id="color" name="color"
+                value="{{ vehicle.color or '' }}">
+            </div>
+            <div class="col-sm-8">
+              <label for="storage_location" class="form-label fw-semibold">Storage Location</label>
+              <input type="text" class="form-control" id="storage_location" name="storage_location"
+                value="{{ vehicle.storage_location or '' }}">
+            </div>
+            {% if vehicle.impound_type == 'POLICE' %}
+            <div class="col-12">
+              <label for="police_report_number" class="form-label fw-semibold">Police Report #</label>
+              <input type="text" class="form-control" id="police_report_number" name="police_report_number"
+                value="{{ vehicle.police_report_number or '' }}">
+            </div>
+            {% endif %}
+            <div class="col-12">
+              <label for="notes" class="form-label fw-semibold">Notes</label>
+              <textarea class="form-control" id="notes" name="notes" rows="2">{{ vehicle.notes or '' }}</textarea>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="card shadow-sm mb-4">
+        <div class="card-header fw-semibold">Last Registered Owner <small class="fw-normal text-muted">(for certified letter addressing)</small></div>
+        <div class="card-body">
+          <div class="row g-3">
+            <div class="col-12">
+              <label for="owner_name" class="form-label fw-semibold">Owner Name</label>
+              <input type="text" class="form-control" id="owner_name" name="owner_name"
+                value="{{ vehicle.owner_name or '' }}" placeholder="Jane Smith">
+            </div>
+            <div class="col-12">
+              <label for="owner_address" class="form-label fw-semibold">Owner Address</label>
+              <textarea class="form-control" id="owner_address" name="owner_address" rows="3"
+                placeholder="123 Main St&#10;Columbus, OH 43215">{{ vehicle.owner_address or '' }}</textarea>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="d-flex gap-2">
+        <button type="submit" class="btn btn-primary px-4">
+          <i class="bi bi-check-lg"></i> Save Changes
+        </button>
+        <a href="{{ url_for('vehicles_detail', vehicle_id=vehicle.id) }}" class="btn btn-outline-secondary">Cancel</a>
+      </div>
+    </form>
+  </div>
+</div>
+{% endblock %}
