@@ -10,6 +10,12 @@ from models import (db, User, Vehicle, CertifiedLetter, TitleFiling,
                     VehicleNote, DamageItem, PPI_LETTER1_DAYS,
                     PPI_LETTER2_DAYS, POLICE_LETTER1_DAYS)
 
+try:
+    from apscheduler.schedulers.background import BackgroundScheduler
+    _APScheduler = BackgroundScheduler
+except ImportError:
+    _APScheduler = None
+
 
 def run_migrations(app):
     with app.app_context():
@@ -54,6 +60,17 @@ def run_migrations(app):
                     ('storage_paid',            'FLOAT'),
                     ('payment_date',            'DATE'),
                     ('payment_reference',       'VARCHAR(100)'),
+                    ('letter_urgency',          'VARCHAR(10)'),
+                    ('task_no_record',          'BOOLEAN'),
+                    ('task_no_record_notes',    'TEXT'),
+                    ('task_no_record_resolved', 'BOOLEAN'),
+                    ('task_no_record_resolved_by',   'VARCHAR(50)'),
+                    ('task_no_record_resolved_date', 'DATE'),
+                    ('task4_triggered',         'BOOLEAN'),
+                    ('task4_triggered_date',    'DATE'),
+                    ('current_task_num',        'INTEGER'),
+                    ('current_task_label',      'VARCHAR(100)'),
+                    ('current_task_due',        'DATE'),
                 ]
                 for col_name, col_type in new_cols:
                     if col_name not in cols:
@@ -145,6 +162,39 @@ def seed_default_users(app):
             db.session.commit()
 
 
+def _backfill_urgency(app):
+    """Run task pipeline calculation for any vehicles missing urgency data."""
+    with app.app_context():
+        try:
+            null_count = Vehicle.query.filter(
+                Vehicle.status.in_(['ACTIVE', 'TITLE_FILED']),
+                Vehicle.letter_urgency.is_(None)
+            ).count()
+            if null_count > 0:
+                from task_engine import recalculate_all
+                counts = recalculate_all()
+                print(f'[task_engine] backfill: {counts}')
+        except Exception as exc:
+            print(f'[task_engine] backfill error: {exc}')
+
+
+def _start_scheduler(app):
+    """Start APScheduler background thread for 6 AM daily recalculation."""
+    if _APScheduler is None:
+        return
+    try:
+        def _run():
+            with app.app_context():
+                from task_engine import recalculate_all
+                recalculate_all()
+
+        scheduler = _APScheduler(timezone='America/New_York')
+        scheduler.add_job(_run, 'cron', hour=6, minute=0, id='daily_urgency')
+        scheduler.start()
+    except Exception as exc:
+        print(f'[scheduler] could not start: {exc}')
+
+
 def create_app():
     app = Flask(__name__)
 
@@ -181,6 +231,8 @@ def create_app():
 
     run_migrations(app)
     seed_default_users(app)
+    _backfill_urgency(app)
+    _start_scheduler(app)
 
     # Flask-Login
     login_manager = LoginManager()
@@ -228,6 +280,19 @@ def create_app():
             return ''
         return f"{value.strftime('%b')} {value.day}"
 
+    @app.template_filter('nice_date')
+    def nice_date(value):
+        if not value:
+            return ''
+        return f"{value.strftime('%A, %B')} {value.day}, {value.year}"
+
+    @app.template_filter('long_date')
+    def long_date(value):
+        """Cross-platform 'Month D, YYYY' format (no leading zero on day)."""
+        if not value:
+            return ''
+        return f"{value.strftime('%B')} {value.day}, {value.year}"
+
     @app.template_filter('currency')
     def currency(value):
         if value is None:
@@ -236,9 +301,11 @@ def create_app():
 
     @app.context_processor
     def inject_globals():
+        from datetime import timedelta as _td
         return {
             'company_name': app.config['COMPANY_NAME'],
             'company_phone': app.config['COMPANY_PHONE'],
+            'timedelta': _td,
         }
 
     # ── Dashboard ──────────────────────────────────────────────────────────────
@@ -284,28 +351,16 @@ def create_app():
             .filter(Vehicle.last_synced.isnot(None))
             .scalar()
         )
-        towbook_overdue = (
+
+        # No Record Found URGENT vehicles (Task 5)
+        urgent_no_record = (
             Vehicle.query
-            .filter(Vehicle.stock_number.isnot(None))
-            .filter(Vehicle.tasks_overdue > 0)
-            .order_by(Vehicle.tasks_overdue.desc(), Vehicle.impound_date.asc())
-            .limit(50).all()
-        )
-        towbook_due_today = (
-            Vehicle.query
-            .filter(Vehicle.stock_number.isnot(None))
-            .filter(Vehicle.tasks_due_today > 0)
+            .filter(Vehicle.status.in_(['ACTIVE', 'TITLE_FILED']))
+            .filter(Vehicle.task_no_record == True)
+            .filter(db.or_(Vehicle.task_no_record_resolved == False,
+                           Vehicle.task_no_record_resolved.is_(None)))
             .order_by(Vehicle.impound_date.asc())
-            .limit(50).all()
-        )
-        towbook_due_soon = (
-            Vehicle.query
-            .filter(Vehicle.stock_number.isnot(None))
-            .filter(Vehicle.tasks_due_today == 0)
-            .filter(Vehicle.tasks_overdue == 0)
-            .filter(db.or_(Vehicle.tasks_due_next > 0, Vehicle.tasks_due_soon > 0))
-            .order_by(Vehicle.impound_date.asc())
-            .limit(25).all()
+            .all()
         )
 
         # Heather→Tina handoff queue
@@ -324,9 +379,7 @@ def create_app():
             title_eligible=title_eligible,
             towbook_total=towbook_total,
             last_sync=last_sync,
-            towbook_overdue=towbook_overdue,
-            towbook_due_today=towbook_due_today,
-            towbook_due_soon=towbook_due_soon,
+            urgent_no_record=urgent_no_record,
             handoff_queue=handoff_queue,
             timecard_flags=timecard_flags,
         )
@@ -475,6 +528,9 @@ def create_app():
     @app.route('/vehicles/new', methods=['GET', 'POST'])
     @login_required
     def vehicles_new():
+        if not current_user.can_edit_vehicles:
+            flash('You do not have permission to add new vehicles.', 'danger')
+            return redirect(url_for('vehicles_list'))
         if request.method == 'POST':
             impound_date_str = request.form.get('impound_date', '').strip()
             impound_type = request.form.get('impound_type', '').strip()
@@ -535,6 +591,9 @@ def create_app():
     @login_required
     def vehicles_edit(vehicle_id):
         vehicle = db.get_or_404(Vehicle, vehicle_id)
+        if not current_user.can_edit_vehicles:
+            flash('You do not have permission to edit vehicles.', 'danger')
+            return redirect(url_for('vehicles_detail', vehicle_id=vehicle_id))
         if request.method == 'POST':
             _vehicle_from_form(request.form, vehicle=vehicle)
             db.session.commit()
@@ -546,6 +605,9 @@ def create_app():
     @login_required
     def vehicles_release(vehicle_id):
         vehicle = db.get_or_404(Vehicle, vehicle_id)
+        if not current_user.can_edit_vehicles:
+            flash('Permission denied.', 'danger')
+            return redirect(url_for('vehicles_detail', vehicle_id=vehicle_id))
         vehicle.status = 'RELEASED'
         vehicle.updated_at = datetime.utcnow()
         db.session.commit()
@@ -752,6 +814,9 @@ def create_app():
     @login_required
     def damages_add(vehicle_id):
         vehicle = db.get_or_404(Vehicle, vehicle_id)
+        if not current_user.can_edit_vehicles:
+            flash('Permission denied.', 'danger')
+            return redirect(url_for('vehicles_detail', vehicle_id=vehicle_id))
         desc = request.form.get('description', '').strip()
         amt_str = request.form.get('amount', '').strip()
         if not desc or not amt_str:
@@ -818,6 +883,9 @@ def create_app():
     @login_required
     def nada_lookup(vehicle_id):
         vehicle = db.get_or_404(Vehicle, vehicle_id)
+        if not current_user.can_edit_vehicles:
+            flash('Permission denied.', 'danger')
+            return redirect(url_for('vehicles_detail', vehicle_id=vehicle_id))
         if not vehicle.vin:
             flash('VIN is required for NADA lookup.', 'danger')
             return redirect(url_for('vehicles_detail', vehicle_id=vehicle_id))

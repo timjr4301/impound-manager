@@ -10,12 +10,14 @@ from flask import (Blueprint, render_template, request, redirect,
                    url_for, flash, current_app, jsonify)
 from flask_login import login_required, current_user
 from models import db, Vehicle, CertifiedLetter, EnvelopeScan, VehicleNote
+from sqlalchemy import or_
 from models import PPI_LETTER1_DAYS, PPI_LETTER2_DAYS, POLICE_LETTER1_DAYS
 
 bp = Blueprint('heather', __name__, url_prefix='/heather')
 
 
 def _heather_required(f):
+    """Tim + Heather can perform Heather actions."""
     from functools import wraps
     @wraps(f)
     def decorated(*args, **kwargs):
@@ -26,17 +28,74 @@ def _heather_required(f):
     return login_required(decorated)
 
 
+def _heather_view(f):
+    """Tim + Heather + Tina can VIEW Heather's dashboard data."""
+    from functools import wraps
+    @wraps(f)
+    def decorated(*args, **kwargs):
+        if not current_user.is_authenticated or not current_user.can_see_heather_dashboard:
+            flash('Access restricted.', 'danger')
+            return redirect(url_for('dashboard'))
+        return f(*args, **kwargs)
+    return login_required(decorated)
+
+
 @bp.route('/')
-@_heather_required
+@_heather_view
 def dashboard():
     today = date.today()
     week_ahead = today + timedelta(days=7)
 
-    active_vehicles = Vehicle.query.filter_by(status='ACTIVE').all()
+    # Query by stored letter_urgency — fast DB filter, no Python-side computation
+    red = (Vehicle.query
+           .filter(Vehicle.status.in_(['ACTIVE', 'TITLE_FILED']))
+           .filter(Vehicle.letter_urgency == 'RED')
+           .order_by(Vehicle.impound_date.asc())
+           .all())
+    yellow = (Vehicle.query
+              .filter(Vehicle.status.in_(['ACTIVE', 'TITLE_FILED']))
+              .filter(Vehicle.letter_urgency == 'YELLOW')
+              .order_by(Vehicle.impound_date.asc())
+              .all())
+    green = (Vehicle.query
+             .filter(Vehicle.status.in_(['ACTIVE', 'TITLE_FILED']))
+             .filter(Vehicle.letter_urgency == 'GREEN')
+             .order_by(Vehicle.impound_date.desc())
+             .all())
 
-    red = [v for v in active_vehicles if v.stoplight_color == 'red']
-    yellow = [v for v in active_vehicles if v.stoplight_color == 'yellow']
-    green = [v for v in active_vehicles if v.stoplight_color == 'green']
+    # Fallback: if all urgencies are null (first run, not yet backfilled), recalculate now
+    if not red and not yellow and not green:
+        uncalculated = Vehicle.query.filter(
+            Vehicle.status.in_(['ACTIVE', 'TITLE_FILED']),
+            Vehicle.letter_urgency.is_(None)
+        ).count()
+        if uncalculated > 0:
+            from task_engine import recalculate_all
+            recalculate_all()
+            red = (Vehicle.query
+                   .filter(Vehicle.status.in_(['ACTIVE', 'TITLE_FILED']))
+                   .filter(Vehicle.letter_urgency == 'RED')
+                   .order_by(Vehicle.impound_date.asc())
+                   .all())
+            yellow = (Vehicle.query
+                      .filter(Vehicle.status.in_(['ACTIVE', 'TITLE_FILED']))
+                      .filter(Vehicle.letter_urgency == 'YELLOW')
+                      .order_by(Vehicle.impound_date.asc())
+                      .all())
+            green = (Vehicle.query
+                     .filter(Vehicle.status.in_(['ACTIVE', 'TITLE_FILED']))
+                     .filter(Vehicle.letter_urgency == 'GREEN')
+                     .order_by(Vehicle.impound_date.desc())
+                     .all())
+
+    # Task 5 URGENT — No Record Found vehicles (unresolved)
+    urgent_vehicles = (Vehicle.query
+                       .filter(Vehicle.status.in_(['ACTIVE', 'TITLE_FILED']))
+                       .filter(Vehicle.task_no_record == True)
+                       .filter(db.or_(Vehicle.task_no_record_resolved == False,
+                                      Vehicle.task_no_record_resolved.is_(None)))
+                       .order_by(Vehicle.impound_date.asc())
+                       .all())
 
     pending_letters = (
         CertifiedLetter.query
@@ -53,10 +112,15 @@ def dashboard():
         key=lambda l: l.due_date
     )
 
-    # BMV search queue — vehicles needing owner lookup
-    bmv_queue = [v for v in active_vehicles
-                 if (not v.owner_name or not v.owner_address)
-                 and v.bmv_stage in (None, 'PENDING', 'QUEUED')]
+    # BMV search queue — vehicles on Task 1 needing owner lookup
+    bmv_queue = (Vehicle.query
+                 .filter(Vehicle.status == 'ACTIVE')
+                 .filter(db.or_(Vehicle.heather_complete == False,
+                                Vehicle.heather_complete.is_(None)))
+                 .filter(db.or_(Vehicle.bmv_stage.in_([None, 'PENDING', 'QUEUED'])))
+                 .order_by(Vehicle.impound_date.asc())
+                 .limit(100)
+                 .all())
 
     # Awaiting delivery confirmation
     sent_unconfirmed = (
@@ -69,13 +133,89 @@ def dashboard():
         .all()
     )
 
+    # Last recalculation time — most recently updated vehicle with urgency set
+    last_calc = (
+        db.session.query(db.func.max(Vehicle.updated_at))
+        .filter(Vehicle.letter_urgency.isnot(None))
+        .scalar()
+    )
+
     return render_template('heather/dashboard.html',
         today=today,
         red=red, yellow=yellow, green=green,
+        urgent_vehicles=urgent_vehicles,
         overdue=overdue, due_today=due_today, due_this_week=due_this_week,
         bmv_queue=bmv_queue,
         sent_unconfirmed=sent_unconfirmed,
+        last_calc=last_calc,
+        can_act=current_user.is_heather,  # Tina can view but not act
     )
+
+
+@bp.route('/recalculate', methods=['POST'])
+@_heather_required
+def recalculate():
+    """Manually trigger task pipeline recalculation for all active vehicles."""
+    from task_engine import recalculate_all
+    counts = recalculate_all()
+    flash(
+        f'Recalculated: {counts.get("RED", 0)} overdue, '
+        f'{counts.get("YELLOW", 0)} due soon, '
+        f'{counts.get("GREEN", 0)} on track.',
+        'success'
+    )
+    return redirect(url_for('heather.dashboard'))
+
+
+@bp.route('/mark-no-record/<int:vehicle_id>', methods=['POST'])
+@_heather_required
+def mark_no_record(vehicle_id):
+    """Flag a vehicle as No Record Found (Task 5 URGENT)."""
+    vehicle = db.get_or_404(Vehicle, vehicle_id)
+    notes = request.form.get('notes', '').strip()
+    vehicle.task_no_record = True
+    vehicle.task_no_record_notes = notes or 'No record found in BMV system'
+    vehicle.task_no_record_resolved = False
+    vehicle.heather_complete = True
+    vehicle.bmv_stage = 'NO_RECORD'
+    vehicle.updated_at = datetime.utcnow()
+    db.session.add(VehicleNote(
+        vehicle_id=vehicle.id,
+        body=f'URGENT: No Record Found in BMV. {notes or ""}',
+        author=current_user.display_name or 'Heather',
+        created_at=datetime.utcnow(),
+    ))
+    from task_engine import recalculate_vehicle
+    recalculate_vehicle(vehicle)
+    db.session.commit()
+    flash(f'{vehicle.display_name} flagged as No Record Found — Tim has been alerted.', 'danger')
+    return redirect(request.referrer or url_for('heather.dashboard'))
+
+
+@bp.route('/resolve-urgent/<int:vehicle_id>', methods=['POST'])
+@login_required
+def resolve_urgent(vehicle_id):
+    """Tim-only: clear the No Record Found URGENT flag."""
+    if current_user.role not in ('tim',):
+        flash('Only Tim can resolve No Record Found flags.', 'danger')
+        return redirect(url_for('heather.dashboard'))
+    vehicle = db.get_or_404(Vehicle, vehicle_id)
+    vehicle.task_no_record_resolved = True
+    vehicle.task_no_record_resolved_by = current_user.display_name or 'Tim'
+    vehicle.task_no_record_resolved_date = date.today()
+    vehicle.updated_at = datetime.utcnow()
+    db.session.add(VehicleNote(
+        vehicle_id=vehicle.id,
+        body=f'No Record Found flag resolved by {current_user.display_name or "Tim"}. '
+             f'{request.form.get("resolution_notes", "").strip()}',
+        author=current_user.display_name or 'Tim',
+        created_at=datetime.utcnow(),
+    ))
+    from task_engine import recalculate_vehicle
+    recalculate_vehicle(vehicle)
+    db.session.commit()
+    flash(f'Urgent flag cleared for {vehicle.display_name}.', 'success')
+    return redirect(request.referrer or url_for('dashboard'))
 
 
 @bp.route('/bmv-complete/<int:vehicle_id>', methods=['POST'])

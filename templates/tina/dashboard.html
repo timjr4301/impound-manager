@@ -5,7 +5,7 @@
 <div class="d-flex align-items-center mb-4 gap-3">
   <div>
     <h2 class="h4 mb-0 fw-bold"><i class="bi bi-file-earmark-check me-2"></i>Tina's Dashboard</h2>
-    <small class="text-muted">{{ today.strftime('%A, %B %-d, %Y') if today else '' }}</small>
+    <small class="text-muted">{{ today.strftime('%A, %B ') + today.day|string + ', ' + today.year|string if today else '' }}</small>
   </div>
   <div class="ms-auto">
     <a href="{{ url_for('vehicles_new') }}" class="btn btn-success btn-sm">

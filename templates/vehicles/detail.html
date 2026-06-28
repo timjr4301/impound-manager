@@ -14,7 +14,7 @@
       {{ vehicle.days_in_storage }} days in storage
     </small>
   </div>
-  {% if vehicle.status == 'ACTIVE' %}
+  {% if vehicle.status == 'ACTIVE' and current_user.can_edit_vehicles %}
   <a href="{{ url_for('vehicles_edit', vehicle_id=vehicle.id) }}" class="btn btn-outline-secondary btn-sm ms-auto me-2">
     <i class="bi bi-pencil"></i> Edit
   </a>
@@ -27,6 +27,217 @@
     {{ vehicle.status.replace('_', ' ') }}
   </span>
 </div>
+
+{# ══ No Record Found URGENT Banner ══ #}
+{% if vehicle.task_no_record and not vehicle.task_no_record_resolved %}
+<div class="alert alert-danger border-danger border-3 d-flex align-items-center gap-3 mb-4" style="background:#fff0f0;">
+  <i class="bi bi-exclamation-octagon-fill fs-3 text-danger"></i>
+  <div class="flex-grow-1">
+    <strong class="d-block text-danger fs-5">NO RECORD FOUND — URGENT</strong>
+    <span class="small">{{ vehicle.task_no_record_notes or 'No owner or lienholder found in BMV system.' }}</span>
+    <span class="text-muted small ms-2">Tim must review and resolve.</span>
+  </div>
+  {% if current_user.role == 'tim' %}
+  <button class="btn btn-danger btn-sm flex-shrink-0"
+          data-bs-toggle="modal" data-bs-target="#resolveUrgentModal">Resolve</button>
+  {% endif %}
+</div>
+
+{# Resolve Modal (Tim only) #}
+<div class="modal fade" id="resolveUrgentModal" tabindex="-1">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header bg-danger text-white">
+        <h5 class="modal-title">Resolve — No Record Found</h5>
+        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+      </div>
+      <form method="POST" action="{{ url_for('heather.resolve_urgent', vehicle_id=vehicle.id) }}">
+        <div class="modal-body">
+          <p class="small"><strong>Flagged:</strong> {{ vehicle.task_no_record_notes or '—' }}</p>
+          <div class="mb-3">
+            <label class="form-label fw-semibold">Resolution notes</label>
+            <textarea name="resolution_notes" class="form-control" rows="3"
+                      placeholder="e.g. Court process initiated / Alternative owner contact found"></textarea>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+          <button type="submit" class="btn btn-danger">Mark Resolved</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+{% elif vehicle.task_no_record and vehicle.task_no_record_resolved %}
+<div class="alert alert-secondary d-flex gap-2 align-items-center mb-4 py-2">
+  <i class="bi bi-check-circle text-muted"></i>
+  <small class="text-muted">No Record Found flag resolved by {{ vehicle.task_no_record_resolved_by or 'Tim' }}
+    on {{ vehicle.task_no_record_resolved_date|mdY if vehicle.task_no_record_resolved_date else '—' }}.</small>
+</div>
+{% endif %}
+
+{# ══ Task Pipeline Widget ══ #}
+{% if vehicle.status in ('ACTIVE', 'TITLE_FILED') %}
+{% set t1_done = vehicle.heather_complete or vehicle.bmv_stage == 'COMPLETE' %}
+{% set l1 = vehicle.letter1 %}
+{% set l2 = vehicle.letter2 %}
+{% set l1_sent = l1 and l1.sent_date %}
+{% set l2_sent = l2 and l2.sent_date %}
+<div class="card shadow-sm mb-4">
+  <div class="card-header fw-semibold d-flex justify-content-between align-items-center">
+    <span><i class="bi bi-list-check me-2"></i>Task Pipeline</span>
+    <span class="badge {% if vehicle.letter_urgency == 'RED' %}bg-danger{% elif vehicle.letter_urgency == 'YELLOW' %}bg-warning text-dark{% elif vehicle.letter_urgency == 'GREEN' %}bg-success{% else %}bg-secondary{% endif %}">
+      {{ vehicle.letter_urgency or 'NA' }}
+    </span>
+  </div>
+  <div class="card-body pb-2">
+    <div class="d-flex flex-wrap gap-2 mb-3">
+
+      {# Task 1 #}
+      <div class="card flex-fill border {% if t1_done %}border-success bg-success bg-opacity-10{% elif vehicle.days_in_storage >= 5 %}border-danger bg-danger bg-opacity-10{% else %}border-secondary{% endif %}" style="min-width:140px;max-width:200px;">
+        <div class="card-body py-2 px-3">
+          <div class="small fw-semibold {% if t1_done %}text-success{% elif vehicle.days_in_storage >= 5 %}text-danger{% endif %}">
+            {% if t1_done %}<i class="bi bi-check-circle-fill me-1"></i>{% elif vehicle.bmv_stage == 'NO_RECORD' %}<i class="bi bi-exclamation-octagon-fill text-danger me-1"></i>{% else %}<i class="bi bi-circle me-1"></i>{% endif %}
+            Task 1 — BMV Search
+          </div>
+          {% if t1_done %}
+          <div class="text-success" style="font-size:.75rem;">Done {{ vehicle.bmv_searched_date|mdY if vehicle.bmv_searched_date else '' }}</div>
+          {% elif vehicle.bmv_stage == 'NO_RECORD' %}
+          <div class="text-danger" style="font-size:.75rem;">No Record Found</div>
+          {% else %}
+          <div class="text-muted" style="font-size:.75rem;">Day {{ vehicle.days_in_storage }} of {{ vehicle.impound_date|mdY }}</div>
+          {% endif %}
+          {% if vehicle.status == 'ACTIVE' and not t1_done and vehicle.bmv_stage != 'NO_RECORD' %}
+          <div class="mt-1 d-flex gap-1">
+            <button class="btn btn-success btn-sm py-0 px-2 flex-fill" data-bs-toggle="modal" data-bs-target="#bmvModal{{ vehicle.id }}">Done</button>
+            <button class="btn btn-danger btn-sm py-0 px-2 flex-fill" data-bs-toggle="modal" data-bs-target="#noRecordModal{{ vehicle.id }}">No Rec</button>
+          </div>
+          {% endif %}
+        </div>
+      </div>
+
+      {# Task 2 #}
+      <div class="card flex-fill border {% if l1_sent %}border-success bg-success bg-opacity-10{% elif vehicle.days_in_storage >= 5 %}border-danger bg-danger bg-opacity-10{% elif vehicle.days_in_storage >= 3 %}border-warning bg-warning bg-opacity-10{% else %}border-secondary bg-light{% endif %}" style="min-width:140px;max-width:220px;">
+        <div class="card-body py-2 px-3">
+          <div class="small fw-semibold {% if l1_sent %}text-success{% elif vehicle.days_in_storage >= 5 %}text-danger{% endif %}">
+            {% if l1_sent %}<i class="bi bi-check-circle-fill me-1"></i>{% else %}<i class="bi bi-circle me-1"></i>{% endif %}
+            Task 2 — 1st Notice Letter
+          </div>
+          {% if l1_sent %}
+          <div class="text-success" style="font-size:.75rem;">Sent {{ l1.sent_date|mdY }}</div>
+          {% elif vehicle.days_in_storage >= 5 %}
+          <div class="text-danger fw-semibold" style="font-size:.75rem;">OVERDUE — due {{ (vehicle.impound_date + (5|timedelta)) if vehicle.impound_date else '—' }}</div>
+          {% elif not t1_done %}
+          <div class="text-muted" style="font-size:.75rem;">Locked — complete Task 1 first</div>
+          {% else %}
+          <div class="text-muted" style="font-size:.75rem;">Opens day 5 ({{ (5 - vehicle.days_in_storage) }}d)</div>
+          {% endif %}
+          {% if l1 and not l1_sent and vehicle.days_in_storage >= 5 and vehicle.status == 'ACTIVE' %}
+          <a href="{{ url_for('letters_mark_sent', letter_id=l1.id) }}" class="btn btn-danger btn-sm py-0 mt-1 w-100">Send Now</a>
+          {% endif %}
+        </div>
+      </div>
+
+      {# Task 3 #}
+      {% set delivery_date = l1.delivery_confirmed_date if l1 and l1.delivery_confirmed_date else None %}
+      {% set task3_open = (delivery_date + timedelta(days=10)) if delivery_date else None %}
+      <div class="card flex-fill border {% if l2_sent %}border-success bg-success bg-opacity-10{% elif task3_open and today >= task3_open %}border-danger bg-danger bg-opacity-10{% elif task3_open %}border-warning bg-warning bg-opacity-10{% else %}border-secondary bg-light{% endif %}" style="min-width:140px;max-width:220px;">
+        <div class="card-body py-2 px-3">
+          <div class="small fw-semibold {% if l2_sent %}text-success{% elif task3_open and today >= task3_open %}text-danger{% endif %}">
+            {% if l2_sent %}<i class="bi bi-check-circle-fill me-1"></i>{% else %}<i class="bi bi-circle me-1"></i>{% endif %}
+            Task 3 — 2nd Notice Letter
+          </div>
+          {% if l2_sent %}
+          <div class="text-success" style="font-size:.75rem;">Sent {{ l2.sent_date|mdY }}</div>
+          {% elif task3_open and today >= task3_open %}
+          <div class="text-danger fw-semibold" style="font-size:.75rem;">SEND NOW — open since {{ task3_open|mdY }}</div>
+          {% elif task3_open %}
+          <div class="text-muted" style="font-size:.75rem;">Opens {{ task3_open|mdY }}</div>
+          {% elif l1_sent %}
+          <div class="text-muted" style="font-size:.75rem;">Awaiting delivery confirmation</div>
+          {% else %}
+          <div class="text-muted" style="font-size:.75rem;">Locked — complete Task 2 first</div>
+          {% endif %}
+          {% if l2 and not l2_sent and task3_open and today >= task3_open and vehicle.status == 'ACTIVE' %}
+          <a href="{{ url_for('letters_mark_sent', letter_id=l2.id) }}" class="btn btn-danger btn-sm py-0 mt-1 w-100">Send Now</a>
+          {% endif %}
+        </div>
+      </div>
+
+      {# Task 4 #}
+      {% set task4_open = (l2.sent_date + timedelta(days=45)) if l2_sent else None %}
+      <div class="card flex-fill border {% if vehicle.title_filing %}border-success bg-success bg-opacity-10{% elif task4_open and today >= task4_open %}border-warning bg-warning bg-opacity-10{% else %}border-secondary bg-light{% endif %}" style="min-width:140px;max-width:220px;">
+        <div class="card-body py-2 px-3">
+          <div class="small fw-semibold {% if vehicle.title_filing %}text-success{% elif task4_open and today >= task4_open %}text-warning{% endif %}">
+            {% if vehicle.title_filing %}<i class="bi bi-check-circle-fill me-1"></i>{% else %}<i class="bi bi-circle me-1"></i>{% endif %}
+            Task 4 — Ready to File
+          </div>
+          {% if vehicle.title_filing %}
+          <div class="text-success" style="font-size:.75rem;">Filed {{ vehicle.title_filing.filed_date|mdY }}</div>
+          {% elif task4_open and today >= task4_open %}
+          <div class="text-warning fw-semibold" style="font-size:.75rem;">ELIGIBLE — File with BMV</div>
+          {% elif task4_open %}
+          <div class="text-muted" style="font-size:.75rem;">Eligible {{ task4_open|mdY }} ({{ (task4_open - today).days }}d)</div>
+          {% else %}
+          <div class="text-muted" style="font-size:.75rem;">Locked — complete Task 3 first</div>
+          {% endif %}
+          {% if task4_open and today >= task4_open and not vehicle.title_filing and vehicle.status in ('ACTIVE', 'TITLE_FILED') %}
+          <a href="{{ url_for('file_title', vehicle_id=vehicle.id) }}" class="btn btn-success btn-sm py-0 mt-1 w-100">File Now</a>
+          {% endif %}
+        </div>
+      </div>
+
+    </div>
+    {% if vehicle.current_task_label %}
+    <div class="alert alert-light py-2 small mb-0">
+      <strong>Current task:</strong> Task {{ vehicle.current_task_num }} — {{ vehicle.current_task_label }}.
+      {% if vehicle.current_task_due %} Due: <strong>{{ vehicle.current_task_due|mdY }}</strong>.{% endif %}
+    </div>
+    {% endif %}
+  </div>
+</div>
+
+{# Task 1 modals on vehicle detail page #}
+{% if vehicle.status == 'ACTIVE' and not t1_done and vehicle.bmv_stage != 'NO_RECORD' %}
+<div class="modal fade" id="bmvModal{{ vehicle.id }}" tabindex="-1">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header"><h5 class="modal-title">BMV Search Complete — {{ vehicle.display_name }}</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+      <form method="POST" action="{{ url_for('heather.bmv_complete', vehicle_id=vehicle.id) }}">
+        <div class="modal-body">
+          <div class="mb-3"><label class="form-label fw-semibold">Owner info found / notes</label>
+            <textarea name="notes" class="form-control" rows="3" placeholder="Owner: John Smith, 123 Main St, Columbus OH 43213"></textarea></div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+          <button type="submit" class="btn btn-success">Mark BMV Complete</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+<div class="modal fade" id="noRecordModal{{ vehicle.id }}" tabindex="-1">
+  <div class="modal-dialog">
+    <div class="modal-content border-danger">
+      <div class="modal-header bg-danger text-white"><h5 class="modal-title"><i class="bi bi-exclamation-octagon me-2"></i>No Record Found</h5>
+        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button></div>
+      <form method="POST" action="{{ url_for('heather.mark_no_record', vehicle_id=vehicle.id) }}">
+        <div class="modal-body">
+          <div class="alert alert-danger py-2 small">This will flag the vehicle URGENT and notify Tim.</div>
+          <div class="mb-3"><label class="form-label fw-semibold">Notes</label>
+            <textarea name="notes" class="form-control" rows="3" placeholder="e.g. No owner or lienholder in BMV / VIN not on record"></textarea></div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+          <button type="submit" class="btn btn-danger">Flag as No Record Found</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+{% endif %}
+{% endif %}
 
 <div class="row g-4">
   {# ── Left Column ── #}
@@ -161,11 +372,13 @@
            class="btn btn-outline-primary" target="_blank">
           <i class="bi bi-file-earmark-bar-graph"></i> Valuation Report
         </a>
+        {% if current_user.can_collect_payments %}
         <a href="{{ url_for('payments.collect_payment', vehicle_id=vehicle.id) }}"
            class="btn btn-outline-success">
           <i class="bi bi-credit-card"></i> Collect Payment
         </a>
-        {% if vehicle.status == 'ACTIVE' %}
+        {% endif %}
+        {% if vehicle.status == 'ACTIVE' and current_user.can_edit_vehicles %}
           {% if vehicle.is_title_eligible and not vehicle.title_filing %}
           <a href="{{ url_for('file_title', vehicle_id=vehicle.id) }}" class="btn btn-success">
             <i class="bi bi-file-earmark-arrow-up"></i> File for Title
@@ -182,6 +395,12 @@
               <i class="bi bi-box-arrow-right"></i> Mark as Released
             </button>
           </form>
+        {% endif %}
+        {# Heather-specific actions #}
+        {% if current_user.is_heather and vehicle.status == 'ACTIVE' %}
+        <a href="{{ url_for('heather.envelope_scan') }}" class="btn btn-outline-secondary">
+          <i class="bi bi-camera"></i> Envelope Scan
+        </a>
         {% endif %}
       </div>
     </div>
@@ -463,7 +682,8 @@
         <p class="small text-muted mb-2">No damage items yet.</p>
         {% endif %}
 
-        {# Add damage item — preset fills the description + default amount #}
+        {# Add damage item — editors only #}
+        {% if current_user.can_edit_vehicles %}
         <form method="POST" action="{{ url_for('damages_add', vehicle_id=vehicle.id) }}" class="mb-2">
           <div class="input-group input-group-sm mb-1">
             <select id="dmgPreset" class="form-select form-select-sm" onchange="applyPreset(this)">
@@ -497,9 +717,64 @@
           </button>
         </form>
         {% endif %}
+        {% endif %}{# end can_edit_vehicles #}
 
       </div>
     </div>
+
+    {# ── Towbook Data (collapsed) ── #}
+    {% if vehicle.stock_number %}
+    <div class="card shadow-sm mb-4">
+      <div class="card-header fw-semibold" style="cursor:pointer;"
+           data-bs-toggle="collapse" data-bs-target="#towbook-data">
+        <i class="bi bi-cloud-download me-1"></i> Towbook Data
+        <i class="bi bi-chevron-down ms-2 small"></i>
+      </div>
+      <div class="collapse" id="towbook-data">
+        <div class="card-body small">
+          <dl class="row mb-0">
+            <dt class="col-sm-5 text-muted">Stock #</dt>
+            <dd class="col-sm-7 font-monospace">{{ vehicle.stock_number }}</dd>
+            {% if vehicle.call_number %}
+            <dt class="col-sm-5 text-muted">Call #</dt>
+            <dd class="col-sm-7">{{ vehicle.call_number }}</dd>
+            {% endif %}
+            {% if vehicle.invoice_number %}
+            <dt class="col-sm-5 text-muted">Invoice #</dt>
+            <dd class="col-sm-7">{{ vehicle.invoice_number }}</dd>
+            {% endif %}
+            {% if vehicle.account %}
+            <dt class="col-sm-5 text-muted">Account</dt>
+            <dd class="col-sm-7">{{ vehicle.account }}</dd>
+            {% endif %}
+            {% if vehicle.impound_reason %}
+            <dt class="col-sm-5 text-muted">Reason</dt>
+            <dd class="col-sm-7">{{ vehicle.impound_reason }}</dd>
+            {% endif %}
+            {% if vehicle.balance_due is not none %}
+            <dt class="col-sm-5 text-muted">Balance Due</dt>
+            <dd class="col-sm-7">${{ '%.2f'|format(vehicle.balance_due) }}</dd>
+            {% endif %}
+            <dt class="col-sm-5 text-muted">Have Keys</dt>
+            <dd class="col-sm-7">{% if vehicle.have_keys %}<span class="badge bg-success">Yes</span>{% else %}<span class="badge bg-secondary">No</span>{% endif %}</dd>
+            {% if vehicle.last_synced %}
+            <dt class="col-sm-5 text-muted">Last Synced</dt>
+            <dd class="col-sm-7">{{ vehicle.last_synced.strftime('%m/%d/%Y %I:%M %p') }}</dd>
+            {% endif %}
+            {% if vehicle.tasks_overdue or vehicle.tasks_due_today or vehicle.tasks_due_next or vehicle.tasks_due_soon %}
+            <dt class="col-sm-5 text-muted">Towbook Tasks</dt>
+            <dd class="col-sm-7">
+              {% if vehicle.tasks_overdue %}<span class="badge bg-danger me-1">{{ vehicle.tasks_overdue }} overdue</span>{% endif %}
+              {% if vehicle.tasks_due_today %}<span class="badge bg-warning text-dark me-1">{{ vehicle.tasks_due_today }} today</span>{% endif %}
+              {% if vehicle.tasks_due_next %}<span class="badge bg-info text-dark me-1">{{ vehicle.tasks_due_next }} next</span>{% endif %}
+              {% if vehicle.tasks_due_soon %}<span class="badge bg-secondary me-1">{{ vehicle.tasks_due_soon }} soon</span>{% endif %}
+            </dd>
+            {% endif %}
+          </dl>
+        </div>
+      </div>
+    </div>
+    {% endif %}
 
     {# ── Notes / Activity Log ── #}
     <div class="card shadow-sm">

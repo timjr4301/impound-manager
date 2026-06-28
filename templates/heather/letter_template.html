@@ -44,7 +44,7 @@
 </div>
 
 <div class="date-line">
-  {{ today.strftime('%B %-d, %Y') }}
+  {{ today|long_date }}
 </div>
 
 <div class="recipient">
@@ -66,7 +66,7 @@
   {% if vehicle.color %} ({{ vehicle.color }}){% endif %}<br>
   {% if vehicle.vin %}VIN: {{ vehicle.vin }}<br>{% endif %}
   {% if vehicle.plate %}License Plate: {{ vehicle.plate }}{% if vehicle.plate_state %} ({{ vehicle.plate_state }}){% endif %}<br>{% endif %}
-  Date Impounded: {{ vehicle.impound_date.strftime('%B %-d, %Y') }}<br>
+  Date Impounded: {{ vehicle.impound_date|long_date }}<br>
   {% if vehicle.police_report_number %}Police Report #: {{ vehicle.police_report_number }}<br>{% endif %}
 </div>
 
@@ -82,7 +82,7 @@
     {{ storage_address }}
   </p>
 
-  <p>The vehicle was impounded on <strong>{{ vehicle.impound_date.strftime('%B %-d, %Y') }}</strong> as a private property impound. Pursuant to Ohio Revised Code § 4513.601, you are hereby notified of this impoundment.</p>
+  <p>The vehicle was impounded on <strong>{{ vehicle.impound_date|long_date }}</strong> as a private property impound. Pursuant to Ohio Revised Code § 4513.601, you are hereby notified of this impoundment.</p>
 
   <p>To reclaim this vehicle, you must contact us to arrange payment of all accrued towing and storage fees prior to release. Storage fees are currently accruing at a rate of <strong>${{ '%.2f'|format(vehicle.daily_storage_rate or 0) }} per day</strong>.</p>
 
@@ -118,9 +118,9 @@
   </p>
 
   {% if vehicle.police_report_number %}
-  <p>This vehicle was impounded in connection with Police Report No. <strong>{{ vehicle.police_report_number }}</strong> on <strong>{{ vehicle.impound_date.strftime('%B %-d, %Y') }}</strong>.</p>
+  <p>This vehicle was impounded in connection with Police Report No. <strong>{{ vehicle.police_report_number }}</strong> on <strong>{{ vehicle.impound_date|long_date }}</strong>.</p>
   {% else %}
-  <p>This vehicle was impounded on <strong>{{ vehicle.impound_date.strftime('%B %-d, %Y') }}</strong>.</p>
+  <p>This vehicle was impounded on <strong>{{ vehicle.impound_date|long_date }}</strong>.</p>
   {% endif %}
 
   <p>To reclaim this vehicle, you must contact us to arrange payment of all towing and storage fees. Storage fees accrue at <strong>${{ '%.2f'|format(vehicle.daily_storage_rate or 0) }} per day</strong>. You may also need to provide documentation from the impounding law enforcement agency authorizing release.</p>

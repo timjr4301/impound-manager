@@ -35,11 +35,13 @@
 </head>
 <body>
   <nav class="navbar navbar-dark bg-dark mb-4 px-3">
-    <a class="navbar-brand" href="{{ url_for('dashboard') }}">
+    {% if current_user.is_authenticated %}
+    <a class="navbar-brand" href="/">
       <i class="bi bi-truck me-1"></i> Impound Manager
     </a>
 
-    <form class="d-flex mx-auto" action="{{ url_for('search') }}" method="GET" style="width:280px">
+    {# Search — available to everyone #}
+    <form class="d-flex mx-auto" action="{{ url_for('search') }}" method="GET" style="width:260px">
       <div class="input-group input-group-sm">
         <input class="form-control" type="search" name="q" placeholder="Search plate, VIN, owner…"
                value="{{ request.args.get('q', '') }}" autocomplete="off">
@@ -47,57 +49,89 @@
       </div>
     </form>
 
-    <div class="d-flex align-items-center gap-1">
-      {% if current_user.is_authenticated %}
-        {% if current_user.can_see_all %}
-          <a href="{{ url_for('dashboard') }}" class="nav-link text-white px-2">
-            <i class="bi bi-speedometer2"></i> Overview
-          </a>
-          <a href="{{ url_for('heather.dashboard') }}" class="nav-link text-white px-2">
-            <i class="bi bi-envelope-check"></i> Heather
-          </a>
-          <a href="{{ url_for('tina.dashboard') }}" class="nav-link text-white px-2">
-            <i class="bi bi-file-earmark-check"></i> Tina
-          </a>
-          <a href="{{ url_for('drivers.dashboard') }}" class="nav-link text-white px-2">
-            <i class="bi bi-people"></i> Drivers
-          </a>
-        {% endif %}
-        {% if current_user.is_heather %}
-          <a href="{{ url_for('heather.dashboard') }}" class="nav-link text-white px-2">
-            <i class="bi bi-house-door"></i> My Dashboard
-          </a>
-        {% endif %}
-        {% if current_user.is_tina and not current_user.can_see_all %}
-          <a href="{{ url_for('tina.dashboard') }}" class="nav-link text-white px-2">
-            <i class="bi bi-house-door"></i> My Dashboard
-          </a>
-        {% endif %}
-        {% if current_user.can_see_all %}
-          <a href="{{ url_for('pipeline') }}" class="nav-link text-white px-2">
-            <i class="bi bi-calendar3"></i> Pipeline
-          </a>
-        {% endif %}
+    <div class="d-flex align-items-center gap-1 flex-wrap">
+
+      {# ── TIM: full nav ── #}
+      {% if current_user.can_see_all %}
+        <a href="{{ url_for('dashboard') }}" class="nav-link text-white px-2">
+          <i class="bi bi-speedometer2"></i> Overview
+        </a>
+        <a href="{{ url_for('heather.dashboard') }}" class="nav-link text-white px-2">
+          <i class="bi bi-envelope-check"></i> Heather
+        </a>
+        <a href="{{ url_for('tina.dashboard') }}" class="nav-link text-white px-2">
+          <i class="bi bi-file-earmark-check"></i> Tina
+        </a>
+        <a href="{{ url_for('drivers.dashboard') }}" class="nav-link text-white px-2">
+          <i class="bi bi-people"></i> Drivers
+        </a>
+        <a href="{{ url_for('pipeline') }}" class="nav-link text-white px-2">
+          <i class="bi bi-calendar3"></i> Pipeline
+        </a>
         <a href="{{ url_for('vehicles_list') }}" class="nav-link text-white px-2">
           <i class="bi bi-list-ul"></i> Vehicles
         </a>
         <a href="{{ url_for('vehicles_new') }}" class="btn btn-success btn-sm px-2 ms-1">
           <i class="bi bi-plus-lg"></i> New
         </a>
-        <div class="dropdown ms-2">
-          <button class="btn btn-outline-light btn-sm dropdown-toggle" type="button" data-bs-toggle="dropdown">
-            <i class="bi bi-person-circle me-1"></i>{{ current_user.display_name or current_user.username }}
-          </button>
-          <ul class="dropdown-menu dropdown-menu-end">
-            <li><span class="dropdown-item-text text-muted small">Role: {{ current_user.role }}</span></li>
-            <li><hr class="dropdown-divider"></li>
-            <li><a class="dropdown-item" href="{{ url_for('auth.logout') }}">
-              <i class="bi bi-box-arrow-right me-1"></i> Logout
-            </a></li>
-          </ul>
-        </div>
+
+      {# ── TINA: vehicles + pipeline + heather view ── #}
+      {% elif current_user.role == 'tina' %}
+        <a href="{{ url_for('tina.dashboard') }}" class="nav-link text-white px-2">
+          <i class="bi bi-house-door"></i> My Dashboard
+        </a>
+        <a href="{{ url_for('heather.dashboard') }}" class="nav-link text-white px-2">
+          <i class="bi bi-envelope-check"></i> Heather Queue
+        </a>
+        <a href="{{ url_for('vehicles_list') }}" class="nav-link text-white px-2">
+          <i class="bi bi-list-ul"></i> Vehicles
+        </a>
+        <a href="{{ url_for('pipeline') }}" class="nav-link text-white px-2">
+          <i class="bi bi-calendar3"></i> Pipeline
+        </a>
+        <a href="{{ url_for('vehicles_new') }}" class="btn btn-success btn-sm px-2 ms-1">
+          <i class="bi bi-plus-lg"></i> New
+        </a>
+
+      {# ── HEATHER: own dashboard + vehicle list (view only) ── #}
+      {% elif current_user.role == 'heather' %}
+        <a href="{{ url_for('heather.dashboard') }}" class="nav-link text-white px-2">
+          <i class="bi bi-house-door"></i> My Dashboard
+        </a>
+        <a href="{{ url_for('vehicles_list') }}" class="nav-link text-white px-2">
+          <i class="bi bi-list-ul"></i> Vehicles
+        </a>
+
+      {# ── DISPATCHER: dispatch board + vehicles ── #}
+      {% elif current_user.role == 'dispatcher' %}
+        <a href="{{ url_for('dispatch_board') }}" class="nav-link text-white px-2">
+          <i class="bi bi-broadcast"></i> Dispatch Board
+        </a>
+        <a href="{{ url_for('vehicles_list') }}" class="nav-link text-white px-2">
+          <i class="bi bi-list-ul"></i> Vehicles
+        </a>
       {% endif %}
+
+      {# ── User menu (everyone) ── #}
+      <div class="dropdown ms-2">
+        <button class="btn btn-outline-light btn-sm dropdown-toggle" type="button" data-bs-toggle="dropdown">
+          <i class="bi bi-person-circle me-1"></i>{{ current_user.display_name or current_user.username }}
+        </button>
+        <ul class="dropdown-menu dropdown-menu-end">
+          <li><span class="dropdown-item-text text-muted small">{{ current_user.display_name or current_user.username }} ({{ current_user.role }})</span></li>
+          <li><hr class="dropdown-divider"></li>
+          <li><a class="dropdown-item" href="{{ url_for('auth.logout') }}">
+            <i class="bi bi-box-arrow-right me-1"></i> Logout
+          </a></li>
+        </ul>
+      </div>
+
     </div>
+    {% else %}
+    <a class="navbar-brand" href="/">
+      <i class="bi bi-truck me-1"></i> Impound Manager
+    </a>
+    {% endif %}
   </nav>
 
   <div class="container-fluid px-4" style="max-width: 1340px;">

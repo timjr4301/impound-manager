@@ -154,6 +154,13 @@ def import_csv():
 
     db.session.commit()
 
+    # Recalculate task pipeline for all active vehicles after every sync
+    try:
+        from task_engine import recalculate_all
+        urgency_counts = recalculate_all()
+    except Exception as exc:
+        urgency_counts = {'error': str(exc)}
+
     global _last_import
     _last_import = {
         'ok': True,
@@ -162,6 +169,7 @@ def import_csv():
         'updated': updated,
         'skipped': skipped,
         'errors': errors,
+        'urgency': urgency_counts,
         'imported_at': datetime.utcnow().isoformat(),
     }
     return jsonify(_last_import)

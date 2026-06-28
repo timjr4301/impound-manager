@@ -35,21 +35,52 @@ class User(UserMixin, db.Model):
     def check_password(self, password):
         return check_password_hash(self.password_hash, password)
 
+    # ── Role helpers ──────────────────────────────────────────────────────────
+
     @property
     def can_see_all(self):
         return self.role == 'tim'
 
     @property
     def is_heather(self):
+        """Tim and Heather can perform Heather-role actions."""
         return self.role in ('heather', 'tim')
 
     @property
     def is_tina(self):
+        """Tim and Tina can perform Tina-role actions."""
         return self.role in ('tina', 'tim')
 
     @property
     def is_dispatcher(self):
         return self.role in ('dispatcher', 'tim')
+
+    @property
+    def can_edit_vehicles(self):
+        """Tim and Tina can create/edit/release vehicle records."""
+        return self.role in ('tim', 'tina')
+
+    @property
+    def can_see_heather_dashboard(self):
+        """Tim, Heather, and Tina can view Heather's dashboard."""
+        return self.role in ('tim', 'heather', 'tina')
+
+    @property
+    def can_see_tina_dashboard(self):
+        return self.role in ('tim', 'tina')
+
+    @property
+    def can_see_drivers(self):
+        """Only Tim has access to driver pay, payroll, timecards, HR."""
+        return self.role == 'tim'
+
+    @property
+    def can_see_dispatch(self):
+        return self.role in ('tim', 'dispatcher')
+
+    @property
+    def can_collect_payments(self):
+        return self.role in ('tim', 'tina', 'dispatcher')
 
 
 class Vehicle(db.Model):
@@ -132,6 +163,23 @@ class Vehicle(db.Model):
     storage_paid = db.Column(db.Float, default=0.0)
     payment_date = db.Column(db.Date)
     payment_reference = db.Column(db.String(100))
+
+    # Task 5: No Record Found URGENT flag (set by Heather, cleared only by Tim)
+    task_no_record = db.Column(db.Boolean, default=False)
+    task_no_record_notes = db.Column(db.Text)
+    task_no_record_resolved = db.Column(db.Boolean, default=False)
+    task_no_record_resolved_by = db.Column(db.String(50))
+    task_no_record_resolved_date = db.Column(db.Date)
+
+    # Task 4 auto-trigger tracking
+    task4_triggered = db.Column(db.Boolean, default=False)
+    task4_triggered_date = db.Column(db.Date)
+
+    # Pre-computed by task_engine.recalculate_all — enables fast DB queries
+    letter_urgency    = db.Column(db.String(10))    # RED | YELLOW | GREEN | NA
+    current_task_num  = db.Column(db.Integer)       # 1, 2, 3, 4
+    current_task_label = db.Column(db.String(100))
+    current_task_due  = db.Column(db.Date)
 
     status = db.Column(db.String(20), nullable=False, default='ACTIVE')
     notes = db.Column(db.Text)

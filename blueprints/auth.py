@@ -17,7 +17,16 @@ def login():
         if user and user.check_password(password) and user.is_active:
             login_user(user, remember=True)
             next_page = request.args.get('next')
-            return redirect(next_page or url_for('dashboard'))
+            if next_page:
+                return redirect(next_page)
+            # Route each role to their own dashboard
+            if user.role == 'tina':
+                return redirect(url_for('tina.dashboard'))
+            if user.role == 'heather':
+                return redirect(url_for('heather.dashboard'))
+            if user.role == 'dispatcher':
+                return redirect(url_for('dispatch_board'))
+            return redirect(url_for('dashboard'))
         flash('Invalid username or password.', 'danger')
 
     return render_template('auth/login.html')

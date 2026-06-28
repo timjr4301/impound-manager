@@ -64,7 +64,7 @@
   </div>
   <div>
     <div class="report-title">Vehicle Valuation Report</div>
-    <div class="report-date">Generated: {{ today.strftime('%B %-d, %Y') }}</div>
+    <div class="report-date">Generated: {{ today|long_date }}</div>
   </div>
 </div>
 
@@ -78,7 +78,7 @@
     {% if vehicle.vin %}<dt>VIN</dt><dd class="font-mono" style="font-family:monospace;">{{ vehicle.vin }}</dd>{% endif %}
     {% if vehicle.plate %}<dt>License Plate</dt><dd>{{ vehicle.plate }} ({{ vehicle.plate_state }})</dd>{% endif %}
     {% if vehicle.mileage %}<dt>Mileage</dt><dd>{{ '{:,}'.format(vehicle.mileage) }}</dd>{% endif %}
-    <dt>Impound Date</dt><dd>{{ vehicle.impound_date.strftime('%B %-d, %Y') }}</dd>
+    <dt>Impound Date</dt><dd>{{ vehicle.impound_date|long_date }}</dd>
     <dt>Days in Storage</dt><dd>{{ vehicle.days_in_storage }}</dd>
     <dt>Impound Type</dt><dd>{{ vehicle.impound_type }}</dd>
     {% if vehicle.police_report_number %}<dt>Police Report #</dt><dd>{{ vehicle.police_report_number }}</dd>{% endif %}

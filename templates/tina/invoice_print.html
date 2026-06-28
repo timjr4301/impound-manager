@@ -40,7 +40,7 @@
   <div style="text-align:right;">
     <div class="invoice-label">Invoice</div>
     <div class="invoice-num">{{ inv.invoice_number }}</div>
-    <div style="color:#666;font-size:10pt;margin-top:4px;">Date: {{ inv.issue_date.strftime('%B %-d, %Y') }}</div>
+    <div style="color:#666;font-size:10pt;margin-top:4px;">Date: {{ inv.issue_date|long_date }}</div>
     <div class="badge-type {% if inv.invoice_type == 'SALE' %}badge-sale{% else %}badge-junk{% endif %}" style="margin-top:8px;">
       {{ inv.invoice_type }}
     </div>

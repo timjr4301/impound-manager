@@ -1,0 +1,47 @@
+{% extends 'base.html' %}
+{% block title %}Payment History — {{ vehicle.display_name }}{% endblock %}
+{% block content %}
+<div class="d-flex align-items-center mb-4 gap-3">
+  <a href="{{ url_for('vehicles_detail', vehicle_id=vehicle.id) }}" class="btn btn-outline-secondary btn-sm">
+    <i class="bi bi-arrow-left"></i>
+  </a>
+  <div>
+    <h2 class="h4 mb-0 fw-bold">Payment History</h2>
+    <small class="text-muted">{{ vehicle.display_name }}</small>
+  </div>
+</div>
+{% if payments %}
+<div class="card shadow-sm">
+  <div class="card-body p-0">
+    <table class="table mb-0">
+      <thead><tr><th>Date</th><th>Amount</th><th>Type</th><th>By</th><th>Reference</th><th>Notes</th></tr></thead>
+      <tbody>
+      {% for p in payments %}
+      <tr>
+        <td>{{ p.payment_date.strftime('%m/%d/%Y %I:%M %p') if p.payment_date else '—' }}</td>
+        <td class="fw-semibold text-success">{{ p.amount|currency }}</td>
+        <td><span class="badge bg-secondary">{{ p.payment_type or '—' }}</span></td>
+        <td class="small">{{ p.processed_by or '—' }}</td>
+        <td class="font-monospace small">{{ (p.cloudpos_transaction_id or p.reference_number or '—')[:30] }}</td>
+        <td class="small text-muted">{{ p.notes or '' }}</td>
+      </tr>
+      {% endfor %}
+      <tr class="fw-bold">
+        <td colspan="4">Total Collected</td>
+        <td colspan="2" class="text-success">{{ payments|sum(attribute='amount')|currency }}</td>
+      </tr>
+      </tbody>
+    </table>
+  </div>
+</div>
+{% else %}
+<div class="card shadow-sm">
+  <div class="card-body text-center py-4 text-muted">No payments recorded yet.</div>
+</div>
+{% endif %}
+<div class="mt-3">
+  <a href="{{ url_for('payments.collect_payment', vehicle_id=vehicle.id) }}" class="btn btn-success">
+    <i class="bi bi-credit-card me-1"></i> Collect Payment
+  </a>
+</div>
+{% endblock %}
