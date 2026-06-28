@@ -2,8 +2,8 @@ import csv
 import io
 import os
 from datetime import date, datetime, timedelta
-from flask import Flask, render_template, request, redirect, url_for, flash
-from models import (db, Vehicle, CertifiedLetter, TitleFiling, VehicleNote,
+from flask import Flask, render_template, request, redirect, url_for, flash, send_file, jsonify
+from models import (db, Vehicle, CertifiedLetter, TitleFiling, VehicleNote, DamageItem,
                     PPI_LETTER1_DAYS, PPI_LETTER2_DAYS, POLICE_LETTER1_DAYS)
 
 
@@ -17,10 +17,22 @@ def run_migrations(app):
         with db.engine.begin() as conn:
             if 'vehicles' in existing_tables:
                 cols = {c['name'] for c in inspector.get_columns('vehicles')}
-                if 'owner_name' not in cols:
-                    conn.execute(text('ALTER TABLE vehicles ADD COLUMN owner_name VARCHAR(100)'))
-                if 'owner_address' not in cols:
-                    conn.execute(text('ALTER TABLE vehicles ADD COLUMN owner_address TEXT'))
+                new_cols = [
+                    ('owner_name',          'VARCHAR(100)'),
+                    ('owner_address',        'TEXT'),
+                    ('lienholder_name',      'VARCHAR(100)'),
+                    ('lienholder_address',   'TEXT'),
+                    ('lienholder_city',      'VARCHAR(50)'),
+                    ('lienholder_state',     'VARCHAR(2)'),
+                    ('lienholder_zip',       'VARCHAR(10)'),
+                    ('tow_fee',              'FLOAT'),
+                    ('daily_storage_rate',   'FLOAT'),
+                    ('nada_value',           'FLOAT'),
+                    ('mileage',              'INTEGER'),
+                ]
+                for col_name, col_type in new_cols:
+                    if col_name not in cols:
+                        conn.execute(text(f'ALTER TABLE vehicles ADD COLUMN {col_name} {col_type}'))
 
 
 def parse_quantum_view_csv(content: str):
@@ -114,6 +126,13 @@ def create_app():
     app.config['COMPANY_ADDRESS'] = os.environ.get('COMPANY_ADDRESS', '123 Storage Dr, Columbus, OH 43215')
     app.config['COMPANY_PHONE'] = os.environ.get('COMPANY_PHONE', '(614) 555-0100')
     app.config['STORAGE_ADDRESS'] = os.environ.get('STORAGE_ADDRESS', '123 Storage Dr, Columbus, OH 43215')
+
+    # Title packet template — BlankTitlePacket.pdf from TitleBot
+    default_template = os.environ.get(
+        'TITLE_PACKET_TEMPLATE',
+        r'C:\TitleBot\Templates\BlankTitlePacket.pdf'
+    )
+    app.config['TITLE_PACKET_TEMPLATE'] = default_template
 
     db.init_app(app)
 
@@ -269,6 +288,10 @@ def create_app():
 
     def _vehicle_from_form(form, vehicle=None):
         year_str = form.get('year', '').strip()
+        mile_str = form.get('mileage', '').strip()
+        tow_str  = form.get('tow_fee', '').strip()
+        rate_str = form.get('daily_storage_rate', '').strip()
+        nada_str = form.get('nada_value', '').strip()
         fields = dict(
             vin=form.get('vin', '').strip() or None,
             plate=form.get('plate', '').strip() or None,
@@ -281,6 +304,15 @@ def create_app():
             police_report_number=form.get('police_report_number', '').strip() or None,
             owner_name=form.get('owner_name', '').strip() or None,
             owner_address=form.get('owner_address', '').strip() or None,
+            lienholder_name=form.get('lienholder_name', '').strip() or None,
+            lienholder_address=form.get('lienholder_address', '').strip() or None,
+            lienholder_city=form.get('lienholder_city', '').strip() or None,
+            lienholder_state=form.get('lienholder_state', '').strip() or None,
+            lienholder_zip=form.get('lienholder_zip', '').strip() or None,
+            mileage=int(mile_str.replace(',', '')) if mile_str.replace(',', '').isdigit() else None,
+            tow_fee=float(tow_str) if tow_str else None,
+            daily_storage_rate=float(rate_str) if rate_str else None,
+            nada_value=float(nada_str) if nada_str else None,
             notes=form.get('notes', '').strip() or None,
         )
         if vehicle:
@@ -332,7 +364,18 @@ def create_app():
     @app.route('/vehicles/<int:vehicle_id>')
     def vehicles_detail(vehicle_id):
         vehicle = db.get_or_404(Vehicle, vehicle_id)
-        return render_template('vehicles/detail.html', vehicle=vehicle, today=date.today())
+        from titlebot.storage import calculate_storage
+        storage_days, storage_total, storage_breakdown = calculate_storage(
+            vehicle.impound_date, date.today(), vehicle.daily_storage_rate or 0
+        )
+        return render_template(
+            'vehicles/detail.html',
+            vehicle=vehicle,
+            today=date.today(),
+            storage_days=storage_days,
+            storage_total=storage_total,
+            storage_breakdown=storage_breakdown,
+        )
 
     @app.route('/vehicles/<int:vehicle_id>/edit', methods=['GET', 'POST'])
     def vehicles_edit(vehicle_id):
@@ -492,6 +535,145 @@ def create_app():
             company_phone=app.config['COMPANY_PHONE'],
             storage_address=app.config['STORAGE_ADDRESS'],
         )
+
+    # ── Towbook PDF import ────────────────────────────────────────────────
+
+    @app.route('/towbook-import', methods=['POST'])
+    def towbook_import():
+        uploaded = request.files.get('pdf_file')
+        if not uploaded or not uploaded.filename:
+            return jsonify({'error': 'No file uploaded'}), 400
+        try:
+            from titlebot.parser import extract_text_from_pdf, extract_towbook_data
+            pdf_bytes = uploaded.stream.read()
+            text = extract_text_from_pdf(pdf_bytes)
+            data = extract_towbook_data(text)
+            return jsonify({'ok': True, 'data': data})
+        except Exception as exc:
+            return jsonify({'error': str(exc)}), 500
+
+    # ── Damage items ──────────────────────────────────────────────────────
+
+    @app.route('/vehicles/<int:vehicle_id>/damages', methods=['POST'])
+    def damages_add(vehicle_id):
+        vehicle = db.get_or_404(Vehicle, vehicle_id)
+        desc = request.form.get('description', '').strip()
+        amt_str = request.form.get('amount', '').strip()
+        if not desc or not amt_str:
+            flash('Description and amount are required.', 'danger')
+            return redirect(url_for('vehicles_detail', vehicle_id=vehicle_id))
+        try:
+            amount = float(amt_str)
+        except ValueError:
+            flash('Invalid amount.', 'danger')
+            return redirect(url_for('vehicles_detail', vehicle_id=vehicle_id))
+        next_order = (max((d.sort_order for d in vehicle.damage_items), default=-1) + 1)
+        db.session.add(DamageItem(
+            vehicle_id=vehicle.id,
+            description=desc.upper(),
+            amount=amount,
+            is_fallback=False,
+            sort_order=next_order,
+            created_at=datetime.utcnow(),
+        ))
+        db.session.commit()
+        flash(f'Damage item added: {desc.upper()} ${amount:.2f}', 'success')
+        return redirect(url_for('vehicles_detail', vehicle_id=vehicle_id) + '#title-packet')
+
+    @app.route('/damages/<int:damage_id>/delete', methods=['POST'])
+    def damages_delete(damage_id):
+        item = db.get_or_404(DamageItem, damage_id)
+        vehicle_id = item.vehicle_id
+        db.session.delete(item)
+        db.session.commit()
+        return redirect(url_for('vehicles_detail', vehicle_id=vehicle_id) + '#title-packet')
+
+    @app.route('/vehicles/<int:vehicle_id>/damages/auto-fill', methods=['POST'])
+    def damages_auto_fill(vehicle_id):
+        vehicle = db.get_or_404(Vehicle, vehicle_id)
+        from titlebot.damages import auto_fill_fallbacks
+        from titlebot.storage import calculate_storage
+        nada = vehicle.nada_value or 3499.0
+        tow  = vehicle.tow_fee or 0.0
+        _, total_storage, _ = calculate_storage(vehicle.impound_date, date.today(), vehicle.daily_storage_rate or 0)
+        to_add = auto_fill_fallbacks(vehicle.damage_items, nada, tow, total_storage)
+        next_order = max((d.sort_order for d in vehicle.damage_items), default=-1) + 1
+        for desc, amount, is_fallback in to_add:
+            db.session.add(DamageItem(
+                vehicle_id=vehicle.id,
+                description=desc,
+                amount=amount,
+                is_fallback=is_fallback,
+                sort_order=next_order,
+                created_at=datetime.utcnow(),
+            ))
+            next_order += 1
+        db.session.commit()
+        if to_add:
+            flash(f'{len(to_add)} fallback damage item(s) added — review for accuracy.', 'warning')
+        else:
+            flash('Damage items are already sufficient to cover the NADA gap.', 'info')
+        return redirect(url_for('vehicles_detail', vehicle_id=vehicle_id) + '#title-packet')
+
+    # ── NADA / Edmunds value lookup ───────────────────────────────────────
+
+    @app.route('/vehicles/<int:vehicle_id>/nada-lookup', methods=['POST'])
+    def nada_lookup(vehicle_id):
+        vehicle = db.get_or_404(Vehicle, vehicle_id)
+        if not vehicle.vin:
+            flash('VIN is required for NADA lookup.', 'danger')
+            return redirect(url_for('vehicles_detail', vehicle_id=vehicle_id))
+        from titlebot.nada import lookup_wholesale_value
+        mileage = vehicle.mileage or 80000
+        result = lookup_wholesale_value(
+            vin=vehicle.vin,
+            mileage=mileage,
+            api_key=os.environ.get('ANTHROPIC_API_KEY'),
+        )
+        vehicle.nada_value = result['value']
+        vehicle.updated_at = datetime.utcnow()
+        db.session.commit()
+        if result['used_default']:
+            flash(
+                f'NADA lookup returned default ${result["value"]:,.0f} — {result["notes"]} '
+                'Enter the correct value manually.',
+                'warning'
+            )
+        else:
+            flash(
+                f'NADA value set to ${result["value"]:,.0f} ({result["condition"]}, '
+                f'{result["confidence"]} confidence via {result["source"]}).',
+                'success'
+            )
+        return redirect(url_for('vehicles_detail', vehicle_id=vehicle_id) + '#title-packet')
+
+    # ── Generate Title Packet PDF ─────────────────────────────────────────
+
+    @app.route('/vehicles/<int:vehicle_id>/title-packet.pdf')
+    def title_packet_pdf(vehicle_id):
+        vehicle = db.get_or_404(Vehicle, vehicle_id)
+        template_path = app.config['TITLE_PACKET_TEMPLATE']
+        if not os.path.isfile(template_path):
+            flash(
+                f'Title packet template not found at: {template_path}. '
+                'Set TITLE_PACKET_TEMPLATE environment variable to the correct path.',
+                'danger'
+            )
+            return redirect(url_for('vehicles_detail', vehicle_id=vehicle_id))
+        try:
+            from titlebot.pdf_gen import generate_title_packet
+            pdf_bytes = generate_title_packet(vehicle, template_path)
+            safe_name = (vehicle.vin or f'vehicle{vehicle.id}')[-10:]
+            filename = f'{safe_name}_TitlePacket_{date.today().strftime("%Y%m%d")}.pdf'
+            return send_file(
+                io.BytesIO(pdf_bytes),
+                mimetype='application/pdf',
+                as_attachment=True,
+                download_name=filename,
+            )
+        except Exception as exc:
+            flash(f'PDF generation failed: {exc}', 'danger')
+            return redirect(url_for('vehicles_detail', vehicle_id=vehicle_id))
 
     # ── Import: UPS Quantum View ──────────────────────────────────────────────
 

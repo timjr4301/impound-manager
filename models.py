@@ -34,6 +34,19 @@ class Vehicle(db.Model):
     owner_name = db.Column(db.String(100))
     owner_address = db.Column(db.Text)
 
+    # Lienholder — required on BMV 4202 form
+    lienholder_name = db.Column(db.String(100))
+    lienholder_address = db.Column(db.Text)
+    lienholder_city = db.Column(db.String(50))
+    lienholder_state = db.Column(db.String(2))
+    lienholder_zip = db.Column(db.String(10))
+
+    # Financial — used for title packet / BMV 4202
+    tow_fee = db.Column(db.Float)
+    daily_storage_rate = db.Column(db.Float)
+    nada_value = db.Column(db.Float)
+    mileage = db.Column(db.Integer)
+
     status = db.Column(db.String(20), nullable=False, default='ACTIVE')  # ACTIVE, RELEASED, TITLE_FILED
     notes = db.Column(db.Text)
     created_at = db.Column(db.DateTime)
@@ -50,6 +63,11 @@ class Vehicle(db.Model):
     )
     note_entries = db.relationship(
         'VehicleNote', back_populates='vehicle',
+        cascade='all, delete-orphan'
+    )
+    damage_items = db.relationship(
+        'DamageItem', back_populates='vehicle',
+        order_by='DamageItem.sort_order',
         cascade='all, delete-orphan'
     )
 
@@ -219,3 +237,17 @@ class VehicleNote(db.Model):
     created_at = db.Column(db.DateTime)
 
     vehicle = db.relationship('Vehicle', back_populates='note_entries')
+
+
+class DamageItem(db.Model):
+    __tablename__ = 'damage_items'
+
+    id = db.Column(db.Integer, primary_key=True)
+    vehicle_id = db.Column(db.Integer, db.ForeignKey('vehicles.id'), nullable=False)
+    description = db.Column(db.String(100), nullable=False)
+    amount = db.Column(db.Float, nullable=False)
+    is_fallback = db.Column(db.Boolean, default=False)  # auto-added, needs review
+    sort_order = db.Column(db.Integer, default=0)
+    created_at = db.Column(db.DateTime)
+
+    vehicle = db.relationship('Vehicle', back_populates='damage_items')

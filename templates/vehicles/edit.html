@@ -98,6 +98,68 @@
         </div>
       </div>
 
+      <div class="card shadow-sm mb-4">
+        <div class="card-header fw-semibold">Lienholder <small class="fw-normal text-muted">(required on BMV 4202 — enter "None" if no lien)</small></div>
+        <div class="card-body">
+          <div class="row g-3">
+            <div class="col-12">
+              <label for="lienholder_name" class="form-label fw-semibold">Lienholder Name</label>
+              <input type="text" class="form-control" id="lienholder_name" name="lienholder_name"
+                value="{{ vehicle.lienholder_name or '' }}" placeholder="Bank of America or None">
+            </div>
+            <div class="col-12">
+              <label for="lienholder_address" class="form-label fw-semibold">Address</label>
+              <input type="text" class="form-control" id="lienholder_address" name="lienholder_address"
+                value="{{ vehicle.lienholder_address or '' }}" placeholder="123 Bank St">
+            </div>
+            <div class="col-sm-5">
+              <label for="lienholder_city" class="form-label fw-semibold">City</label>
+              <input type="text" class="form-control" id="lienholder_city" name="lienholder_city"
+                value="{{ vehicle.lienholder_city or '' }}">
+            </div>
+            <div class="col-sm-3">
+              <label for="lienholder_state" class="form-label fw-semibold">State</label>
+              <input type="text" class="form-control" id="lienholder_state" name="lienholder_state"
+                value="{{ vehicle.lienholder_state or '' }}" maxlength="2" style="text-transform:uppercase;">
+            </div>
+            <div class="col-sm-4">
+              <label for="lienholder_zip" class="form-label fw-semibold">ZIP</label>
+              <input type="text" class="form-control" id="lienholder_zip" name="lienholder_zip"
+                value="{{ vehicle.lienholder_zip or '' }}" maxlength="10">
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="card shadow-sm mb-4">
+        <div class="card-header fw-semibold">Financial <small class="fw-normal text-muted">(for title packet calculations)</small></div>
+        <div class="card-body">
+          <div class="row g-3">
+            <div class="col-sm-4">
+              <label for="tow_fee" class="form-label fw-semibold">Tow Fee ($)</label>
+              <input type="number" step="0.01" class="form-control" id="tow_fee" name="tow_fee"
+                value="{{ '%.2f'|format(vehicle.tow_fee) if vehicle.tow_fee else '' }}" placeholder="125.00">
+            </div>
+            <div class="col-sm-4">
+              <label for="daily_storage_rate" class="form-label fw-semibold">Daily Storage Rate ($)</label>
+              <input type="number" step="0.01" class="form-control" id="daily_storage_rate" name="daily_storage_rate"
+                value="{{ '%.2f'|format(vehicle.daily_storage_rate) if vehicle.daily_storage_rate else '' }}" placeholder="35.00">
+            </div>
+            <div class="col-sm-4">
+              <label for="mileage" class="form-label fw-semibold">Mileage</label>
+              <input type="number" class="form-control" id="mileage" name="mileage"
+                value="{{ vehicle.mileage or '' }}" placeholder="85000">
+            </div>
+            <div class="col-sm-6">
+              <label for="nada_value" class="form-label fw-semibold">NADA Wholesale Value ($)</label>
+              <input type="number" step="0.01" class="form-control" id="nada_value" name="nada_value"
+                value="{{ '%.2f'|format(vehicle.nada_value) if vehicle.nada_value else '' }}" placeholder="3499.00">
+              <div class="form-text">Use the NADA Lookup button on the vehicle detail page, or enter manually from nadaguides.com.</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
       <div class="d-flex gap-2">
         <button type="submit" class="btn btn-primary px-4">
           <i class="bi bi-check-lg"></i> Save Changes

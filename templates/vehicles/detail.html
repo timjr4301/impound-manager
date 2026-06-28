@@ -97,6 +97,62 @@
       </div>
     </div>
 
+    {# Lienholder #}
+    <div class="card shadow-sm mb-4">
+      <div class="card-header fw-semibold d-flex justify-content-between align-items-center">
+        Lienholder
+        <a href="{{ url_for('vehicles_edit', vehicle_id=vehicle.id) }}" class="btn btn-outline-secondary btn-sm py-0 px-2">
+          <i class="bi bi-pencil"></i>
+        </a>
+      </div>
+      <div class="card-body small">
+        {% if vehicle.lienholder_name %}
+          <div class="fw-semibold">{{ vehicle.lienholder_name }}</div>
+          {% if vehicle.lienholder_address %}<div class="text-muted">{{ vehicle.lienholder_address }}</div>{% endif %}
+          {% set sz = ((vehicle.lienholder_state or '') + ' ' + (vehicle.lienholder_zip or '')).strip() %}
+          {% set csz_parts = [] %}
+          {% if vehicle.lienholder_city %}{% set _ = csz_parts.append(vehicle.lienholder_city) %}{% endif %}
+          {% if sz %}{% set _ = csz_parts.append(sz) %}{% endif %}
+          {% if csz_parts %}<div class="text-muted">{{ csz_parts|join(', ') }}</div>{% endif %}
+        {% else %}
+          <span class="text-muted fst-italic">Not recorded — add via Edit.</span>
+        {% endif %}
+      </div>
+    </div>
+
+    {# Financial #}
+    <div class="card shadow-sm mb-4">
+      <div class="card-header fw-semibold d-flex justify-content-between align-items-center">
+        Financial
+        <a href="{{ url_for('vehicles_edit', vehicle_id=vehicle.id) }}" class="btn btn-outline-secondary btn-sm py-0 px-2">
+          <i class="bi bi-pencil"></i>
+        </a>
+      </div>
+      <div class="card-body">
+        <dl class="row mb-0 small">
+          <dt class="col-sm-6 text-muted">Tow Fee</dt>
+          <dd class="col-sm-6">{{ '$%.2f'|format(vehicle.tow_fee) if vehicle.tow_fee else '—' }}</dd>
+          <dt class="col-sm-6 text-muted">Daily Storage Rate</dt>
+          <dd class="col-sm-6">{{ '$%.2f/day'|format(vehicle.daily_storage_rate) if vehicle.daily_storage_rate else '—' }}</dd>
+          <dt class="col-sm-6 text-muted">Mileage</dt>
+          <dd class="col-sm-6">{{ '{:,}'.format(vehicle.mileage) if vehicle.mileage else '—' }}</dd>
+          <dt class="col-sm-6 text-muted">NADA Wholesale Value</dt>
+          <dd class="col-sm-6">
+            {{ '$%.2f'|format(vehicle.nada_value) if vehicle.nada_value else '—' }}
+            {% if not vehicle.nada_value %}<small class="text-warning"><i class="bi bi-exclamation-triangle"></i></small>{% endif %}
+          </dd>
+        </dl>
+        {% if vehicle.vin %}
+        <form method="POST" action="{{ url_for('nada_lookup', vehicle_id=vehicle.id) }}" class="mt-2">
+          <button type="submit" class="btn btn-sm btn-outline-secondary w-100"
+                  onclick="return confirm('This will open Edmunds (takes 1-2 minutes) and set the NADA value automatically. Continue?')">
+            <i class="bi bi-search"></i> Look Up NADA Value (Edmunds)
+          </button>
+        </form>
+        {% endif %}
+      </div>
+    </div>
+
     {# Actions #}
     {% if vehicle.status == 'ACTIVE' %}
     <div class="card shadow-sm mb-4">
@@ -305,6 +361,133 @@
       </div>
     </div>
 
+    {# ── Title Packet ── #}
+    <div class="card shadow-sm mb-4" id="title-packet">
+      <div class="card-header fw-semibold d-flex justify-content-between align-items-center">
+        <span><i class="bi bi-file-earmark-pdf me-1"></i> Title Packet</span>
+        <a href="{{ url_for('title_packet_pdf', vehicle_id=vehicle.id) }}" class="btn btn-sm btn-primary py-0">
+          <i class="bi bi-download"></i> Generate BMV 4202
+        </a>
+      </div>
+      <div class="card-body">
+
+        {# Storage calculation #}
+        {% if vehicle.daily_storage_rate and vehicle.impound_date %}
+          {% set storage_info = storage_calc %}
+          <h6 class="small fw-semibold text-muted text-uppercase mb-2">Storage Through Today</h6>
+          <div class="d-flex justify-content-between small mb-1">
+            <span class="text-muted">{{ storage_days }} days × ${{ '%.2f'|format(vehicle.daily_storage_rate) }}/day</span>
+            <span class="fw-semibold">${{ '%.2f'|format(storage_total) }}</span>
+          </div>
+          {% if storage_breakdown %}
+          <details class="mb-3">
+            <summary class="small text-muted" style="cursor:pointer;">Monthly breakdown</summary>
+            <table class="table table-sm table-borderless mb-0 mt-1">
+              {% for year, month, abbr, days, amt in storage_breakdown %}
+              <tr class="small">
+                <td class="text-muted py-0">{{ abbr }} {{ year }}</td>
+                <td class="py-0">{{ days }} days</td>
+                <td class="py-0 text-end">${{ '%.2f'|format(amt) }}</td>
+              </tr>
+              {% endfor %}
+            </table>
+          </details>
+          {% endif %}
+        {% else %}
+          <p class="small text-muted mb-2">Enter tow fee and daily storage rate via Edit to see storage calculations.</p>
+        {% endif %}
+
+        {# Financial summary if we have what we need #}
+        {% if vehicle.nada_value and vehicle.tow_fee and vehicle.daily_storage_rate %}
+          {% set total_dmg = vehicle.damage_items | sum(attribute='amount') %}
+          {% set vehicle_val = [0, vehicle.nada_value - total_dmg] | max %}
+          {% set owner_pay = [0, vehicle_val - vehicle.tow_fee - storage_total] | max %}
+          <div class="rounded p-2 bg-light small mb-3">
+            <div class="d-flex justify-content-between"><span class="text-muted">NADA wholesale</span><span>${{ '%.2f'|format(vehicle.nada_value) }}</span></div>
+            <div class="d-flex justify-content-between"><span class="text-muted">− Damage total</span><span>−${{ '%.2f'|format(total_dmg) }}</span></div>
+            <div class="d-flex justify-content-between"><span class="text-muted">= Vehicle value</span><span class="fw-semibold">${{ '%.2f'|format(vehicle_val) }}</span></div>
+            <hr class="my-1">
+            <div class="d-flex justify-content-between"><span class="text-muted">− Tow fee</span><span>−${{ '%.2f'|format(vehicle.tow_fee) }}</span></div>
+            <div class="d-flex justify-content-between"><span class="text-muted">− Storage</span><span>−${{ '%.2f'|format(storage_total) }}</span></div>
+            <div class="d-flex justify-content-between fw-semibold {% if owner_pay <= 0 %}text-success{% else %}text-danger{% endif %}">
+              <span>Owner payout</span><span>${{ '%.2f'|format(owner_pay) }}</span>
+            </div>
+            {% if owner_pay > 0 %}
+            <div class="text-danger small mt-1"><i class="bi bi-exclamation-triangle"></i> Gap not covered — add damage items below.</div>
+            {% endif %}
+          </div>
+        {% endif %}
+
+        {# Damage items #}
+        <h6 class="small fw-semibold text-muted text-uppercase mb-2">Damage Items <small class="fw-normal">(max 9 on BMV form)</small></h6>
+        {% if vehicle.damage_items %}
+        <table class="table table-sm mb-2">
+          <tbody>
+          {% for item in vehicle.damage_items %}
+          <tr class="{% if item.is_fallback %}table-warning{% endif %}">
+            <td class="small py-1">
+              {{ item.description }}
+              {% if item.is_fallback %}<span class="badge bg-warning text-dark ms-1" style="font-size:.6rem;">REVIEW</span>{% endif %}
+            </td>
+            <td class="small py-1 text-end">${{ '%.2f'|format(item.amount) }}</td>
+            <td class="py-1" style="width:36px;">
+              <form method="POST" action="{{ url_for('damages_delete', damage_id=item.id) }}" class="d-inline">
+                <button type="submit" class="btn btn-sm btn-link text-danger p-0" title="Remove">
+                  <i class="bi bi-x-circle"></i>
+                </button>
+              </form>
+            </td>
+          </tr>
+          {% endfor %}
+          <tr class="fw-semibold">
+            <td class="small">Total</td>
+            <td class="small text-end">${{ '%.2f'|format(vehicle.damage_items | sum(attribute='amount')) }}</td>
+            <td></td>
+          </tr>
+          </tbody>
+        </table>
+        {% else %}
+        <p class="small text-muted mb-2">No damage items yet.</p>
+        {% endif %}
+
+        {# Add damage item — preset fills the description + default amount #}
+        <form method="POST" action="{{ url_for('damages_add', vehicle_id=vehicle.id) }}" class="mb-2">
+          <div class="input-group input-group-sm mb-1">
+            <select id="dmgPreset" class="form-select form-select-sm" onchange="applyPreset(this)">
+              <option value="">— preset —</option>
+              <option value="KEY REPLACEMENT|350">KEY REPLACEMENT ($350)</option>
+              <option value="FRONT BUMPER|450">FRONT BUMPER ($450)</option>
+              <option value="FENDER|350">FENDER ($350)</option>
+              <option value="HOOD|500">HOOD ($500)</option>
+              <option value="WINDSHIELD|300">WINDSHIELD ($300)</option>
+              <option value="WHEEL / TIRE|300">WHEEL / TIRE ($300)</option>
+              <option value="QUARTER PANEL|600">QUARTER PANEL ($600)</option>
+              <option value="INTERIOR|300">INTERIOR ($300)</option>
+              <option value="MECHANICAL|1200">MECHANICAL ($1,200)</option>
+            </select>
+          </div>
+          <div class="input-group input-group-sm">
+            <input type="text" id="dmgDesc" name="description" class="form-control form-control-sm"
+                   placeholder="Description (or select preset above)">
+            <input type="number" step="0.01" id="dmgAmt" name="amount" class="form-control form-control-sm"
+                   placeholder="Amount $" style="max-width:110px;">
+            <button type="submit" class="btn btn-outline-secondary btn-sm">Add</button>
+          </div>
+        </form>
+
+        {# Auto-fill damages button #}
+        {% if vehicle.nada_value and vehicle.tow_fee and vehicle.daily_storage_rate %}
+        <form method="POST" action="{{ url_for('damages_auto_fill', vehicle_id=vehicle.id) }}" class="mt-1">
+          <button type="submit" class="btn btn-sm btn-outline-warning w-100"
+                  onclick="return confirm('Auto-add fallback damage items to cover the NADA gap? Review each item after.')">
+            <i class="bi bi-magic"></i> Auto-Fill Damage Gap
+          </button>
+        </form>
+        {% endif %}
+
+      </div>
+    </div>
+
     {# ── Notes / Activity Log ── #}
     <div class="card shadow-sm">
       <div class="card-header fw-semibold">
@@ -358,4 +541,16 @@
 
   </div>
 </div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+function applyPreset(sel) {
+  if (!sel.value) return;
+  const parts = sel.value.split('|');
+  document.getElementById('dmgDesc').value = parts[0];
+  document.getElementById('dmgAmt').value  = parts[1];
+  sel.value = '';
+}
+</script>
 {% endblock %}
