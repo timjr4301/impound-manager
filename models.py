@@ -30,6 +30,21 @@ class Vehicle(db.Model):
     storage_location = db.Column(db.String(100))
     police_report_number = db.Column(db.String(50))
 
+    # Towbook sync fields
+    stock_number = db.Column(db.String(50), index=True)
+    call_number = db.Column(db.String(50))
+    invoice_number = db.Column(db.String(50))
+    account = db.Column(db.String(100))
+    model = db.Column(db.String(50))        # Towbook model (model_name = manual entry)
+    impound_reason = db.Column(db.String(200))
+    have_keys = db.Column(db.Boolean)
+    tasks_overdue = db.Column(db.Integer, default=0)
+    tasks_due_today = db.Column(db.Integer, default=0)
+    tasks_due_next = db.Column(db.Integer, default=0)
+    tasks_due_soon = db.Column(db.Integer, default=0)
+    balance_due = db.Column(db.Float)
+    last_synced = db.Column(db.DateTime)
+
     # Last registered owner — used for certified letter addressing
     owner_name = db.Column(db.String(100))
     owner_address = db.Column(db.Text)
@@ -76,7 +91,7 @@ class Vehicle(db.Model):
 
     @property
     def display_name(self):
-        parts = [str(self.year) if self.year else None, self.make, self.model_name]
+        parts = [str(self.year) if self.year else None, self.make, self.model_name or self.model]
         name = ' '.join(p for p in parts if p)
         if not name:
             if self.plate:

@@ -741,6 +741,9 @@ def create_app():
             not_delivered=not_delivered,
         )
 
+    from towbook_import import bp as towbook_bp
+    app.register_blueprint(towbook_bp)
+
     return app
 
 
