@@ -127,10 +127,10 @@ def create_app():
     app.config['COMPANY_PHONE'] = os.environ.get('COMPANY_PHONE', '(614) 555-0100')
     app.config['STORAGE_ADDRESS'] = os.environ.get('STORAGE_ADDRESS', '123 Storage Dr, Columbus, OH 43215')
 
-    # Title packet template — BlankTitlePacket.pdf from TitleBot
+    # Title packet template — bundled in titlebot/ for portability
     default_template = os.environ.get(
         'TITLE_PACKET_TEMPLATE',
-        r'C:\TitleBot\Templates\BlankTitlePacket.pdf'
+        os.path.join(basedir, 'titlebot', 'BlankTitlePacket.pdf')
     )
     app.config['TITLE_PACKET_TEMPLATE'] = default_template
 

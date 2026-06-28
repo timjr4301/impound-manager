@@ -2,6 +2,7 @@ services:
   - type: web
     name: impound-manager
     env: python
+    plan: free
     buildCommand: pip install -r requirements.txt
     startCommand: gunicorn app:app
     disk:
@@ -13,3 +14,13 @@ services:
         generateValue: true
       - key: DATABASE_URL
         value: sqlite:////data/impound.db
+      - key: COMPANY_NAME
+        value: Broad & James Towing
+      - key: COMPANY_ADDRESS
+        value: 3201 E Broad St, Columbus, OH 43213
+      - key: COMPANY_PHONE
+        value: (614) 235-4700
+      - key: STORAGE_ADDRESS
+        value: 3201 E Broad St, Columbus, OH 43213
+      - key: ANTHROPIC_API_KEY
+        sync: false
