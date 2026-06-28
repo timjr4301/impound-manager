@@ -186,6 +186,37 @@ def create_app():
         all_active = Vehicle.query.filter_by(status='ACTIVE').all()
         title_eligible = [v for v in all_active if v.is_title_eligible and v.title_filing is None]
 
+        # Towbook sync data
+        towbook_total = Vehicle.query.filter(Vehicle.stock_number.isnot(None)).count()
+        last_sync = (
+            db.session.query(db.func.max(Vehicle.last_synced))
+            .filter(Vehicle.last_synced.isnot(None))
+            .scalar()
+        )
+        towbook_overdue = (
+            Vehicle.query
+            .filter(Vehicle.stock_number.isnot(None))
+            .filter(Vehicle.tasks_overdue > 0)
+            .order_by(Vehicle.tasks_overdue.desc(), Vehicle.impound_date.asc())
+            .limit(50).all()
+        )
+        towbook_due_today = (
+            Vehicle.query
+            .filter(Vehicle.stock_number.isnot(None))
+            .filter(Vehicle.tasks_due_today > 0)
+            .order_by(Vehicle.impound_date.asc())
+            .limit(50).all()
+        )
+        towbook_due_soon = (
+            Vehicle.query
+            .filter(Vehicle.stock_number.isnot(None))
+            .filter(Vehicle.tasks_due_today == 0)
+            .filter(Vehicle.tasks_overdue == 0)
+            .filter(db.or_(Vehicle.tasks_due_next > 0, Vehicle.tasks_due_soon > 0))
+            .order_by(Vehicle.impound_date.asc())
+            .limit(25).all()
+        )
+
         return render_template('dashboard.html',
             today=today,
             total_active=total_active,
@@ -193,6 +224,11 @@ def create_app():
             due_today=due_today,
             due_this_week=due_this_week,
             title_eligible=title_eligible,
+            towbook_total=towbook_total,
+            last_sync=last_sync,
+            towbook_overdue=towbook_overdue,
+            towbook_due_today=towbook_due_today,
+            towbook_due_soon=towbook_due_soon,
         )
 
     # ── Search ────────────────────────────────────────────────────────────────

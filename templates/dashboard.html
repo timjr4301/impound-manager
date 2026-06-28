@@ -18,7 +18,7 @@
 </div>
 
 {# ── Stats Row ────────────────────────────────────────────────────────────── #}
-<div class="row g-3 mb-4">
+<div class="row g-3 mb-3">
   <div class="col-6 col-md-3">
     <div class="card stat-card shadow-sm h-100">
       <div class="card-body text-center py-3">
@@ -59,7 +59,48 @@
   </div>
 </div>
 
-{% if not overdue and not due_today and not title_eligible %}
+{# ── Towbook Stats Row ─────────────────────────────────────────────────────── #}
+{% if towbook_total %}
+<div class="row g-3 mb-4">
+  <div class="col-6 col-md-4">
+    <div class="card stat-card shadow-sm h-100 {% if towbook_overdue %}border-danger{% endif %}">
+      <div class="card-body text-center py-3">
+        <div class="stat-number {% if towbook_overdue %}text-danger{% else %}text-secondary{% endif %}">
+          {{ towbook_overdue|length }}
+        </div>
+        <div class="text-muted small mt-1">Towbook Tasks Overdue</div>
+      </div>
+    </div>
+  </div>
+  <div class="col-6 col-md-4">
+    <div class="card stat-card shadow-sm h-100 {% if towbook_due_today %}border-warning{% endif %}">
+      <div class="card-body text-center py-3">
+        <div class="stat-number {% if towbook_due_today %}text-warning{% else %}text-secondary{% endif %}">
+          {{ towbook_due_today|length }}
+        </div>
+        <div class="text-muted small mt-1">Towbook Tasks Due Today</div>
+      </div>
+    </div>
+  </div>
+  <div class="col-12 col-md-4">
+    <div class="card stat-card shadow-sm h-100">
+      <div class="card-body text-center py-3">
+        <div class="stat-number text-secondary">{{ towbook_total }}</div>
+        <div class="text-muted small mt-1">
+          Synced from Towbook
+          {% if last_sync %}
+          <br><span style="font-size:0.7rem">{{ last_sync.strftime('%m/%d %I:%M %p') }}</span>
+          {% endif %}
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+{% else %}
+<div class="mb-4"></div>
+{% endif %}
+
+{% if not overdue and not due_today and not title_eligible and not towbook_overdue and not towbook_due_today %}
 <div class="alert alert-success d-flex align-items-center gap-2">
   <i class="bi bi-check-circle-fill fs-5"></i>
   <div><strong>You're all caught up!</strong> No letters are overdue or due today, and nothing is ready to file.</div>
@@ -254,4 +295,162 @@
   </div>
 </div>
 {% endif %}
+
+{# ── Towbook: Tasks Overdue ───────────────────────────────────────────────── #}
+{% if towbook_overdue %}
+<div class="card shadow-sm mb-4 border-2" style="border-color:#dc6a00!important">
+  <div class="card-header text-white py-3" style="background:#dc6a00">
+    <h5 class="mb-0">
+      <i class="bi bi-exclamation-triangle-fill me-2"></i>
+      Towbook: Tasks Overdue &mdash; {{ towbook_overdue|length }} Vehicle{{ 's' if towbook_overdue|length != 1 }}
+    </h5>
+  </div>
+  <div class="card-body p-0">
+    <div class="table-responsive">
+    <table class="table table-hover align-middle mb-0 small">
+      <thead class="table-light">
+        <tr>
+          <th>Stock #</th>
+          <th>Vehicle</th>
+          <th>Impound Date</th>
+          <th>Reason</th>
+          <th>Lot</th>
+          <th>Tasks</th>
+          <th>Balance</th>
+          <th>Keys</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for v in towbook_overdue %}
+        <tr>
+          <td><a href="{{ url_for('vehicles_detail', vehicle_id=v.id) }}" class="fw-semibold row-link">{{ v.stock_number }}</a></td>
+          <td>
+            <span class="fw-semibold">{{ v.display_name }}</span>
+            {% if v.plate %}<br><small class="text-muted">{{ v.plate }}{% if v.plate_state %} &bull; {{ v.plate_state }}{% endif %}</small>{% endif %}
+          </td>
+          <td class="text-nowrap">{{ v.impound_date|mdY if v.impound_date else '&mdash;' }}</td>
+          <td>{{ v.impound_reason or '&mdash;' }}</td>
+          <td>{{ v.storage_location or '&mdash;' }}</td>
+          <td class="text-nowrap">
+            {% if v.tasks_overdue %}<span class="badge bg-danger me-1">{{ v.tasks_overdue }} overdue</span>{% endif %}
+            {% if v.tasks_due_today %}<span class="badge bg-warning text-dark me-1">{{ v.tasks_due_today }} today</span>{% endif %}
+            {% if v.tasks_due_next %}<span class="badge bg-info text-dark me-1">{{ v.tasks_due_next }} next</span>{% endif %}
+            {% if v.tasks_due_soon %}<span class="badge bg-secondary me-1">{{ v.tasks_due_soon }} soon</span>{% endif %}
+          </td>
+          <td class="text-nowrap">{% if v.balance_due %}${{ '%.2f'|format(v.balance_due) }}{% else %}&mdash;{% endif %}</td>
+          <td>
+            {% if v.have_keys %}<span class="badge bg-success">Yes</span>
+            {% else %}<span class="badge bg-secondary">No</span>{% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    </div>
+  </div>
+</div>
+{% endif %}
+
+{# ── Towbook: Tasks Due Today ─────────────────────────────────────────────── #}
+{% if towbook_due_today %}
+<div class="card shadow-sm mb-4 border-warning border-2">
+  <div class="card-header bg-warning py-3">
+    <h5 class="mb-0">
+      <i class="bi bi-clock-fill me-2"></i>
+      Towbook: Tasks Due Today &mdash; {{ towbook_due_today|length }} Vehicle{{ 's' if towbook_due_today|length != 1 }}
+    </h5>
+  </div>
+  <div class="card-body p-0">
+    <div class="table-responsive">
+    <table class="table table-hover align-middle mb-0 small">
+      <thead class="table-light">
+        <tr>
+          <th>Stock #</th>
+          <th>Vehicle</th>
+          <th>Impound Date</th>
+          <th>Reason</th>
+          <th>Lot</th>
+          <th>Tasks</th>
+          <th>Balance</th>
+          <th>Keys</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for v in towbook_due_today %}
+        <tr>
+          <td><a href="{{ url_for('vehicles_detail', vehicle_id=v.id) }}" class="fw-semibold row-link">{{ v.stock_number }}</a></td>
+          <td>
+            <span class="fw-semibold">{{ v.display_name }}</span>
+            {% if v.plate %}<br><small class="text-muted">{{ v.plate }}{% if v.plate_state %} &bull; {{ v.plate_state }}{% endif %}</small>{% endif %}
+          </td>
+          <td class="text-nowrap">{{ v.impound_date|mdY if v.impound_date else '&mdash;' }}</td>
+          <td>{{ v.impound_reason or '&mdash;' }}</td>
+          <td>{{ v.storage_location or '&mdash;' }}</td>
+          <td class="text-nowrap">
+            {% if v.tasks_due_today %}<span class="badge bg-warning text-dark me-1">{{ v.tasks_due_today }} today</span>{% endif %}
+            {% if v.tasks_due_next %}<span class="badge bg-info text-dark me-1">{{ v.tasks_due_next }} next</span>{% endif %}
+            {% if v.tasks_due_soon %}<span class="badge bg-secondary me-1">{{ v.tasks_due_soon }} soon</span>{% endif %}
+          </td>
+          <td class="text-nowrap">{% if v.balance_due %}${{ '%.2f'|format(v.balance_due) }}{% else %}&mdash;{% endif %}</td>
+          <td>
+            {% if v.have_keys %}<span class="badge bg-success">Yes</span>
+            {% else %}<span class="badge bg-secondary">No</span>{% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    </div>
+  </div>
+</div>
+{% endif %}
+
+{# ── Towbook: Coming Up ───────────────────────────────────────────────────── #}
+{% if towbook_due_soon %}
+<div class="card shadow-sm mb-4">
+  <div class="card-header py-3">
+    <h5 class="mb-0 text-primary">
+      <i class="bi bi-calendar-check me-2"></i>
+      Towbook: Coming Up &mdash; {{ towbook_due_soon|length }} Vehicle{{ 's' if towbook_due_soon|length != 1 }}
+    </h5>
+  </div>
+  <div class="card-body p-0">
+    <div class="table-responsive">
+    <table class="table table-hover align-middle mb-0 small">
+      <thead class="table-light">
+        <tr>
+          <th>Stock #</th>
+          <th>Vehicle</th>
+          <th>Impound Date</th>
+          <th>Reason</th>
+          <th>Lot</th>
+          <th>Tasks</th>
+          <th>Balance</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for v in towbook_due_soon %}
+        <tr>
+          <td><a href="{{ url_for('vehicles_detail', vehicle_id=v.id) }}" class="fw-semibold row-link">{{ v.stock_number }}</a></td>
+          <td>
+            <span class="fw-semibold">{{ v.display_name }}</span>
+            {% if v.plate %}<br><small class="text-muted">{{ v.plate }}{% if v.plate_state %} &bull; {{ v.plate_state }}{% endif %}</small>{% endif %}
+          </td>
+          <td class="text-nowrap">{{ v.impound_date|mdY if v.impound_date else '&mdash;' }}</td>
+          <td>{{ v.impound_reason or '&mdash;' }}</td>
+          <td>{{ v.storage_location or '&mdash;' }}</td>
+          <td class="text-nowrap">
+            {% if v.tasks_due_next %}<span class="badge bg-info text-dark me-1">{{ v.tasks_due_next }} next</span>{% endif %}
+            {% if v.tasks_due_soon %}<span class="badge bg-secondary me-1">{{ v.tasks_due_soon }} soon</span>{% endif %}
+          </td>
+          <td class="text-nowrap">{% if v.balance_due %}${{ '%.2f'|format(v.balance_due) }}{% else %}&mdash;{% endif %}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    </div>
+  </div>
+</div>
+{% endif %}
+
 {% endblock %}
