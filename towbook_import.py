@@ -24,10 +24,21 @@ def _parse_tasks(raw):
             for k, p in _TASK_RE.items()}
 
 def _parse_date(value):
-    for fmt in ('%m/%d/%Y', '%Y-%m-%d', '%m-%d-%Y', '%m/%d/%y'):
+    if not value or not value.strip():
+        return None
+    v = value.strip()
+    for fmt in (
+        '%m/%d/%Y %I:%M %p',   # 9/22/2021 4:03 PM
+        '%m/%d/%Y %H:%M',      # 9/22/2021 16:03
+        '%m/%d/%Y',
+        '%Y-%m-%d %H:%M:%S',
+        '%Y-%m-%d',
+        '%m-%d-%Y',
+        '%m/%d/%y',
+    ):
         try:
-            return datetime.strptime(value.strip(), fmt).date()
-        except (ValueError, AttributeError):
+            return datetime.strptime(v, fmt).date()
+        except ValueError:
             continue
     return None
 
