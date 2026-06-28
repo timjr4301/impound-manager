@@ -24,6 +24,13 @@
     a.row-link { text-decoration: none; color: inherit; }
     a.row-link:hover { color: #0d6efd; }
     .note-card { background: #fffde7; border-left: 3px solid #ffc107; }
+    .stoplight-red    { border-left: 4px solid #dc3545 !important; }
+    .stoplight-yellow { border-left: 4px solid #ffc107 !important; }
+    .stoplight-green  { border-left: 4px solid #198754 !important; }
+    @media print {
+      .navbar, .no-print, .btn, form { display: none !important; }
+      .card { border: 1px solid #dee2e6 !important; box-shadow: none !important; }
+    }
   </style>
 </head>
 <body>
@@ -32,8 +39,7 @@
       <i class="bi bi-truck me-1"></i> Impound Manager
     </a>
 
-    {# Search bar — center #}
-    <form class="d-flex mx-auto" action="{{ url_for('search') }}" method="GET" style="width:320px">
+    <form class="d-flex mx-auto" action="{{ url_for('search') }}" method="GET" style="width:280px">
       <div class="input-group input-group-sm">
         <input class="form-control" type="search" name="q" placeholder="Search plate, VIN, owner…"
                value="{{ request.args.get('q', '') }}" autocomplete="off">
@@ -41,22 +47,56 @@
       </div>
     </form>
 
-    <div class="d-flex align-items-center gap-2">
-      <a href="{{ url_for('dashboard') }}" class="nav-link text-white">
-        <i class="bi bi-house-door"></i> Dashboard
-      </a>
-      <a href="{{ url_for('pipeline') }}" class="nav-link text-white">
-        <i class="bi bi-calendar3"></i> Pipeline
-      </a>
-      <a href="{{ url_for('vehicles_list') }}" class="nav-link text-white">
-        <i class="bi bi-list-ul"></i> All Vehicles
-      </a>
-      <a href="{{ url_for('import_quantum_view') }}" class="nav-link text-white">
-        <i class="bi bi-cloud-upload"></i> Import
-      </a>
-      <a href="{{ url_for('vehicles_new') }}" class="btn btn-success btn-sm px-3 ms-1">
-        <i class="bi bi-plus-lg"></i> New Impound
-      </a>
+    <div class="d-flex align-items-center gap-1">
+      {% if current_user.is_authenticated %}
+        {% if current_user.can_see_all %}
+          <a href="{{ url_for('dashboard') }}" class="nav-link text-white px-2">
+            <i class="bi bi-speedometer2"></i> Overview
+          </a>
+          <a href="{{ url_for('heather.dashboard') }}" class="nav-link text-white px-2">
+            <i class="bi bi-envelope-check"></i> Heather
+          </a>
+          <a href="{{ url_for('tina.dashboard') }}" class="nav-link text-white px-2">
+            <i class="bi bi-file-earmark-check"></i> Tina
+          </a>
+          <a href="{{ url_for('drivers.dashboard') }}" class="nav-link text-white px-2">
+            <i class="bi bi-people"></i> Drivers
+          </a>
+        {% endif %}
+        {% if current_user.is_heather %}
+          <a href="{{ url_for('heather.dashboard') }}" class="nav-link text-white px-2">
+            <i class="bi bi-house-door"></i> My Dashboard
+          </a>
+        {% endif %}
+        {% if current_user.is_tina and not current_user.can_see_all %}
+          <a href="{{ url_for('tina.dashboard') }}" class="nav-link text-white px-2">
+            <i class="bi bi-house-door"></i> My Dashboard
+          </a>
+        {% endif %}
+        {% if current_user.can_see_all %}
+          <a href="{{ url_for('pipeline') }}" class="nav-link text-white px-2">
+            <i class="bi bi-calendar3"></i> Pipeline
+          </a>
+        {% endif %}
+        <a href="{{ url_for('vehicles_list') }}" class="nav-link text-white px-2">
+          <i class="bi bi-list-ul"></i> Vehicles
+        </a>
+        <a href="{{ url_for('vehicles_new') }}" class="btn btn-success btn-sm px-2 ms-1">
+          <i class="bi bi-plus-lg"></i> New
+        </a>
+        <div class="dropdown ms-2">
+          <button class="btn btn-outline-light btn-sm dropdown-toggle" type="button" data-bs-toggle="dropdown">
+            <i class="bi bi-person-circle me-1"></i>{{ current_user.display_name or current_user.username }}
+          </button>
+          <ul class="dropdown-menu dropdown-menu-end">
+            <li><span class="dropdown-item-text text-muted small">Role: {{ current_user.role }}</span></li>
+            <li><hr class="dropdown-divider"></li>
+            <li><a class="dropdown-item" href="{{ url_for('auth.logout') }}">
+              <i class="bi bi-box-arrow-right me-1"></i> Logout
+            </a></li>
+          </ul>
+        </div>
+      {% endif %}
     </div>
   </nav>
 

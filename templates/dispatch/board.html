@@ -1,0 +1,111 @@
+{% extends 'base.html' %}
+{% block title %}Dispatch Board — Impound Manager{% endblock %}
+
+{% block content %}
+<div class="d-flex align-items-center mb-4 gap-3">
+  <div>
+    <h2 class="h4 mb-0 fw-bold"><i class="bi bi-grid-3x3-gap me-2"></i>Dispatch Board</h2>
+    <small class="text-muted">{{ today.strftime('%A, %B %-d, %Y') if today else '' }} — {{ vehicles|length }} active vehicles</small>
+  </div>
+  <div class="ms-auto d-flex gap-2">
+    <a href="{{ url_for('vehicles_new') }}" class="btn btn-success btn-sm">
+      <i class="bi bi-plus-lg"></i> New Impound
+    </a>
+    <a href="{{ url_for('search') }}" class="btn btn-outline-secondary btn-sm">
+      <i class="bi bi-search"></i> Search
+    </a>
+  </div>
+</div>
+
+{# Filter bar #}
+<div class="d-flex gap-2 mb-3 flex-wrap">
+  <button class="btn btn-sm btn-outline-danger active" onclick="filterStoplight('all', this)">All ({{ vehicles|length }})</button>
+  <button class="btn btn-sm btn-outline-danger" onclick="filterStoplight('red', this)">
+    🔴 Urgent ({{ vehicles|selectattr('stoplight_color', 'equalto', 'red')|list|length }})
+  </button>
+  <button class="btn btn-sm btn-outline-warning" onclick="filterStoplight('yellow', this)">
+    🟡 Due Soon ({{ vehicles|selectattr('stoplight_color', 'equalto', 'yellow')|list|length }})
+  </button>
+  <button class="btn btn-sm btn-outline-success" onclick="filterStoplight('green', this)">
+    🟢 On Track ({{ vehicles|selectattr('stoplight_color', 'equalto', 'green')|list|length }})
+  </button>
+</div>
+
+<div class="card shadow-sm">
+  <div class="card-body p-0">
+    <table class="table table-sm table-hover mb-0" id="boardTable">
+      <thead>
+        <tr>
+          <th style="width:12px;"></th>
+          <th>Vehicle</th>
+          <th>Plate / VIN</th>
+          <th>Impound</th>
+          <th>Days</th>
+          <th>Owner</th>
+          <th>Next Action</th>
+          <th>Balance</th>
+          <th>Keys</th>
+          <th>Loc</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody>
+      {% for v in vehicles %}
+      <tr data-stoplight="{{ v.stoplight_color }}"
+          class="{% if v.stoplight_color == 'red' %}stoplight-red
+                 {% elif v.stoplight_color == 'yellow' %}stoplight-yellow
+                 {% else %}stoplight-green{% endif %}">
+        <td>
+          {% if v.stoplight_color == 'red' %}🔴
+          {% elif v.stoplight_color == 'yellow' %}🟡
+          {% else %}🟢{% endif %}
+        </td>
+        <td>
+          <a href="{{ url_for('vehicles_detail', vehicle_id=v.id) }}" class="row-link fw-semibold">
+            {{ v.display_name }}
+          </a>
+          {% if v.stock_number %}<br><small class="text-muted font-monospace">{{ v.stock_number }}</small>{% endif %}
+        </td>
+        <td class="small font-monospace">
+          {{ v.plate or '' }}{% if v.plate and v.vin %}<br>{% endif %}
+          {% if v.vin %}<span class="text-muted" style="font-size:.7rem;">{{ v.vin[-8:] if v.vin else '' }}</span>{% endif %}
+        </td>
+        <td class="small">{{ v.impound_date|mdY }}</td>
+        <td class="text-center {% if v.days_in_storage > 30 %}text-danger fw-bold{% elif v.days_in_storage > 14 %}text-warning{% endif %}">
+          {{ v.days_in_storage }}
+        </td>
+        <td class="small">{{ v.owner_name or '—' }}</td>
+        <td class="small {% if v.next_action_label and 'OVERDUE' in (v.next_action_label or '') %}text-danger{% endif %}">
+          {{ v.next_action_label or '—' }}
+        </td>
+        <td class="small">{{ '$%.2f'|format(v.balance_due) if v.balance_due else '—' }}</td>
+        <td class="text-center">
+          {% if v.have_keys is not none %}
+            {% if v.have_keys %}✅{% else %}❌{% endif %}
+          {% else %}—{% endif %}
+        </td>
+        <td class="small text-muted">{{ v.storage_location or '—' }}</td>
+        <td>
+          <a href="{{ url_for('vehicles_detail', vehicle_id=v.id) }}" class="btn btn-sm btn-outline-secondary py-0">
+            <i class="bi bi-eye"></i>
+          </a>
+        </td>
+      </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+function filterStoplight(color, btn) {
+  document.querySelectorAll('[data-stoplight]').forEach(row => {
+    row.style.display = (color === 'all' || row.dataset.stoplight === color) ? '' : 'none';
+  });
+  document.querySelectorAll('.btn-outline-danger, .btn-outline-warning, .btn-outline-success').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+}
+</script>
+{% endblock %}

@@ -1,0 +1,205 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Valuation Report — {{ vehicle.display_name }}</title>
+  <style>
+    body { font-family: Arial, sans-serif; font-size: 11pt; margin: 0.65in; color: #000; }
+    .header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 20px;
+              border-bottom: 3px solid #1a1a2e; padding-bottom: 12px; }
+    .company-name { font-size: 16pt; font-weight: bold; color: #1a1a2e; }
+    .report-title { font-size: 14pt; font-weight: bold; text-align: right; color: #1a1a2e; }
+    .report-date { font-size: 9pt; color: #666; text-align: right; }
+    section { margin-bottom: 18px; }
+    section h3 { font-size: 10pt; text-transform: uppercase; letter-spacing: .06em;
+                 color: #1a1a2e; border-bottom: 1px solid #ddd; padding-bottom: 4px; margin-bottom: 10px; }
+    .dl { display: grid; grid-template-columns: 180px 1fr; gap: 4px 12px; font-size: 10pt; }
+    .dl dt { color: #555; }
+    .dl dd { margin: 0; font-weight: 500; }
+    table { width: 100%; border-collapse: collapse; font-size: 10pt; }
+    th { background: #1a1a2e; color: white; padding: 6px 10px; font-size: 9pt;
+         text-transform: uppercase; letter-spacing: .04em; text-align: left; }
+    td { padding: 6px 10px; border-bottom: 1px solid #f0f0f0; }
+    .subtotal td { background: #f8f9fa; font-weight: 600; }
+    .total-row td { font-weight: bold; font-size: 12pt; border-top: 2px solid #1a1a2e;
+                    border-bottom: 2px solid #1a1a2e; background: #f8f9fa; }
+    .amounts { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 18px; }
+    .amount-box { border: 1px solid #ddd; border-radius: 6px; padding: 12px;
+                  text-align: center; background: #fafafa; }
+    .amount-box .label { font-size: 9pt; color: #666; text-transform: uppercase; letter-spacing: .04em; }
+    .amount-box .value { font-size: 18pt; font-weight: bold; margin-top: 4px; }
+    .decision-boxes { display: flex; gap: 20px; margin: 20px 0; }
+    .decision-box { border: 2px solid #ddd; border-radius: 6px; padding: 14px 20px;
+                    flex: 1; text-align: center; }
+    .decision-box .cb { width: 18px; height: 18px; border: 2px solid #000; display: inline-block;
+                        vertical-align: middle; margin-right: 6px; }
+    .sig-row { display: flex; gap: 40px; margin-top: 30px; }
+    .sig-field { flex: 1; }
+    .sig-line { border-top: 1px solid #000; margin-top: 30px; padding-top: 4px;
+                font-size: 9pt; color: #666; }
+    @media print {
+      body { margin: 0.5in; }
+      .no-print { display: none !important; }
+    }
+  </style>
+</head>
+<body>
+
+<div class="no-print" style="padding:12px;background:#f0f0f0;margin-bottom:20px;border-radius:6px;display:flex;gap:10px;">
+  <button onclick="window.print()" style="padding:8px 20px;background:#1a1a2e;color:white;border:none;border-radius:4px;cursor:pointer;font-size:14px;">
+    🖨️ Print Report (Ctrl+P)
+  </button>
+  <a href="{{ url_for('vehicles_detail', vehicle_id=vehicle.id) }}"
+     style="padding:8px 20px;background:#6c757d;color:white;border-radius:4px;text-decoration:none;font-size:14px;">
+    ← Back to Vehicle
+  </a>
+</div>
+
+{# Header #}
+<div class="header">
+  <div>
+    <div class="company-name">{{ company_name }}</div>
+    <div style="font-size:9pt;color:#666;">{{ company_address }}</div>
+    <div style="font-size:9pt;color:#666;">{{ company_phone }}</div>
+  </div>
+  <div>
+    <div class="report-title">Vehicle Valuation Report</div>
+    <div class="report-date">Generated: {{ today.strftime('%B %-d, %Y') }}</div>
+  </div>
+</div>
+
+{# Vehicle Info #}
+<section>
+  <h3>Vehicle Information</h3>
+  <div class="dl">
+    <dt>Year / Make / Model</dt>
+    <dd><strong>{{ vehicle.display_name }}</strong></dd>
+    {% if vehicle.color %}<dt>Color</dt><dd>{{ vehicle.color }}</dd>{% endif %}
+    {% if vehicle.vin %}<dt>VIN</dt><dd class="font-mono" style="font-family:monospace;">{{ vehicle.vin }}</dd>{% endif %}
+    {% if vehicle.plate %}<dt>License Plate</dt><dd>{{ vehicle.plate }} ({{ vehicle.plate_state }})</dd>{% endif %}
+    {% if vehicle.mileage %}<dt>Mileage</dt><dd>{{ '{:,}'.format(vehicle.mileage) }}</dd>{% endif %}
+    <dt>Impound Date</dt><dd>{{ vehicle.impound_date.strftime('%B %-d, %Y') }}</dd>
+    <dt>Days in Storage</dt><dd>{{ vehicle.days_in_storage }}</dd>
+    <dt>Impound Type</dt><dd>{{ vehicle.impound_type }}</dd>
+    {% if vehicle.police_report_number %}<dt>Police Report #</dt><dd>{{ vehicle.police_report_number }}</dd>{% endif %}
+    {% if vehicle.storage_location %}<dt>Storage Location</dt><dd>{{ vehicle.storage_location }}</dd>{% endif %}
+  </div>
+</section>
+
+{% if vehicle.owner_name or vehicle.owner_address %}
+<section>
+  <h3>Registered Owner</h3>
+  <div class="dl">
+    {% if vehicle.owner_name %}<dt>Name</dt><dd>{{ vehicle.owner_name }}</dd>{% endif %}
+    {% if vehicle.owner_address %}<dt>Address</dt><dd style="white-space:pre-line;">{{ vehicle.owner_address }}</dd>{% endif %}
+  </div>
+</section>
+{% endif %}
+
+{# Financial Summary Boxes #}
+<div class="amounts">
+  <div class="amount-box">
+    <div class="label">NADA Wholesale Value</div>
+    <div class="value" style="color:#1a1a2e;">${{ '%.2f'|format(vehicle.nada_value or 0) }}</div>
+    {% if not vehicle.nada_value %}<div style="color:#dc3545;font-size:9pt;">⚠ Not set</div>{% endif %}
+  </div>
+  <div class="amount-box">
+    <div class="label">Total Amount Owed</div>
+    <div class="value" style="color:#dc3545;">${{ '%.2f'|format(total_owed) }}</div>
+    <div style="font-size:9pt;color:#666;">Tow + Storage</div>
+  </div>
+</div>
+
+{# Fee Breakdown #}
+<section>
+  <h3>Fee Breakdown</h3>
+  <table>
+    <thead><tr><th>Description</th><th style="text-align:right;">Amount</th></tr></thead>
+    <tbody>
+    <tr><td>Tow Fee</td><td style="text-align:right;">${{ '%.2f'|format(vehicle.tow_fee or 0) }}</td></tr>
+    <tr>
+      <td>Storage — {{ storage_days }} days × ${{ '%.2f'|format(vehicle.daily_storage_rate or 0) }}/day</td>
+      <td style="text-align:right;">${{ '%.2f'|format(storage_total) }}</td>
+    </tr>
+    {% if storage_breakdown %}
+    {% for year, month, abbr, days, amt in storage_breakdown %}
+    <tr style="font-size:9pt;">
+      <td style="color:#666;padding-left:20px;">{{ abbr }} {{ year }} ({{ days }} days)</td>
+      <td style="text-align:right;color:#666;">${{ '%.2f'|format(amt) }}</td>
+    </tr>
+    {% endfor %}
+    {% endif %}
+    <tr class="total-row">
+      <td>TOTAL OWED</td>
+      <td style="text-align:right;">${{ '%.2f'|format(total_owed) }}</td>
+    </tr>
+    </tbody>
+  </table>
+</section>
+
+{# NADA vs Damages #}
+{% if vehicle.nada_value %}
+<section>
+  <h3>Value Analysis</h3>
+  <table>
+    <thead><tr><th>Item</th><th style="text-align:right;">Amount</th></tr></thead>
+    <tbody>
+    <tr><td>NADA Wholesale Value</td><td style="text-align:right;">${{ '%.2f'|format(vehicle.nada_value) }}</td></tr>
+    {% if vehicle.damage_items %}
+    {% for item in vehicle.damage_items %}
+    <tr style="font-size:10pt;">
+      <td style="padding-left:16px;color:#666;">− {{ item.description }}</td>
+      <td style="text-align:right;color:#666;">− ${{ '%.2f'|format(item.amount) }}</td>
+    </tr>
+    {% endfor %}
+    <tr class="subtotal">
+      <td>Adjusted Vehicle Value</td>
+      <td style="text-align:right;">${{ '%.2f'|format(vehicle_val) }}</td>
+    </tr>
+    {% endif %}
+    <tr><td style="color:#666;">− Total Fees Owed</td><td style="text-align:right;color:#666;">− ${{ '%.2f'|format(total_owed) }}</td></tr>
+    <tr class="total-row">
+      <td>NET (Owner Proceeds / Deficiency)</td>
+      <td style="text-align:right;{% if net < 0 %}color:#dc3545;{% else %}color:#198754;{% endif %}">
+        {% if net < 0 %}(${{ '%.2f'|format(-net) }} deficiency){% else %}${{ '%.2f'|format(net) }}{% endif %}
+      </td>
+    </tr>
+    </tbody>
+  </table>
+</section>
+{% endif %}
+
+{# Decision Checkboxes #}
+<section>
+  <h3>Disposition Decision</h3>
+  <div class="decision-boxes">
+    <div class="decision-box">
+      <div><span class="cb">{% if vehicle.disposition == 'SELL' %}✓{% endif %}</span> <strong>SELL</strong></div>
+      <div style="font-size:9pt;color:#666;margin-top:6px;">Auction or private sale</div>
+    </div>
+    <div class="decision-box">
+      <div><span class="cb">{% if vehicle.disposition == 'JUNK' %}✓{% endif %}</span> <strong>JUNK</strong></div>
+      <div style="font-size:9pt;color:#666;margin-top:6px;">Scrap / junk yard</div>
+    </div>
+    <div class="decision-box">
+      <div><span class="cb">{% if vehicle.disposition == 'HOLD' %}✓{% endif %}</span> <strong>HOLD</strong></div>
+      <div style="font-size:9pt;color:#666;margin-top:6px;">Pending decision</div>
+    </div>
+  </div>
+</section>
+
+{# Signature Lines #}
+<div class="sig-row">
+  <div class="sig-field">
+    <div class="sig-line">Authorized Representative — {{ company_name }}</div>
+  </div>
+  <div class="sig-field">
+    <div class="sig-line">Date</div>
+  </div>
+  <div class="sig-field">
+    <div class="sig-line">Title / Position</div>
+  </div>
+</div>
+
+</body>
+</html>

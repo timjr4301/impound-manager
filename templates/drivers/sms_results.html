@@ -1,0 +1,32 @@
+{% extends 'base.html' %}
+{% block title %}SMS Results — Impound Manager{% endblock %}
+{% block content %}
+<div class="d-flex align-items-center mb-4 gap-3">
+  <a href="{{ url_for('drivers.dashboard') }}" class="btn btn-outline-secondary btn-sm"><i class="bi bi-arrow-left"></i></a>
+  <h2 class="h4 mb-0 fw-bold">SMS Send Results — Week of {{ week_of.strftime('%m/%d/%Y') }}</h2>
+</div>
+<div class="card shadow-sm">
+  <div class="card-body p-0">
+    <table class="table table-sm mb-0">
+      <thead><tr><th>Driver</th><th>Status</th><th>Details</th></tr></thead>
+      <tbody>
+      {% for r in results %}
+      <tr>
+        <td class="fw-semibold">{{ r.driver }}</td>
+        <td>
+          {% if r.status == 'sent' %}
+          <span class="badge bg-success">Sent</span>
+          {% elif 'skipped' in r.status %}
+          <span class="badge bg-secondary">Skipped</span>
+          {% else %}
+          <span class="badge bg-danger">Error</span>
+          {% endif %}
+        </td>
+        <td class="small text-muted">{{ r.get('sid', r.status) }}</td>
+      </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}

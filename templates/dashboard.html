@@ -4,7 +4,7 @@
 {% block content %}
 <div class="d-flex justify-content-between align-items-start mb-4">
   <div>
-    <h1 class="h3 mb-1 fw-bold">Good morning, Heather!</h1>
+    <h1 class="h3 mb-1 fw-bold">Good morning, {{ current_user.display_name or current_user.username }}!</h1>
     <p class="text-muted mb-0">{{ today|human_date }}</p>
   </div>
   <div class="d-flex gap-2 flex-wrap">
@@ -520,6 +520,41 @@ document.getElementById('towbook-import-form').addEventListener('submit', async 
       </tbody>
     </table>
     </div>
+  </div>
+</div>
+{% endif %}
+
+{# ── Heather→Tina Handoff Queue (Tim overview) ── #}
+{% if handoff_queue %}
+<div class="card shadow-sm mb-4 border-warning">
+  <div class="card-header fw-semibold bg-warning">
+    <i class="bi bi-arrow-right-circle me-2"></i>Waiting for Tina — Handed off by Heather ({{ handoff_queue|length }})
+  </div>
+  <div class="card-body p-0">
+    <table class="table table-sm mb-0">
+      <thead><tr><th>Vehicle</th><th>Handed Off</th><th>Owner</th><th>Type</th></tr></thead>
+      <tbody>
+      {% for v in handoff_queue %}
+      <tr>
+        <td><a href="{{ url_for('vehicles_detail', vehicle_id=v.id) }}" class="row-link fw-semibold">{{ v.display_name }}</a></td>
+        <td class="small">{{ v.heather_complete_date|mdY if v.heather_complete_date else '—' }}</td>
+        <td class="small">{{ v.owner_name or '—' }}</td>
+        <td><span class="badge bg-secondary">{{ v.impound_type }}</span></td>
+      </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endif %}
+
+{# ── Timecard Exception Flag ── #}
+{% if timecard_flags %}
+<div class="alert alert-warning d-flex align-items-center gap-3">
+  <i class="bi bi-clock-history fs-4"></i>
+  <div>
+    <strong>{{ timecard_flags }} open timecard exception{{ 's' if timecard_flags != 1 }}</strong> needing approval.
+    <a href="{{ url_for('drivers.timecards') }}" class="btn btn-sm btn-warning ms-2">Review Now</a>
   </div>
 </div>
 {% endif %}

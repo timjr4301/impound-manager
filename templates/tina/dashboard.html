@@ -1,0 +1,359 @@
+{% extends 'base.html' %}
+{% block title %}Tina's Dashboard — Impound Manager{% endblock %}
+
+{% block content %}
+<div class="d-flex align-items-center mb-4 gap-3">
+  <div>
+    <h2 class="h4 mb-0 fw-bold"><i class="bi bi-file-earmark-check me-2"></i>Tina's Dashboard</h2>
+    <small class="text-muted">{{ today.strftime('%A, %B %-d, %Y') if today else '' }}</small>
+  </div>
+  <div class="ms-auto">
+    <a href="{{ url_for('vehicles_new') }}" class="btn btn-success btn-sm">
+      <i class="bi bi-plus-lg"></i> New Impound
+    </a>
+  </div>
+</div>
+
+<div class="row g-3 mb-4">
+  <div class="col-6 col-md-3">
+    <div class="card shadow-sm text-center py-3 border-0 bg-warning">
+      <div class="h2 fw-bold mb-0">{{ queued|length }}</div>
+      <div class="small fw-semibold">FROM HEATHER</div>
+    </div>
+  </div>
+  <div class="col-6 col-md-3">
+    <div class="card shadow-sm text-center py-3 border-0 bg-info text-white">
+      <div class="h2 fw-bold mb-0">{{ in_progress|length }}</div>
+      <div class="small fw-semibold">IN PROGRESS</div>
+    </div>
+  </div>
+  <div class="col-6 col-md-3">
+    <div class="card shadow-sm text-center py-3 border-0 bg-success text-white">
+      <div class="h2 fw-bold mb-0">{{ title_eligible|length }}</div>
+      <div class="small fw-semibold">READY TO FILE</div>
+    </div>
+  </div>
+  <div class="col-6 col-md-3">
+    <div class="card shadow-sm text-center py-3 border-0 bg-secondary text-white">
+      <div class="h2 fw-bold mb-0">{{ disposition_needed|length }}</div>
+      <div class="small fw-semibold">NEED DECISION</div>
+    </div>
+  </div>
+</div>
+
+{# ── Handoff from Heather ── #}
+{% if queued %}
+<div class="card shadow-sm mb-4 border-warning">
+  <div class="card-header bg-warning fw-semibold">
+    <i class="bi bi-arrow-right-circle me-2"></i>New from Heather — Action Required ({{ queued|length }})
+  </div>
+  <div class="card-body p-0">
+    <table class="table table-sm table-hover mb-0">
+      <thead><tr>
+        <th>Vehicle</th><th>Owner</th><th>Handed Off</th><th>Days In</th><th>Impound Type</th><th>Next Step</th><th></th>
+      </tr></thead>
+      <tbody>
+      {% for v in queued %}
+      <tr>
+        <td><a href="{{ url_for('vehicles_detail', vehicle_id=v.id) }}" class="row-link fw-semibold">{{ v.display_name }}</a></td>
+        <td class="small">{{ v.owner_name or '—' }}</td>
+        <td class="small">{{ v.heather_complete_date|mdY if v.heather_complete_date else '—' }}</td>
+        <td>{{ v.days_in_storage }}d</td>
+        <td><span class="badge bg-secondary">{{ v.impound_type }}</span></td>
+        <td class="small">{{ v.next_action_label or '—' }}</td>
+        <td class="text-end">
+          <div class="btn-group btn-group-sm">
+            <button class="btn btn-outline-primary" data-bs-toggle="modal"
+                    data-bs-target="#stageModal{{ v.id }}">Move</button>
+            <a href="{{ url_for('tina.create_invoice', vehicle_id=v.id) }}"
+               class="btn btn-outline-success">Invoice</a>
+          </div>
+        </td>
+      </tr>
+
+      {# Stage modal #}
+      <div class="modal fade" id="stageModal{{ v.id }}" tabindex="-1">
+        <div class="modal-dialog">
+          <div class="modal-content">
+            <div class="modal-header">
+              <h5 class="modal-title">Move {{ v.display_name }}</h5>
+              <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <form method="POST" action="{{ url_for('tina.set_stage', vehicle_id=v.id) }}">
+              <div class="modal-body">
+                <div class="mb-3">
+                  <label class="form-label fw-semibold">Stage</label>
+                  <select name="stage" class="form-select" required>
+                    <option value="TITLE_WORK">Title Work — preparing filing</option>
+                    <option value="COURT">Court Process — needs hearing</option>
+                    <option value="AFFIDAVIT">Police Affidavit — pending</option>
+                    <option value="READY">Ready — awaiting final step</option>
+                    <option value="COMPLETE">Complete</option>
+                  </select>
+                </div>
+                <div class="mb-3">
+                  <label class="form-label fw-semibold">Notes</label>
+                  <textarea name="notes" class="form-control" rows="2"></textarea>
+                </div>
+              </div>
+              <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                <button type="submit" class="btn btn-primary">Move Vehicle</button>
+              </div>
+            </form>
+          </div>
+        </div>
+      </div>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endif %}
+
+{# ── Title Eligible — Ready to File ── #}
+{% if title_eligible %}
+<div class="card shadow-sm mb-4 border-success">
+  <div class="card-header bg-success text-white fw-semibold">
+    <i class="bi bi-file-earmark-arrow-up me-2"></i>Ready to File for Title ({{ title_eligible|length }})
+  </div>
+  <div class="card-body p-0">
+    <table class="table table-sm table-hover mb-0">
+      <thead><tr>
+        <th>Vehicle</th><th>Impound Date</th><th>Eligible Since</th><th>NADA</th><th>Disposition</th><th></th>
+      </tr></thead>
+      <tbody>
+      {% for v in title_eligible %}
+      <tr>
+        <td><a href="{{ url_for('vehicles_detail', vehicle_id=v.id) }}" class="row-link fw-semibold">{{ v.display_name }}</a></td>
+        <td>{{ v.impound_date|mdY }}</td>
+        <td class="text-success fw-semibold">{{ v.title_eligible_date|mdY if v.title_eligible_date else '—' }}</td>
+        <td>{{ v.nada_value|currency if v.nada_value else '—' }}</td>
+        <td>
+          {% if v.disposition %}
+            <span class="badge {% if v.disposition == 'SELL' %}bg-success{% elif v.disposition == 'JUNK' %}bg-warning text-dark{% else %}bg-secondary{% endif %}">
+              {{ v.disposition }}
+            </span>
+          {% else %}
+            <button class="btn btn-sm btn-outline-secondary py-0"
+                    data-bs-toggle="modal" data-bs-target="#dispModal{{ v.id }}">Set</button>
+          {% endif %}
+        </td>
+        <td class="text-end">
+          <a href="{{ url_for('file_title', vehicle_id=v.id) }}" class="btn btn-sm btn-success py-0">File Title</a>
+          <a href="{{ url_for('tina.create_invoice', vehicle_id=v.id) }}" class="btn btn-sm btn-outline-primary py-0">Invoice</a>
+        </td>
+      </tr>
+
+      {# Disposition modal #}
+      <div class="modal fade" id="dispModal{{ v.id }}" tabindex="-1">
+        <div class="modal-dialog">
+          <div class="modal-content">
+            <div class="modal-header">
+              <h5 class="modal-title">Disposition — {{ v.display_name }}</h5>
+              <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <form method="POST" action="{{ url_for('tina.set_disposition', vehicle_id=v.id) }}">
+              <div class="modal-body">
+                <div class="mb-3">
+                  {% if v.nada_value %}
+                  <div class="alert alert-info small py-2">NADA Value: <strong>{{ v.nada_value|currency }}</strong></div>
+                  {% endif %}
+                  <label class="form-label fw-semibold">Disposition</label>
+                  <select name="disposition" class="form-select" required>
+                    <option value="SELL">SELL — auction or private sale</option>
+                    <option value="JUNK">JUNK — scrap yard</option>
+                    <option value="HOLD">HOLD — pending decision</option>
+                  </select>
+                </div>
+                <div class="mb-3">
+                  <label class="form-label fw-semibold">Notes</label>
+                  <textarea name="notes" class="form-control" rows="2" placeholder="Reason for decision..."></textarea>
+                </div>
+              </div>
+              <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                <button type="submit" class="btn btn-primary">Set Disposition</button>
+              </div>
+            </form>
+          </div>
+        </div>
+      </div>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endif %}
+
+{# ── In Progress ── #}
+{% if in_progress %}
+<div class="card shadow-sm mb-4">
+  <div class="card-header fw-semibold">
+    <i class="bi bi-hourglass-split me-2"></i>In Progress ({{ in_progress|length }})
+  </div>
+  <div class="card-body p-0">
+    <table class="table table-sm table-hover mb-0">
+      <thead><tr>
+        <th>Vehicle</th><th>Stage</th><th>Court Date</th><th>Affidavit</th><th>Disposition</th><th></th>
+      </tr></thead>
+      <tbody>
+      {% for v in in_progress %}
+      <tr>
+        <td><a href="{{ url_for('vehicles_detail', vehicle_id=v.id) }}" class="row-link fw-semibold">{{ v.display_name }}</a></td>
+        <td>
+          <span class="badge {% if v.tina_stage == 'COURT' %}bg-danger
+                              {% elif v.tina_stage == 'AFFIDAVIT' %}bg-warning text-dark
+                              {% else %}bg-info{% endif %}">
+            {{ v.tina_stage or '—' }}
+          </span>
+        </td>
+        <td>
+          {% if v.court_date %}
+            {{ v.court_date|mdY }}
+            {% if v.court_date <= today %}<span class="badge bg-danger ms-1">Past</span>{% endif %}
+          {% else %}
+            <button class="btn btn-sm btn-outline-secondary py-0"
+                    data-bs-toggle="modal" data-bs-target="#courtModal{{ v.id }}">Set</button>
+          {% endif %}
+        </td>
+        <td>
+          {% if v.affidavit_filed_date %}
+            {{ v.affidavit_filed_date|mdY }}
+          {% else %}
+            <button class="btn btn-sm btn-outline-secondary py-0"
+                    data-bs-toggle="modal" data-bs-target="#affModal{{ v.id }}">Set</button>
+          {% endif %}
+        </td>
+        <td>
+          <span class="badge {% if v.disposition == 'SELL' %}bg-success
+                              {% elif v.disposition == 'JUNK' %}bg-warning text-dark
+                              {% elif v.disposition %}bg-secondary{% else %}bg-light text-dark border{% endif %}">
+            {{ v.disposition or '?' }}
+          </span>
+        </td>
+        <td class="text-end">
+          <a href="{{ url_for('vehicles_detail', vehicle_id=v.id) }}" class="btn btn-sm btn-outline-secondary py-0">View</a>
+          <a href="{{ url_for('tina.create_invoice', vehicle_id=v.id) }}" class="btn btn-sm btn-outline-success py-0">Invoice</a>
+        </td>
+      </tr>
+
+      {# Court modal #}
+      <div class="modal fade" id="courtModal{{ v.id }}" tabindex="-1">
+        <div class="modal-dialog">
+          <div class="modal-content">
+            <div class="modal-header">
+              <h5 class="modal-title">Set Court Date — {{ v.display_name }}</h5>
+              <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <form method="POST" action="{{ url_for('tina.set_court', vehicle_id=v.id) }}">
+              <div class="modal-body">
+                <div class="mb-3">
+                  <label class="form-label">Court Date</label>
+                  <input type="date" name="court_date" class="form-control" required>
+                </div>
+                <div class="mb-3">
+                  <label class="form-label">Notes</label>
+                  <textarea name="notes" class="form-control" rows="2" placeholder="Case #, court location, etc."></textarea>
+                </div>
+              </div>
+              <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                <button type="submit" class="btn btn-primary">Save Court Date</button>
+              </div>
+            </form>
+          </div>
+        </div>
+      </div>
+
+      {# Affidavit modal #}
+      <div class="modal fade" id="affModal{{ v.id }}" tabindex="-1">
+        <div class="modal-dialog">
+          <div class="modal-content">
+            <div class="modal-header">
+              <h5 class="modal-title">Police Affidavit — {{ v.display_name }}</h5>
+              <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <form method="POST" action="{{ url_for('tina.set_affidavit', vehicle_id=v.id) }}">
+              <div class="modal-body">
+                <div class="mb-3">
+                  <label class="form-label">Filed Date</label>
+                  <input type="date" name="filed_date" class="form-control" value="{{ today.isoformat() }}">
+                </div>
+                <div class="mb-3">
+                  <label class="form-label">Notes</label>
+                  <textarea name="notes" class="form-control" rows="2" placeholder="Case #, officer, etc."></textarea>
+                </div>
+              </div>
+              <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                <button type="submit" class="btn btn-primary">Save Affidavit</button>
+              </div>
+            </form>
+          </div>
+        </div>
+      </div>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endif %}
+
+{# ── Court Dates Upcoming ── #}
+{% if court_upcoming %}
+<div class="card shadow-sm mb-4 border-info">
+  <div class="card-header fw-semibold text-info">
+    <i class="bi bi-calendar-event me-2"></i>Upcoming Court Dates
+  </div>
+  <div class="card-body p-0">
+    <table class="table table-sm mb-0">
+      <thead><tr><th>Vehicle</th><th>Court Date</th><th>Days Away</th><th>Notes</th></tr></thead>
+      <tbody>
+      {% for v in court_upcoming %}
+      <tr>
+        <td><a href="{{ url_for('vehicles_detail', vehicle_id=v.id) }}" class="row-link">{{ v.display_name }}</a></td>
+        <td class="fw-semibold">{{ v.court_date|mdY }}</td>
+        <td>{{ (v.court_date - today).days }}d</td>
+        <td class="small text-muted">{{ v.court_notes or '—' }}</td>
+      </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endif %}
+
+{# ── Recent Invoices ── #}
+{% if recent_invoices %}
+<div class="card shadow-sm mb-4">
+  <div class="card-header fw-semibold">
+    <i class="bi bi-receipt me-2"></i>Recent Invoices
+  </div>
+  <div class="card-body p-0">
+    <table class="table table-sm mb-0">
+      <thead><tr><th>Invoice #</th><th>Vehicle</th><th>Type</th><th>Date</th><th>Net Proceeds</th><th></th></tr></thead>
+      <tbody>
+      {% for inv in recent_invoices %}
+      <tr>
+        <td class="font-monospace small">{{ inv.invoice_number }}</td>
+        <td><a href="{{ url_for('vehicles_detail', vehicle_id=inv.vehicle_id) }}" class="row-link">{{ inv.vehicle.display_name }}</a></td>
+        <td><span class="badge {% if inv.invoice_type == 'SALE' %}bg-success{% else %}bg-warning text-dark{% endif %}">{{ inv.invoice_type }}</span></td>
+        <td class="small">{{ inv.issue_date|mdY if inv.issue_date else '—' }}</td>
+        <td class="fw-semibold {% if (inv.net_proceeds or 0) < 0 %}text-danger{% else %}text-success{% endif %}">
+          {{ inv.net_proceeds|currency if inv.net_proceeds is not none else '—' }}
+        </td>
+        <td class="text-end">
+          <a href="{{ url_for('tina.invoice_print', invoice_id=inv.id) }}" class="btn btn-sm btn-outline-secondary py-0" target="_blank">
+            <i class="bi bi-printer"></i>
+          </a>
+        </td>
+      </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endif %}
+
+{% endblock %}

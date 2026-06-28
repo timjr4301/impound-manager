@@ -1,0 +1,125 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Invoice {{ inv.invoice_number }}</title>
+  <style>
+    body { font-family: Arial, sans-serif; font-size: 11pt; margin: 0.75in; color: #000; }
+    .header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 30px; }
+    .company { font-size: 14pt; font-weight: bold; }
+    .invoice-num { font-size: 20pt; font-weight: bold; color: #1a1a2e; text-align: right; }
+    .invoice-label { color: #666; font-size: 9pt; text-transform: uppercase; letter-spacing: .05em; }
+    table { width: 100%; border-collapse: collapse; margin: 20px 0; }
+    th { background: #1a1a2e; color: white; padding: 8px 12px; text-align: left; font-size: 9pt; text-transform: uppercase; }
+    td { padding: 8px 12px; border-bottom: 1px solid #eee; }
+    .total-row td { font-weight: bold; border-top: 2px solid #1a1a2e; background: #f8f9fa; }
+    .net-row td { font-size: 14pt; font-weight: bold; border-top: 3px solid #1a1a2e; }
+    .badge-type { display: inline-block; padding: 4px 12px; border-radius: 4px;
+                  font-weight: bold; font-size: 10pt; }
+    .badge-sale { background: #d4edda; color: #155724; }
+    .badge-junk { background: #fff3cd; color: #856404; }
+    .sig-area { margin-top: 60px; display: flex; gap: 60px; }
+    .sig-line { border-top: 1px solid #000; padding-top: 4px; font-size: 9pt; color: #666; width: 200px; }
+    @media print { .no-print { display: none; } }
+  </style>
+</head>
+<body>
+
+<div class="no-print" style="padding:15px;background:#f0f0f0;margin-bottom:20px;border-radius:6px;">
+  <button onclick="window.print()" style="padding:8px 20px;background:#007bff;color:white;border:none;border-radius:4px;cursor:pointer;">
+    🖨️ Print Invoice
+  </button>
+</div>
+
+<div class="header">
+  <div>
+    <div class="company">{{ company_name }}</div>
+    <div style="color:#666;font-size:10pt;">{{ company_address }}</div>
+    <div style="color:#666;font-size:10pt;">{{ company_phone }}</div>
+  </div>
+  <div style="text-align:right;">
+    <div class="invoice-label">Invoice</div>
+    <div class="invoice-num">{{ inv.invoice_number }}</div>
+    <div style="color:#666;font-size:10pt;margin-top:4px;">Date: {{ inv.issue_date.strftime('%B %-d, %Y') }}</div>
+    <div class="badge-type {% if inv.invoice_type == 'SALE' %}badge-sale{% else %}badge-junk{% endif %}" style="margin-top:8px;">
+      {{ inv.invoice_type }}
+    </div>
+  </div>
+</div>
+
+<table>
+  <tr>
+    <th colspan="2">Vehicle Information</th>
+  </tr>
+  <tr>
+    <td style="width:30%;color:#666;">Vehicle</td>
+    <td><strong>{{ vehicle.display_name }}</strong></td>
+  </tr>
+  {% if vehicle.vin %}<tr><td style="color:#666;">VIN</td><td class="font-monospace">{{ vehicle.vin }}</td></tr>{% endif %}
+  {% if vehicle.plate %}<tr><td style="color:#666;">Plate</td><td>{{ vehicle.plate }}{% if vehicle.plate_state %} ({{ vehicle.plate_state }}){% endif %}</td></tr>{% endif %}
+  <tr><td style="color:#666;">Impound Date</td><td>{{ vehicle.impound_date.strftime('%m/%d/%Y') }}</td></tr>
+  {% if vehicle.owner_name %}<tr><td style="color:#666;">Owner</td><td>{{ vehicle.owner_name }}</td></tr>{% endif %}
+</table>
+
+{% if inv.invoice_type == 'SALE' %}
+<table>
+  <tr><th colspan="2">Buyer Information</th></tr>
+  <tr><td style="color:#666;width:30%;">Buyer</td><td><strong>{{ inv.buyer_name or '—' }}</strong></td></tr>
+  {% if inv.buyer_address %}<tr><td style="color:#666;">Address</td><td style="white-space:pre-line;">{{ inv.buyer_address }}</td></tr>{% endif %}
+</table>
+{% else %}
+<table>
+  <tr><th colspan="2">Junk Yard / Scrap Buyer</th></tr>
+  <tr><td style="color:#666;width:30%;">Buyer</td><td><strong>{{ inv.junk_yard_name or '—' }}</strong></td></tr>
+  {% if inv.junk_yard_address %}<tr><td style="color:#666;">Address</td><td>{{ inv.junk_yard_address }}</td></tr>{% endif %}
+  {% if inv.weight_lbs %}<tr><td style="color:#666;">Weight</td><td>{{ '{:,.0f}'.format(inv.weight_lbs) }} lbs ({{ (inv.weight_lbs/2000)|round(2) }} tons)</td></tr>{% endif %}
+  {% if inv.price_per_ton %}<tr><td style="color:#666;">Price/Ton</td><td>${{ '%.2f'|format(inv.price_per_ton) }}</td></tr>{% endif %}
+</table>
+{% endif %}
+
+<table>
+  <tr>
+    <th>Description</th>
+    <th style="text-align:right;width:150px;">Amount</th>
+  </tr>
+  {% if inv.invoice_type == 'SALE' %}
+  <tr><td>Vehicle Sale Price</td><td style="text-align:right;">${{ '%.2f'|format(inv.sale_price or 0) }}</td></tr>
+  {% else %}
+  <tr><td>Scrap / Junk Value ({{ '{:,.0f}'.format(inv.weight_lbs or 0) }} lbs @ ${{ '%.2f'|format(inv.price_per_ton or 0) }}/ton)</td>
+      <td style="text-align:right;">${{ '%.2f'|format(inv.gross_amount) }}</td></tr>
+  {% endif %}
+  <tr><td style="color:#666;">Tow Fee</td><td style="text-align:right;">− ${{ '%.2f'|format(inv.tow_fee or 0) }}</td></tr>
+  <tr><td style="color:#666;">Storage Fee ({{ inv.storage_days or 0 }} days)</td>
+      <td style="text-align:right;">− ${{ '%.2f'|format(inv.storage_fee or 0) }}</td></tr>
+  <tr class="total-row">
+    <td>Total Fees</td>
+    <td style="text-align:right;">− ${{ '%.2f'|format(inv.total_fees or 0) }}</td>
+  </tr>
+  <tr class="net-row">
+    <td>Net Proceeds</td>
+    <td style="text-align:right;{% if (inv.net_proceeds or 0) < 0 %}color:#dc3545;{% else %}color:#198754;{% endif %}">
+      ${{ '%.2f'|format(inv.net_proceeds or 0) }}
+    </td>
+  </tr>
+</table>
+
+{% if inv.notes %}
+<div style="background:#f8f9fa;border-left:4px solid #1a1a2e;padding:10px 15px;margin:15px 0;font-size:10pt;">
+  <strong>Notes:</strong> {{ inv.notes }}
+</div>
+{% endif %}
+
+<div class="sig-area">
+  <div>
+    <div class="sig-line">Authorized Signature</div>
+  </div>
+  <div>
+    <div class="sig-line">Buyer Signature</div>
+  </div>
+  <div>
+    <div class="sig-line">Date</div>
+  </div>
+</div>
+
+</body>
+</html>

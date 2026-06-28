@@ -154,24 +154,37 @@
     </div>
 
     {# Actions #}
-    {% if vehicle.status == 'ACTIVE' %}
     <div class="card shadow-sm mb-4">
       <div class="card-header fw-semibold">Actions</div>
       <div class="card-body d-flex flex-column gap-2">
-        {% if vehicle.is_title_eligible and not vehicle.title_filing %}
-        <a href="{{ url_for('file_title', vehicle_id=vehicle.id) }}" class="btn btn-success">
-          <i class="bi bi-file-earmark-arrow-up"></i> File for Title
+        <a href="{{ url_for('valuation_report', vehicle_id=vehicle.id) }}"
+           class="btn btn-outline-primary" target="_blank">
+          <i class="bi bi-file-earmark-bar-graph"></i> Valuation Report
         </a>
+        <a href="{{ url_for('payments.collect_payment', vehicle_id=vehicle.id) }}"
+           class="btn btn-outline-success">
+          <i class="bi bi-credit-card"></i> Collect Payment
+        </a>
+        {% if vehicle.status == 'ACTIVE' %}
+          {% if vehicle.is_title_eligible and not vehicle.title_filing %}
+          <a href="{{ url_for('file_title', vehicle_id=vehicle.id) }}" class="btn btn-success">
+            <i class="bi bi-file-earmark-arrow-up"></i> File for Title
+          </a>
+          {% endif %}
+          {% if current_user.is_tina %}
+          <a href="{{ url_for('tina.create_invoice', vehicle_id=vehicle.id) }}" class="btn btn-outline-secondary">
+            <i class="bi bi-receipt"></i> Create Invoice
+          </a>
+          {% endif %}
+          <form method="POST" action="{{ url_for('vehicles_release', vehicle_id=vehicle.id) }}"
+                onsubmit="return confirm('Mark this vehicle as released?')">
+            <button type="submit" class="btn btn-outline-secondary w-100">
+              <i class="bi bi-box-arrow-right"></i> Mark as Released
+            </button>
+          </form>
         {% endif %}
-        <form method="POST" action="{{ url_for('vehicles_release', vehicle_id=vehicle.id) }}"
-              onsubmit="return confirm('Mark this vehicle as released?')">
-          <button type="submit" class="btn btn-outline-secondary w-100">
-            <i class="bi bi-box-arrow-right"></i> Mark as Released
-          </button>
-        </form>
       </div>
     </div>
-    {% endif %}
 
     {# Title Filing Info #}
     {% if vehicle.title_filing %}

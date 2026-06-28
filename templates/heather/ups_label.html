@@ -1,0 +1,71 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>UPS Label — {{ vehicle.display_name }}</title>
+  <style>
+    body { font-family: Arial, sans-serif; margin: 0; background: white; }
+    .label {
+      width: 4in; height: 6in; border: 2px solid #000;
+      padding: 0.25in; margin: 0.25in auto; box-sizing: border-box;
+    }
+    .from { border-bottom: 2px solid #000; padding-bottom: 0.15in; margin-bottom: 0.15in; }
+    .to { font-size: 16pt; font-weight: bold; line-height: 1.4; }
+    .service { text-align: center; font-size: 12pt; font-weight: bold;
+               border: 2px solid #000; padding: 4px; margin-top: 0.15in; }
+    .label-note { font-size: 8pt; margin-top: 8px; color: #555; }
+    @media print {
+      body { margin: 0; }
+      .no-print { display: none; }
+      .label { margin: 0; border: 2px solid #000; width: 4in; height: 6in; }
+    }
+  </style>
+</head>
+<body>
+
+<div class="no-print" style="padding:15px; background:#f8f9fa;">
+  <button onclick="window.print()" style="padding:8px 20px;background:#007bff;color:white;border:none;border-radius:4px;cursor:pointer;">
+    🖨️ Print Label
+  </button>
+  <span style="margin-left:15px;color:#666;">4×6 label — use UPS label printer or print on adhesive sheet</span>
+</div>
+
+<div class="label">
+  <div class="from">
+    <div style="font-size:8pt;text-transform:uppercase;color:#666;margin-bottom:3px;">FROM:</div>
+    <strong>{{ company_name }}</strong><br>
+    <span style="font-size:9pt;">{{ company_address }}</span>
+  </div>
+
+  <div style="font-size:8pt;text-transform:uppercase;color:#666;margin-bottom:5px;">CERTIFIED MAIL — RETURN RECEIPT REQUESTED</div>
+
+  <div class="to">
+    {% if vehicle.owner_name %}
+    {{ vehicle.owner_name }}<br>
+    {% else %}
+    [OWNER NAME]<br>
+    {% endif %}
+    {% if vehicle.owner_address %}
+    {% for line in vehicle.owner_address.splitlines() %}
+    {{ line }}<br>
+    {% endfor %}
+    {% else %}
+    [ADDRESS — BMV LOOKUP REQUIRED]
+    {% endif %}
+  </div>
+
+  <div class="service">CERTIFIED MAIL</div>
+
+  <div class="label-note">
+    RE: {{ vehicle.display_name }}{% if vehicle.plate %} | Plate: {{ vehicle.plate }}{% endif %}<br>
+    {% if vehicle.vin %}VIN: {{ vehicle.vin[-8:] }}{% endif %}
+    | Impounded: {{ vehicle.impound_date.strftime('%m/%d/%Y') }}
+  </div>
+
+  <div style="margin-top:0.3in; border: 1px dashed #ccc; height: 0.6in; display:flex; align-items:center; justify-content:center;">
+    <span style="font-size:8pt;color:#999;">USPS Tracking # (affix here or enter on label)</span>
+  </div>
+</div>
+
+</body>
+</html>

@@ -1,0 +1,64 @@
+{% extends 'base.html' %}
+{% block title %}Driver Management — Impound Manager{% endblock %}
+
+{% block content %}
+<div class="d-flex align-items-center mb-4 gap-3">
+  <div>
+    <h2 class="h4 mb-0 fw-bold"><i class="bi bi-people me-2"></i>Driver Management</h2>
+  </div>
+  <div class="ms-auto d-flex gap-2">
+    <a href="{{ url_for('drivers.send_friday_sms') }}" class="btn btn-primary btn-sm">
+      <i class="bi bi-chat-text"></i> Friday SMS
+    </a>
+    <a href="{{ url_for('drivers.suggestions') }}" class="btn btn-outline-secondary btn-sm">
+      <i class="bi bi-lightbulb"></i> Suggestions
+    </a>
+    <a href="{{ url_for('drivers.timecards') }}" class="btn btn-outline-secondary btn-sm">
+      <i class="bi bi-clock-history"></i> Timecard Flags
+    </a>
+    <a href="{{ url_for('drivers.new_driver') }}" class="btn btn-success btn-sm">
+      <i class="bi bi-person-plus"></i> Add Driver
+    </a>
+  </div>
+</div>
+
+<div class="card shadow-sm">
+  <div class="card-body p-0">
+    <table class="table table-hover mb-0">
+      <thead><tr>
+        <th>Name</th><th>Phone</th><th>Towbook ID</th><th>SMS Opt-in</th><th>Status</th><th></th>
+      </tr></thead>
+      <tbody>
+      {% for driver in drivers %}
+      <tr>
+        <td class="fw-semibold">{{ driver.name }}</td>
+        <td class="font-monospace">{{ driver.phone or '—' }}</td>
+        <td class="small text-muted">{{ driver.towbook_driver_id or '—' }}</td>
+        <td>
+          {% if driver.sms_opt_in %}
+          <span class="badge bg-success">Yes</span>
+          {% else %}
+          <span class="badge bg-secondary">No</span>
+          {% endif %}
+        </td>
+        <td>
+          {% if driver.is_active %}
+          <span class="badge bg-success">Active</span>
+          {% else %}
+          <span class="badge bg-secondary">Inactive</span>
+          {% endif %}
+        </td>
+        <td class="text-end">
+          <span class="badge bg-light text-dark border">
+            {{ driver.suggestions|length }} suggestions
+          </span>
+        </td>
+      </tr>
+      {% else %}
+      <tr><td colspan="6" class="text-center text-muted py-4">No drivers yet. <a href="{{ url_for('drivers.new_driver') }}">Add one.</a></td></tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}

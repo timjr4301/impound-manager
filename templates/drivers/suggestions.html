@@ -1,0 +1,42 @@
+{% extends 'base.html' %}
+{% block title %}Driver Suggestions — Impound Manager{% endblock %}
+
+{% block content %}
+<div class="d-flex align-items-center mb-4 gap-3">
+  <a href="{{ url_for('drivers.dashboard') }}" class="btn btn-outline-secondary btn-sm"><i class="bi bi-arrow-left"></i></a>
+  <h2 class="h4 mb-0 fw-bold"><i class="bi bi-lightbulb me-2"></i>Driver Suggestions</h2>
+</div>
+
+<div class="row g-4">
+  {% for cat, icon, color in [('equipment', 'bi-tools', 'warning'), ('information', 'bi-info-circle', 'info'), ('process', 'bi-diagram-3', 'primary')] %}
+  <div class="col-md-4">
+    <div class="card shadow-sm h-100">
+      <div class="card-header fw-semibold d-flex align-items-center gap-2">
+        <i class="bi {{ icon }} text-{{ color }}"></i>
+        {{ cat|title }}
+        <span class="badge bg-secondary ms-auto fw-normal">{{ by_category[cat]|length }}</span>
+      </div>
+      <div class="card-body p-0">
+        {% for s in by_category[cat] %}
+        <div class="p-3 {% if not loop.last %}border-bottom{% endif %} {% if not s.acknowledged %}bg-{{ color }} bg-opacity-10{% endif %}">
+          <div class="small fw-semibold">{{ s.driver.name }}</div>
+          <div class="small text-muted mb-1">{{ s.week_of.strftime('%m/%d/%Y') if s.week_of else '' }} · Q{{ s.question_number or '?' }}</div>
+          <div class="small mb-2">{{ s.body }}</div>
+          {% if s.action_taken %}
+          <div class="small text-success"><i class="bi bi-check-circle"></i> {{ s.action_taken }}</div>
+          {% elif not s.acknowledged %}
+          <form method="POST" action="{{ url_for('drivers.suggestion_action', suggestion_id=s.id) }}" class="d-flex gap-2">
+            <input type="text" name="action" class="form-control form-control-sm" placeholder="Action taken…" required>
+            <button type="submit" class="btn btn-sm btn-outline-success py-0 text-nowrap">Save</button>
+          </form>
+          {% endif %}
+        </div>
+        {% else %}
+        <div class="p-3 text-muted small">No {{ cat }} suggestions yet.</div>
+        {% endfor %}
+      </div>
+    </div>
+  </div>
+  {% endfor %}
+</div>
+{% endblock %}

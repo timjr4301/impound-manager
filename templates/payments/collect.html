@@ -1,0 +1,108 @@
+{% extends 'base.html' %}
+{% block title %}Collect Payment — {{ vehicle.display_name }}{% endblock %}
+
+{% block content %}
+<div class="d-flex align-items-center mb-4 gap-3">
+  <a href="{{ url_for('vehicles_detail', vehicle_id=vehicle.id) }}" class="btn btn-outline-secondary btn-sm">
+    <i class="bi bi-arrow-left"></i>
+  </a>
+  <div>
+    <h2 class="h4 mb-0 fw-bold"><i class="bi bi-credit-card me-2"></i>Collect Payment</h2>
+    <small class="text-muted">{{ vehicle.display_name }}</small>
+  </div>
+</div>
+
+<div class="row g-4">
+  <div class="col-md-6">
+    <div class="card shadow-sm mb-4">
+      <div class="card-header fw-semibold">Fee Summary</div>
+      <div class="card-body">
+        <table class="table table-sm mb-0">
+          <tr><td class="text-muted">Tow Fee</td><td class="text-end">{{ vehicle.tow_fee|currency if vehicle.tow_fee else '—' }}</td></tr>
+          <tr><td class="text-muted">Storage ({{ storage_days }} days @ ${{ '%.2f'|format(vehicle.daily_storage_rate or 0) }}/day)</td>
+              <td class="text-end">{{ storage_total|currency }}</td></tr>
+          <tr class="fw-bold">
+            <td>Total Owed</td><td class="text-end">{{ total_owed|currency }}</td>
+          </tr>
+          {% if already_paid > 0 %}
+          <tr><td class="text-muted">Already Paid</td><td class="text-end text-success">− {{ already_paid|currency }}</td></tr>
+          <tr class="fw-bold text-danger">
+            <td>Balance Due</td><td class="text-end">{{ balance|currency }}</td>
+          </tr>
+          {% endif %}
+        </table>
+      </div>
+    </div>
+
+    <div class="card shadow-sm">
+      <div class="card-header fw-semibold d-flex justify-content-between">
+        <span>Process Payment</span>
+        {% if cloudpos_configured %}
+        <span class="badge bg-success">iPOSpays Connected</span>
+        {% else %}
+        <span class="badge bg-warning text-dark">Simulation Mode</span>
+        {% endif %}
+      </div>
+      <div class="card-body">
+        <form method="POST">
+          <div class="mb-3">
+            <label class="form-label fw-semibold">Amount ($)</label>
+            <div class="input-group">
+              <span class="input-group-text">$</span>
+              <input type="number" step="0.01" name="amount" class="form-control form-control-lg"
+                     value="{{ '%.2f'|format(balance) }}" required>
+            </div>
+          </div>
+          <div class="mb-3">
+            <label class="form-label fw-semibold">Payment Method</label>
+            <div class="btn-group w-100">
+              <input type="radio" class="btn-check" name="payment_type" id="payCard" value="CARD" checked>
+              <label class="btn btn-outline-primary" for="payCard">
+                <i class="bi bi-credit-card me-1"></i>Card (CloudPOS)
+              </label>
+              <input type="radio" class="btn-check" name="payment_type" id="payCash" value="CASH">
+              <label class="btn btn-outline-secondary" for="payCash">
+                <i class="bi bi-cash me-1"></i>Cash
+              </label>
+              <input type="radio" class="btn-check" name="payment_type" id="payCheck" value="CHECK">
+              <label class="btn btn-outline-secondary" for="payCheck">
+                <i class="bi bi-pen me-1"></i>Check
+              </label>
+            </div>
+          </div>
+          <div class="mb-3">
+            <label class="form-label fw-semibold">Notes</label>
+            <input type="text" name="notes" class="form-control" placeholder="Optional notes">
+          </div>
+          <button type="submit" class="btn btn-success w-100 fw-semibold btn-lg">
+            <i class="bi bi-lock me-2"></i>Process Payment
+          </button>
+        </form>
+      </div>
+    </div>
+  </div>
+
+  <div class="col-md-6">
+    {% if vehicle.payments %}
+    <div class="card shadow-sm">
+      <div class="card-header fw-semibold">Payment History</div>
+      <div class="card-body p-0">
+        <table class="table table-sm mb-0">
+          <thead><tr><th>Date</th><th>Amount</th><th>Type</th><th>Ref</th></tr></thead>
+          <tbody>
+          {% for p in vehicle.payments %}
+          <tr>
+            <td class="small">{{ p.payment_date.strftime('%m/%d %I:%M %p') if p.payment_date else '—' }}</td>
+            <td class="fw-semibold text-success">{{ p.amount|currency }}</td>
+            <td><span class="badge bg-secondary">{{ p.payment_type or '—' }}</span></td>
+            <td class="small font-monospace text-muted">{{ (p.cloudpos_transaction_id or p.reference_number or '—')[:20] }}</td>
+          </tr>
+          {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+    {% endif %}
+  </div>
+</div>
+{% endblock %}
