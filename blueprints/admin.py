@@ -99,13 +99,16 @@ def users_delete(user_id):
 @bp.route('/run-migrations', methods=['GET'])
 @_admin_required
 def run_migrations():
-    """One-time column resize migration. Remove this route after running."""
+    """One-time migration: add Claude AI analysis columns to damage_reports. Remove after running."""
     from sqlalchemy import text
     results = []
     migrations = [
-        "ALTER TABLE vehicles ALTER COLUMN plate_state TYPE VARCHAR(20)",
-        "ALTER TABLE vehicles ALTER COLUMN year TYPE VARCHAR(10)",
-        "ALTER TABLE vehicles ALTER COLUMN model TYPE VARCHAR(100)",
+        "ALTER TABLE damage_reports ADD COLUMN IF NOT EXISTS ai_severity VARCHAR(20)",
+        "ALTER TABLE damage_reports ADD COLUMN IF NOT EXISTS ai_repair_cost_low FLOAT",
+        "ALTER TABLE damage_reports ADD COLUMN IF NOT EXISTS ai_repair_cost_high FLOAT",
+        "ALTER TABLE damage_reports ADD COLUMN IF NOT EXISTS ai_total_loss BOOLEAN DEFAULT FALSE",
+        "ALTER TABLE damage_reports ADD COLUMN IF NOT EXISTS ai_analysis TEXT",
+        "ALTER TABLE damage_reports ADD COLUMN IF NOT EXISTS ai_analyzed_at TIMESTAMP",
     ]
     try:
         with db.engine.connect() as conn:

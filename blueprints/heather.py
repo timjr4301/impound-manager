@@ -342,12 +342,10 @@ def _ups_create_label(vehicle, notice_number, recipient_name, recipient_address,
     company_name = current_app.config.get('COMPANY_NAME', 'Broad & James Towing')
     company_address = current_app.config.get('COMPANY_ADDRESS', '3201 E Broad St')
 
-    # Parse shipper address
-    parts = [p.strip() for p in company_address.split(',')]
-    shipper_line = parts[0] if parts else '3201 E Broad St'
+    shipper_line = '4301 E 5th Ave'
     shipper_city = 'Columbus'
     shipper_state = 'OH'
-    shipper_zip = '43213'
+    shipper_zip = '43219'
 
     reference = (vehicle.call_number or vehicle.plate or f'VEH{vehicle.id}')[:35]
 

@@ -17,6 +17,71 @@ from permissions import require_permission
 bp = Blueprint('damage_docs', __name__, url_prefix='/damage')
 
 
+# ── Claude Opus damage analysis ────────────────────────────────────────────────
+
+def _analyze_damage_with_claude(report, photos_b64):
+    """Send damage photos to Claude Opus for severity assessment and cost estimate."""
+    api_key = os.environ.get('ANTHROPIC_API_KEY')
+    if not api_key or not photos_b64:
+        return
+
+    content = []
+    for img_data in photos_b64[:5]:  # cap at 5 images to stay within token limits
+        if not img_data:
+            continue
+        if ',' in img_data:
+            img_data = img_data.split(',', 1)[1]
+        content.append({
+            'type': 'image',
+            'source': {'type': 'base64', 'media_type': 'image/jpeg', 'data': img_data},
+        })
+
+    if not content:
+        return
+
+    content.append({
+        'type': 'text',
+        'text': (
+            'These are damage photos taken at time of vehicle impound by a towing company. '
+            'Analyze the visible damage and respond ONLY with valid JSON — no other text:\n'
+            '{\n'
+            '  "severity": "MINOR or MODERATE or SEVERE or TOTAL_LOSS",\n'
+            '  "repair_cost_low": 0,\n'
+            '  "repair_cost_high": 0,\n'
+            '  "is_total_loss_candidate": false,\n'
+            '  "summary": "one sentence describing the damage",\n'
+            '  "damage_areas": ["front bumper", "hood", ...],\n'
+            '  "notes": "any additional observations"\n'
+            '}\n\n'
+            'Severity: MINOR=cosmetic only under $1,500 | MODERATE=$1,500–$5,000 | '
+            'SEVERE=$5,000–$10,000 | TOTAL_LOSS=likely exceeds vehicle value or over $10,000.'
+        ),
+    })
+
+    try:
+        import anthropic
+        client = anthropic.Anthropic(api_key=api_key)
+        response = client.messages.create(
+            model='claude-opus-4-8',
+            max_tokens=600,
+            messages=[{'role': 'user', 'content': content}],
+        )
+        raw = response.content[0].text.strip()
+        import re
+        m = re.search(r'\{.*\}', raw, re.DOTALL)
+        result = json.loads(m.group()) if m else {}
+
+        report.ai_severity = result.get('severity')
+        report.ai_repair_cost_low = result.get('repair_cost_low')
+        report.ai_repair_cost_high = result.get('repair_cost_high')
+        report.ai_total_loss = bool(result.get('is_total_loss_candidate', False))
+        report.ai_analysis = raw
+        report.ai_analyzed_at = datetime.utcnow()
+
+    except Exception as exc:
+        current_app.logger.warning(f'Claude damage analysis failed: {exc}')
+
+
 # ── PDF generation ─────────────────────────────────────────────────────────────
 
 def _generate_pdf(report: DamageReport) -> bytes:
@@ -394,6 +459,9 @@ def damage_submit():
         ))
 
     db.session.flush()
+
+    # Claude Opus damage analysis — runs after photos are flushed
+    _analyze_damage_with_claude(report, photos_b64)
 
     # Generate and store PDF
     try:

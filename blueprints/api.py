@@ -11,12 +11,14 @@ from models import db, Vehicle, CertifiedLetter, TitleFiling, VehicleNote
 
 bp = Blueprint('api', __name__, url_prefix='/api/v1')
 
-API_KEY = os.environ.get('API_KEY', 'change-me-in-production')
+API_KEY = os.environ.get('API_KEY')  # Must be set in environment — no default
 
 
 def api_key_required(f):
     @wraps(f)
     def decorated(*args, **kwargs):
+        if not API_KEY:
+            return jsonify({'error': 'API not configured on server'}), 503
         key = request.headers.get('X-API-Key') or request.args.get('api_key')
         if key != API_KEY:
             return jsonify({'error': 'Unauthorized'}), 401

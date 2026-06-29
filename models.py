@@ -627,6 +627,14 @@ class DamageReport(db.Model):
     submitted_by = db.Column(db.String(50))
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
+    # Claude Opus damage analysis
+    ai_severity = db.Column(db.String(20))       # MINOR | MODERATE | SEVERE | TOTAL_LOSS
+    ai_repair_cost_low = db.Column(db.Float)
+    ai_repair_cost_high = db.Column(db.Float)
+    ai_total_loss = db.Column(db.Boolean, default=False)
+    ai_analysis = db.Column(db.Text)             # full JSON from Claude
+    ai_analyzed_at = db.Column(db.DateTime)
+
     vehicle = db.relationship('Vehicle', back_populates='damage_reports')
     photos = db.relationship(
         'DamagePhoto', back_populates='report',
