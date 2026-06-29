@@ -130,17 +130,30 @@ document.getElementById('towbook-import-form').addEventListener('submit', async 
   </div>
 </div>
 
-{# ── Towbook Sync Info (minimal) ─────────────────────────────────────────────── #}
-{% if towbook_total %}
+{# ── Towbook Sync Status ──────────────────────────────────────────────────────── #}
 <div class="row g-3 mb-4">
   <div class="col-12 col-md-4">
-    <div class="card stat-card shadow-sm h-100">
+    <div class="card stat-card shadow-sm h-100
+         {% if towbook_sync_status and towbook_sync_status.status == 'ok' %}border-success
+         {% elif towbook_sync_status and towbook_sync_status.status == 'error' %}border-danger
+         {% elif towbook_sync_status and towbook_sync_status.status in ('pending','no_sync') %}border-warning
+         {% endif %}">
       <div class="card-body text-center py-3">
         <div class="stat-number text-secondary">{{ towbook_total }}</div>
         <div class="text-muted small mt-1">
           Synced from Towbook
-          {% if last_sync %}
-          <br><span style="font-size:0.7rem">{{ last_sync.strftime('%m/%d %I:%M %p') }}</span>
+          {% if towbook_sync_status and towbook_sync_status.status == 'ok' %}
+          <br><span class="text-success" style="font-size:0.7rem">
+            <i class="bi bi-check-circle-fill"></i>
+            Today via {{ 'API' if towbook_sync_status.source == 'api_auto' else 'CSV' }}
+            {% if towbook_sync_status.created_at %}
+              — {{ towbook_sync_status.created_at.strftime('%I:%M %p') }}
+            {% endif %}
+          </span>
+          {% elif last_sync %}
+          <br><span class="text-warning" style="font-size:0.7rem">
+            <i class="bi bi-clock"></i> Last: {{ last_sync.strftime('%m/%d %I:%M %p') }}
+          </span>
           {% endif %}
         </div>
       </div>
@@ -156,10 +169,31 @@ document.getElementById('towbook-import-form').addEventListener('submit', async 
     </div>
   </div>
   {% endif %}
+  <div class="col-12 col-md-{% if urgent_no_record %}4{% else %}8{% endif %}">
+    <div class="card shadow-sm h-100 border-0 bg-light">
+      <div class="card-body py-2 px-3">
+        <div class="fw-semibold small mb-1"><i class="bi bi-clock-history me-1"></i>Auto-Sync Schedule</div>
+        <ul class="list-unstyled mb-0 small text-muted">
+          <li><i class="bi bi-alarm me-1"></i><strong>5:00 AM</strong> — Towbook pull
+            {% if towbook_api_configured %}
+            <span class="badge bg-success ms-1">API active</span>
+            {% else %}
+            <span class="badge bg-warning text-dark ms-1">CSV reminder</span>
+            {% endif %}
+          </li>
+          <li><i class="bi bi-calculator me-1"></i><strong>6:00 AM</strong> — Task pipeline recalc</li>
+        </ul>
+        {% if not towbook_api_configured %}
+        <div class="mt-2 small text-muted" style="font-size:0.72rem">
+          <i class="bi bi-info-circle me-1"></i>
+          Set <code>TOWBOOK_API_TOKEN</code> + <code>TOWBOOK_COMPANY_ID</code> in Render
+          to enable fully automatic pulls. Contact Towbook support to get your token.
+        </div>
+        {% endif %}
+      </div>
+    </div>
+  </div>
 </div>
-{% else %}
-<div class="mb-4"></div>
-{% endif %}
 
 {% if not overdue and not due_today and not title_eligible and not urgent_no_record %}
 <div class="alert alert-success d-flex align-items-center gap-2">

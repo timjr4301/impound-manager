@@ -4,9 +4,10 @@ POST /api/import-towbook        upload CSV, upsert vehicles by stock_number
 GET  /api/import-towbook/status last import result
 """
 import csv, io, re
-from datetime import datetime
+from datetime import datetime, date
 from flask import Blueprint, request, jsonify
-from models import db, Vehicle
+from flask_login import current_user
+from models import db, Vehicle, SyncLog
 
 bp = Blueprint('towbook_import', __name__, url_prefix='/api/import-towbook')
 
@@ -160,6 +161,31 @@ def import_csv():
         urgency_counts = recalculate_all()
     except Exception as exc:
         urgency_counts = {'error': str(exc)}
+
+    # Record this sync so the dashboard banner clears
+    try:
+        today = date.today()
+        triggered_by = 'unknown'
+        try:
+            if current_user.is_authenticated:
+                triggered_by = current_user.username
+        except Exception:
+            pass
+        sync_log = SyncLog(
+            sync_date=today,
+            source='csv_manual',
+            status='ok',
+            inserted=inserted,
+            updated=updated,
+            skipped=skipped,
+            call_count=inserted + updated,
+            triggered_by=triggered_by,
+            created_at=datetime.utcnow(),
+        )
+        db.session.add(sync_log)
+        db.session.commit()
+    except Exception:
+        pass  # Don't let logging failure break the import response
 
     global _last_import
     _last_import = {

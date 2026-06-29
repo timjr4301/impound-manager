@@ -570,6 +570,31 @@ class DriverSMS(db.Model):
     driver = db.relationship('Driver', back_populates='sms_log')
 
 
+class SyncLog(db.Model):
+    """One row per Towbook sync attempt (CSV upload or API auto-pull)."""
+    __tablename__ = 'sync_log'
+
+    id = db.Column(db.Integer, primary_key=True)
+    sync_date = db.Column(db.Date, nullable=False, index=True)
+    source = db.Column(db.String(20))   # csv_manual | api_auto | alert_pending
+    status = db.Column(db.String(20))   # ok | error | pending
+    inserted = db.Column(db.Integer, default=0)
+    updated = db.Column(db.Integer, default=0)
+    skipped = db.Column(db.Integer, default=0)
+    call_count = db.Column(db.Integer, default=0)
+    error_msg = db.Column(db.Text)
+    triggered_by = db.Column(db.String(50))   # username or 'scheduler'
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+    @property
+    def summary(self):
+        if self.status == 'ok':
+            return f'{self.inserted} added, {self.updated} updated'
+        if self.status == 'error':
+            return self.error_msg or 'Unknown error'
+        return 'Manual sync needed'
+
+
 class TimecardException(db.Model):
     __tablename__ = 'timecard_exceptions'
 

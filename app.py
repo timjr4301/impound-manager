@@ -7,8 +7,8 @@ from flask import (Flask, render_template, request, redirect, url_for,
 from flask_login import LoginManager, login_required, current_user
 from flask_cors import CORS
 from models import (db, User, Vehicle, CertifiedLetter, TitleFiling,
-                    VehicleNote, DamageItem, PPI_LETTER1_DAYS,
-                    PPI_LETTER2_DAYS, POLICE_LETTER1_DAYS)
+                    VehicleNote, DamageItem, SyncLog,
+                    PPI_LETTER1_DAYS, PPI_LETTER2_DAYS, POLICE_LETTER1_DAYS)
 
 try:
     from apscheduler.schedulers.background import BackgroundScheduler
@@ -80,6 +80,23 @@ def run_migrations(app):
                 cols = {c['name'] for c in inspector.get_columns('certified_letters')}
                 if 'return_to_sender' not in cols:
                     conn.execute(text('ALTER TABLE certified_letters ADD COLUMN return_to_sender BOOLEAN'))
+
+            if 'sync_log' not in existing_tables:
+                conn.execute(text('''
+                    CREATE TABLE sync_log (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        sync_date DATE NOT NULL,
+                        source VARCHAR(20),
+                        status VARCHAR(20),
+                        inserted INTEGER DEFAULT 0,
+                        updated INTEGER DEFAULT 0,
+                        skipped INTEGER DEFAULT 0,
+                        call_count INTEGER DEFAULT 0,
+                        error_msg TEXT,
+                        triggered_by VARCHAR(50),
+                        created_at DATETIME
+                    )
+                '''))
 
 
 def parse_quantum_view_csv(content: str):
@@ -179,20 +196,87 @@ def _backfill_urgency(app):
 
 
 def _start_scheduler(app):
-    """Start APScheduler background thread for 6 AM daily recalculation."""
+    """Start APScheduler background thread for scheduled daily jobs."""
     if _APScheduler is None:
         return
     try:
-        def _run():
+        scheduler = _APScheduler(timezone='America/New_York')
+
+        # 5:00 AM — Towbook auto-sync (API if configured, else alert_pending)
+        def _towbook_sync():
+            with app.app_context():
+                _run_towbook_sync_job()
+
+        # 6:00 AM — Task pipeline recalculation (runs after sync so urgency is fresh)
+        def _recalc():
             with app.app_context():
                 from task_engine import recalculate_all
                 recalculate_all()
 
-        scheduler = _APScheduler(timezone='America/New_York')
-        scheduler.add_job(_run, 'cron', hour=6, minute=0, id='daily_urgency')
+        scheduler.add_job(_towbook_sync, 'cron', hour=5, minute=0, id='daily_towbook_sync')
+        scheduler.add_job(_recalc,       'cron', hour=6, minute=0, id='daily_urgency')
         scheduler.start()
     except Exception as exc:
         print(f'[scheduler] could not start: {exc}')
+
+
+def _run_towbook_sync_job():
+    """
+    Core logic for the 5 AM Towbook sync.  Also called from the manual trigger route.
+    Returns a SyncLog instance (not yet committed — caller commits).
+    """
+    today = date.today()
+
+    # Already succeeded today? Skip.
+    ok_today = SyncLog.query.filter_by(sync_date=today, status='ok').first()
+    if ok_today:
+        print(f'[towbook_sync] already synced today ({ok_today.source}), skipping')
+        return ok_today
+
+    from towbook_api import is_configured, run_auto_sync
+
+    if is_configured():
+        try:
+            result = run_auto_sync()
+            log = SyncLog(
+                sync_date=today,
+                source='api_auto',
+                status='ok',
+                inserted=result.get('inserted', 0),
+                updated=result.get('updated', 0),
+                skipped=result.get('skipped', 0),
+                call_count=result.get('call_count', 0),
+                triggered_by='scheduler',
+                created_at=datetime.utcnow(),
+            )
+            print(f'[towbook_sync] API sync OK: {result.get("inserted")} in, {result.get("updated")} up')
+        except Exception as exc:
+            log = SyncLog(
+                sync_date=today,
+                source='api_auto',
+                status='error',
+                error_msg=str(exc)[:500],
+                triggered_by='scheduler',
+                created_at=datetime.utcnow(),
+            )
+            print(f'[towbook_sync] API sync FAILED: {exc}')
+    else:
+        # No API credentials — write a pending alert (once per day)
+        pending_today = SyncLog.query.filter_by(sync_date=today).first()
+        if pending_today:
+            return pending_today
+        log = SyncLog(
+            sync_date=today,
+            source='alert_pending',
+            status='pending',
+            triggered_by='scheduler',
+            created_at=datetime.utcnow(),
+        )
+        print('[towbook_sync] no API configured — alert_pending log created')
+
+    db.session.add(log)
+    db.session.commit()
+    return log
 
 
 def create_app():
@@ -302,10 +386,31 @@ def create_app():
     @app.context_processor
     def inject_globals():
         from datetime import timedelta as _td
+        from flask_login import current_user as _cu
+
+        sync_status = None
+        if _cu.is_authenticated and _cu.role in ('tim', 'heather'):
+            try:
+                _today = date.today()
+                _log = (SyncLog.query
+                        .filter_by(sync_date=_today)
+                        .order_by(SyncLog.created_at.desc())
+                        .first())
+                if _log:
+                    sync_status = _log
+                elif datetime.utcnow().hour >= 10:
+                    # After 10 AM UTC (~5-6 AM ET) with no log = missed
+                    _placeholder = SyncLog(sync_date=_today, status='no_sync',
+                                           source='none', created_at=datetime.utcnow())
+                    sync_status = _placeholder
+            except Exception:
+                pass
+
         return {
             'company_name': app.config['COMPANY_NAME'],
             'company_phone': app.config['COMPANY_PHONE'],
             'timedelta': _td,
+            'towbook_sync_status': sync_status,
         }
 
     # ── Dashboard ──────────────────────────────────────────────────────────────
@@ -370,6 +475,8 @@ def create_app():
         from models import TimecardException
         timecard_flags = TimecardException.query.filter_by(resolved=False).count()
 
+        from towbook_api import is_configured as towbook_api_configured
+
         return render_template('dashboard.html',
             today=today,
             total_active=total_active,
@@ -382,7 +489,55 @@ def create_app():
             urgent_no_record=urgent_no_record,
             handoff_queue=handoff_queue,
             timecard_flags=timecard_flags,
+            towbook_api_configured=towbook_api_configured(),
         )
+
+    @app.route('/api/import-towbook/trigger', methods=['POST'])
+    @login_required
+    def towbook_trigger_sync():
+        """Tim-only: manually trigger a Towbook API sync (bypasses the 5 AM schedule)."""
+        if current_user.role != 'tim':
+            return jsonify({'error': 'Access restricted to Tim.'}), 403
+
+        from towbook_api import is_configured, run_auto_sync
+        if not is_configured():
+            return jsonify({
+                'error': 'Towbook API not configured.',
+                'help': (
+                    'Set TOWBOOK_API_TOKEN and TOWBOOK_COMPANY_ID in Render → '
+                    'Environment Variables, then redeploy. '
+                    'Contact Towbook support (support@towbook.com) to obtain your API token.'
+                ),
+            }), 400
+
+        try:
+            result = run_auto_sync()
+            log = SyncLog(
+                sync_date=date.today(),
+                source='api_auto',
+                status='ok',
+                inserted=result.get('inserted', 0),
+                updated=result.get('updated', 0),
+                skipped=result.get('skipped', 0),
+                call_count=result.get('call_count', 0),
+                triggered_by=current_user.username,
+                created_at=datetime.utcnow(),
+            )
+            db.session.add(log)
+            db.session.commit()
+            return jsonify(result)
+        except Exception as exc:
+            log = SyncLog(
+                sync_date=date.today(),
+                source='api_auto',
+                status='error',
+                error_msg=str(exc)[:500],
+                triggered_by=current_user.username,
+                created_at=datetime.utcnow(),
+            )
+            db.session.add(log)
+            db.session.commit()
+            return jsonify({'error': str(exc)}), 500
 
     @app.route('/dispatch-board')
     @login_required
