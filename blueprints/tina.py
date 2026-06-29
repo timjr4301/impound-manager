@@ -109,6 +109,108 @@ def set_stage(vehicle_id):
     return redirect(url_for('tina.dashboard'))
 
 
+# ── Pipeline Board ──────────────────────────────────────────────────────────
+
+PIPELINE_STAGES = [
+    ('TITLE_PENDING',  'Title Pending'),
+    ('TITLE_COMPLETE', 'Title Complete'),
+    ('SERVICE_EVAL',   'Service Evaluation'),
+    ('AUCTION_CAND',   'Auction Candidate'),
+    ('KEY_INSPECT',    'Key Inspection'),
+    ('ROUTED_LIVE',    'Live Auction'),
+    ('ROUTED_ONLINE',  'Online Auction'),
+    ('ROUTED_JUNK',    'Junk Route'),
+]
+
+PIPELINE_ALERT_TARGETS = {
+    'TITLE_COMPLETE': {'tina'},
+    'SERVICE_EVAL':   {'tim', 'lawrence'},
+    'AUCTION_CAND':   {'tim', 'lawrence'},
+    'KEY_INSPECT':    {'tim', 'dispatcher'},
+    'ROUTED_LIVE':    {'tina', 'tim'},
+    'ROUTED_ONLINE':  {'tina', 'tim'},
+    'ROUTED_JUNK':    {'tina', 'tim'},
+}
+
+PIPELINE_ALERT_MSGS = {
+    'TITLE_COMPLETE': '✅ {name} title is complete — ready for service evaluation.',
+    'SERVICE_EVAL':   '🔧 {name} needs service evaluation.',
+    'AUCTION_CAND':   '🏷 {name} flagged as auction candidate.',
+    'KEY_INSPECT':    '🔑 {name} needs key inspection.',
+    'ROUTED_LIVE':    '🔨 {name} routed to live auction.',
+    'ROUTED_ONLINE':  '💻 {name} listed for online auction.',
+    'ROUTED_JUNK':    '♻️ {name} routed to junkyard.',
+}
+
+
+@bp.route('/pipeline')
+@_tina_required
+def pipeline():
+    from models import User
+    stage_data = []
+    for key, label in PIPELINE_STAGES:
+        vehicles = (Vehicle.query
+                    .filter_by(tina_stage=key)
+                    .order_by(Vehicle.impound_date.asc())
+                    .all())
+        stage_data.append({'key': key, 'label': label, 'vehicles': vehicles})
+    all_users = User.query.filter_by(is_active=True).order_by(User.display_name).all()
+    return render_template('tina/pipeline.html',
+                           stages=stage_data,
+                           all_users=all_users,
+                           pipeline_stages=PIPELINE_STAGES)
+
+
+@bp.route('/pipeline/move/<int:vehicle_id>', methods=['POST'])
+@_tina_required
+def pipeline_move(vehicle_id):
+    from flask import jsonify as _json
+    vehicle = db.get_or_404(Vehicle, vehicle_id)
+    data = request.get_json() or {}
+    new_stage = (data.get('stage') or '').upper()
+    stage_keys = [s[0] for s in PIPELINE_STAGES]
+
+    if new_stage not in stage_keys:
+        return _json({'error': f'Invalid stage: {new_stage}'}), 400
+
+    old_stage = vehicle.tina_stage
+    vehicle.tina_stage = new_stage
+    vehicle.updated_at = datetime.utcnow()
+
+    stage_label = dict(PIPELINE_STAGES).get(new_stage, new_stage)
+    db.session.add(VehicleNote(
+        vehicle_id=vehicle.id,
+        body=f'Pipeline stage → {stage_label}',
+        author=current_user.display_name or 'Tina',
+        created_at=datetime.utcnow(),
+    ))
+    db.session.commit()
+
+    # Post Wally alert
+    try:
+        from models import ChatThread, ChatMessage, ChatThreadMember, User as _User
+        roles = PIPELINE_ALERT_TARGETS.get(new_stage)
+        if roles:
+            thread = ChatThread.query.filter_by(title='Wally Alerts').first()
+            if not thread:
+                thread = ChatThread(title='Wally Alerts', is_group=True)
+                db.session.add(thread)
+                db.session.flush()
+                for u in _User.query.filter(_User.role.in_({'tim', 'lawrence', 'tina'})).all():
+                    db.session.add(ChatThreadMember(thread_id=thread.id, user_id=u.id))
+            body = PIPELINE_ALERT_MSGS.get(new_stage, '{name} moved to ' + stage_label).format(
+                name=vehicle.display_name
+            )
+            db.session.add(ChatMessage(thread_id=thread.id, username='Wally',
+                                       is_wally=True, alert_type='pipeline', body=body))
+            db.session.commit()
+    except Exception:
+        pass
+
+    return _json({'ok': True, 'stage': new_stage, 'label': stage_label,
+                  'vehicle_name': vehicle.display_name})
+
+
 @bp.route('/set-disposition/<int:vehicle_id>', methods=['POST'])
 @_tina_required
 def set_disposition(vehicle_id):

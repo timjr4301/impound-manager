@@ -1,0 +1,244 @@
+{% extends "base.html" %}
+{% block title %}Pipeline Board – Impound Manager{% endblock %}
+
+{% block content %}
+<style>
+  /* ── Pipeline layout ──────────────────────────────────────────────────────── */
+  .pipeline-scroll {
+    display: flex;
+    gap: .75rem;
+    overflow-x: auto;
+    padding-bottom: 1rem;
+    align-items: flex-start;
+    -webkit-overflow-scrolling: touch;
+  }
+  .pipeline-col {
+    min-width: 220px;
+    width: 220px;
+    flex-shrink: 0;
+    display: flex;
+    flex-direction: column;
+    gap: .5rem;
+  }
+  .pipeline-col-header {
+    background: #fff;
+    border-radius: 8px;
+    padding: .45rem .75rem;
+    font-size: .78rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: .06em;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    border-top: 3px solid var(--col-accent, #6c757d);
+    box-shadow: 0 1px 3px rgba(0,0,0,.08);
+  }
+  .pipeline-col-body {
+    display: flex;
+    flex-direction: column;
+    gap: .45rem;
+    min-height: 80px;
+  }
+
+  /* ── Vehicle card ──────────────────────────────────────────────────────────── */
+  .p-card {
+    background: #fff;
+    border-radius: 8px;
+    padding: .6rem .75rem;
+    box-shadow: 0 1px 3px rgba(0,0,0,.1);
+    border-left: 3px solid var(--col-accent, #6c757d);
+    cursor: default;
+    transition: box-shadow .12s;
+  }
+  .p-card:hover { box-shadow: 0 3px 8px rgba(0,0,0,.15); }
+  .p-card-name { font-size: .82rem; font-weight: 700; color: #212529; margin-bottom: .1rem; }
+  .p-card-meta { font-size: .72rem; color: #6c757d; line-height: 1.4; }
+  .p-card-move { margin-top: .45rem; }
+  .p-card-move select {
+    font-size: .72rem;
+    padding: .15rem .3rem;
+    border-radius: 4px;
+    border: 1px solid #ced4da;
+    width: 100%;
+    cursor: pointer;
+  }
+
+  /* ── Stage accent colours ─────────────────────────────────────────────────── */
+  .stage-TITLE_PENDING  { --col-accent: #6c757d; }
+  .stage-TITLE_COMPLETE { --col-accent: #0d6efd; }
+  .stage-SERVICE_EVAL   { --col-accent: #fd7e14; }
+  .stage-AUCTION_CAND   { --col-accent: #6f42c1; }
+  .stage-KEY_INSPECT    { --col-accent: #dc3545; }
+  .stage-ROUTED_LIVE    { --col-accent: #198754; }
+  .stage-ROUTED_ONLINE  { --col-accent: #20c997; }
+  .stage-ROUTED_JUNK    { --col-accent: #adb5bd; }
+
+  /* ── Toast ─────────────────────────────────────────────────────────────────── */
+  #pipe-toast {
+    position: fixed; bottom: 1.25rem; right: 1.25rem; z-index: 9999;
+    min-width: 240px; font-size: .875rem;
+  }
+  .empty-col { font-size: .75rem; color: #adb5bd; text-align: center; padding: .5rem 0; }
+
+  /* ── Responsive: stack below md ──────────────────────────────────────────── */
+  @media (max-width: 767.98px) {
+    .pipeline-col { min-width: 180px; width: 180px; }
+  }
+</style>
+
+<div class="d-flex align-items-center justify-content-between mb-3 flex-wrap gap-2">
+  <h4 class="mb-0 fw-bold"><i class="bi bi-kanban me-2 text-primary"></i>Vehicle Pipeline</h4>
+  <div class="d-flex gap-2 align-items-center">
+    <span class="badge bg-secondary" id="total-badge">
+      {{ stages | sum(attribute='vehicles|length') }} vehicles
+    </span>
+    <button class="btn btn-sm btn-outline-secondary" onclick="location.reload()">
+      <i class="bi bi-arrow-clockwise"></i> Refresh
+    </button>
+    <a href="{{ url_for('tina.dashboard') }}" class="btn btn-sm btn-outline-dark">
+      <i class="bi bi-house-door me-1"></i>Dashboard
+    </a>
+  </div>
+</div>
+
+<div class="pipeline-scroll" id="pipeline-board">
+  {% for stage in stages %}
+  <div class="pipeline-col stage-{{ stage.key }}">
+    <div class="pipeline-col-header">
+      <span>{{ stage.label }}</span>
+      <span class="badge bg-secondary rounded-pill" id="count-{{ stage.key }}">{{ stage.vehicles | length }}</span>
+    </div>
+    <div class="pipeline-col-body" id="col-{{ stage.key }}">
+      {% if stage.vehicles %}
+        {% for v in stage.vehicles %}
+        <div class="p-card stage-{{ stage.key }}" id="card-{{ v.id }}" data-vehicle-id="{{ v.id }}">
+          <div class="p-card-name">{{ v.display_name }}</div>
+          <div class="p-card-meta">
+            {% if v.plate %}<div><i class="bi bi-card-text me-1"></i>{{ v.plate }}</div>{% endif %}
+            {% if v.impound_date %}<div><i class="bi bi-calendar3 me-1"></i>{{ v.impound_date.strftime('%m/%d/%y') }}</div>{% endif %}
+            {% if v.owner_name %}<div class="text-truncate" style="max-width:180px;"><i class="bi bi-person me-1"></i>{{ v.owner_name }}</div>{% endif %}
+          </div>
+          <div class="p-card-move">
+            <select onchange="moveVehicle({{ v.id }}, this)" title="Move to stage">
+              <option value="">— Move to —</option>
+              {% for key, label in pipeline_stages %}
+                {% if key != stage.key %}
+                <option value="{{ key }}">{{ label }}</option>
+                {% endif %}
+              {% endfor %}
+            </select>
+          </div>
+          <div class="mt-1">
+            <a href="{{ url_for('vehicles_detail', vehicle_id=v.id) }}" class="btn btn-outline-secondary btn-sm py-0 px-1" style="font-size:.68rem;" target="_blank">
+              <i class="bi bi-box-arrow-up-right"></i> View
+            </a>
+          </div>
+        </div>
+        {% endfor %}
+      {% else %}
+        <div class="empty-col" id="empty-{{ stage.key }}">No vehicles</div>
+      {% endif %}
+    </div>
+  </div>
+  {% endfor %}
+</div>
+
+<!-- Toast -->
+<div id="pipe-toast" class="toast align-items-center border-0" role="alert" aria-live="assertive" aria-atomic="true">
+  <div class="d-flex">
+    <div class="toast-body" id="pipe-toast-body"></div>
+    <button type="button" class="btn-close me-2 m-auto" data-bs-dismiss="toast"></button>
+  </div>
+</div>
+
+{% endblock %}
+
+{% block scripts %}
+<script>
+const STAGE_LABELS = {
+  {% for key, label in pipeline_stages %}'{{ key }}': '{{ label }}',{% endfor %}
+};
+
+const toastEl = document.getElementById('pipe-toast');
+const bsToast = new bootstrap.Toast(toastEl, { delay: 3500 });
+
+function showToast(msg, type) {
+  toastEl.className = 'toast align-items-center border-0 text-bg-' + (type || 'success');
+  document.getElementById('pipe-toast-body').textContent = msg;
+  bsToast.show();
+}
+
+async function moveVehicle(vehicleId, selectEl) {
+  const newStage = selectEl.value;
+  if (!newStage) return;
+  selectEl.disabled = true;
+
+  try {
+    const resp = await fetch(`/tina/pipeline/move/${vehicleId}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
+      body: JSON.stringify({ stage: newStage })
+    });
+    const data = await resp.json();
+    if (!resp.ok || !data.ok) {
+      showToast(data.error || 'Move failed.', 'danger');
+      selectEl.value = '';
+      selectEl.disabled = false;
+      return;
+    }
+
+    // Move card in the DOM
+    const card = document.getElementById(`card-${vehicleId}`);
+    const oldColBody = card.closest('.pipeline-col-body');
+    const oldColKey  = oldColBody.id.replace('col-', '');
+    const newColBody = document.getElementById(`col-${newStage}`);
+
+    // Remove empty placeholder in destination
+    const destEmpty = document.getElementById(`empty-${newStage}`);
+    if (destEmpty) destEmpty.remove();
+
+    // Update card styling
+    card.className = `p-card stage-${newStage}`;
+
+    // Rebuild move select for new stage (exclude new current stage)
+    const sel = card.querySelector('select');
+    sel.innerHTML = '<option value="">— Move to —</option>' +
+      Object.entries(STAGE_LABELS)
+        .filter(([k]) => k !== newStage)
+        .map(([k, l]) => `<option value="${k}">${l}</option>`)
+        .join('');
+    sel.onchange = function() { moveVehicle(vehicleId, this); };
+    sel.disabled = false;
+
+    newColBody.prepend(card);
+
+    // Add empty placeholder to old column if now empty
+    if (oldColBody.querySelectorAll('.p-card').length === 0) {
+      const emp = document.createElement('div');
+      emp.className = 'empty-col';
+      emp.id = `empty-${oldColKey}`;
+      emp.textContent = 'No vehicles';
+      oldColBody.appendChild(emp);
+    }
+
+    // Update counts
+    updateCount(oldColKey);
+    updateCount(newStage);
+
+    showToast(`${data.vehicle_name} → ${data.label}`, 'success');
+  } catch (err) {
+    showToast('Network error: ' + err.message, 'danger');
+    selectEl.value = '';
+    selectEl.disabled = false;
+  }
+}
+
+function updateCount(stageKey) {
+  const col = document.getElementById(`col-${stageKey}`);
+  const cnt = col ? col.querySelectorAll('.p-card').length : 0;
+  const badge = document.getElementById(`count-${stageKey}`);
+  if (badge) badge.textContent = cnt;
+}
+</script>
+{% endblock %}

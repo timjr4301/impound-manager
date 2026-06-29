@@ -6,9 +6,12 @@ from flask import (Flask, render_template, request, redirect, url_for,
                    flash, send_file, jsonify, g)
 from flask_login import LoginManager, login_required, current_user
 from flask_cors import CORS
+from flask_socketio import SocketIO
 from models import (db, User, Vehicle, CertifiedLetter, TitleFiling,
                     VehicleNote, DamageItem, SyncLog,
                     PPI_LETTER1_DAYS, PPI_LETTER2_DAYS, POLICE_LETTER1_DAYS)
+
+socketio = SocketIO()
 
 try:
     from apscheduler.schedulers.background import BackgroundScheduler
@@ -82,21 +85,8 @@ def run_migrations(app):
                     conn.execute(text('ALTER TABLE certified_letters ADD COLUMN return_to_sender BOOLEAN'))
 
             if 'sync_log' not in existing_tables:
-                conn.execute(text('''
-                    CREATE TABLE sync_log (
-                        id INTEGER PRIMARY KEY AUTOINCREMENT,
-                        sync_date DATE NOT NULL,
-                        source VARCHAR(20),
-                        status VARCHAR(20),
-                        inserted INTEGER DEFAULT 0,
-                        updated INTEGER DEFAULT 0,
-                        skipped INTEGER DEFAULT 0,
-                        call_count INTEGER DEFAULT 0,
-                        error_msg TEXT,
-                        triggered_by VARCHAR(50),
-                        created_at DATETIME
-                    )
-                '''))
+                # Use SQLAlchemy ORM to create the table safely on any DB backend
+                SyncLog.__table__.create(db.engine)
 
 
 def parse_quantum_view_csv(content: str):
@@ -163,20 +153,32 @@ def parse_quantum_view_csv(content: str):
 
 
 def seed_default_users(app):
-    """Create default user accounts if none exist."""
+    """Create default user accounts if they don't exist."""
     with app.app_context():
-        if User.query.count() == 0:
-            defaults = [
-                ('tim',        'bjt-tim-2024!',     'tim',        'Tim'),
-                ('heather',    'bjt-heather-2024!', 'heather',    'Heather'),
-                ('tina',       'bjt-tina-2024!',    'tina',       'Tina'),
-                ('dispatcher', 'bjt-dispatch-2024!','dispatcher', 'Dispatch'),
-            ]
-            for username, password, role, display in defaults:
+        staff_defaults = [
+            ('tim',        'bjt-tim-2024!',        'tim',        'Tim'),
+            ('heather',    'bjt-heather-2024!',    'heather',    'Heather'),
+            ('tina',       'bjt-tina-2024!',       'tina',       'Tina'),
+            ('dispatcher', 'bjt-dispatch-2024!',   'dispatcher', 'Dispatch'),
+            ('lawrence',   'bjt-lawrence-2024!',   'lawrence',   'Lawrence'),
+            ('lori',       'bjt-lori-2024!',       'lori',       'Lori'),
+        ]
+        for username, password, role, display in staff_defaults:
+            if not User.query.filter_by(username=username).first():
                 u = User(username=username, role=role, display_name=display)
                 u.set_password(password)
                 db.session.add(u)
-            db.session.commit()
+
+        # 30 driver accounts
+        for i in range(1, 31):
+            uname = f'driver{i:02d}'
+            if not User.query.filter_by(username=uname).first():
+                u = User(username=uname, role='driver',
+                         display_name=f'Driver {i:02d}')
+                u.set_password(f'bjt-driver{i:02d}-2024!')
+                db.session.add(u)
+
+        db.session.commit()
 
 
 def _backfill_urgency(app):
@@ -329,6 +331,10 @@ def create_app():
     def load_user(user_id):
         return db.session.get(User, int(user_id))
 
+    # ── SocketIO ────────────────────────────────────────────────────────────────
+    socketio.init_app(app, async_mode='eventlet', cors_allowed_origins='*',
+                      logger=False, engineio_logger=False)
+
     # ── Blueprints ─────────────────────────────────────────────────────────────
     from blueprints.auth import bp as auth_bp
     from blueprints.heather import bp as heather_bp
@@ -336,6 +342,8 @@ def create_app():
     from blueprints.api import bp as api_bp
     from blueprints.drivers import bp as drivers_bp
     from blueprints.payments import bp as payments_bp
+    from blueprints.admin import bp as admin_bp
+    from blueprints.damage_docs import bp as damage_bp
     from towbook_import import bp as towbook_bp
 
     app.register_blueprint(auth_bp)
@@ -344,7 +352,22 @@ def create_app():
     app.register_blueprint(api_bp)
     app.register_blueprint(drivers_bp)
     app.register_blueprint(payments_bp)
+    app.register_blueprint(admin_bp)
+    app.register_blueprint(damage_bp)
     app.register_blueprint(towbook_bp)
+
+    # Chat + Invoice Camera registered only when their files exist
+    try:
+        from blueprints.chat import bp as chat_bp, register_socket_events
+        app.register_blueprint(chat_bp)
+        register_socket_events(socketio)
+    except ImportError:
+        pass
+    try:
+        from blueprints.invoice_camera import bp as invoice_bp
+        app.register_blueprint(invoice_bp)
+    except ImportError:
+        pass
 
     # ── Jinja helpers ──────────────────────────────────────────────────────────
 

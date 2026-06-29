@@ -1,0 +1,197 @@
+{% extends 'base.html' %}
+{% block title %}Damage Reports{% endblock %}
+
+{% block content %}
+<div class="d-flex align-items-center justify-content-between mb-3 flex-wrap gap-2">
+  <h4 class="mb-0 d-flex align-items-center gap-2">
+    <i class="bi bi-shield-exclamation fs-4 text-danger"></i>
+    Damage Reports
+    <span class="badge bg-secondary ms-1">{{ reports|length }}</span>
+  </h4>
+  <a href="{{ url_for('damage_docs.damage_form') }}" class="btn btn-outline-primary">
+    <i class="bi bi-plus-circle me-1"></i> New Report
+  </a>
+</div>
+
+{% if not reports %}
+<div class="card">
+  <div class="card-body text-center py-5 text-muted">
+    <i class="bi bi-clipboard2-x fs-1 d-block mb-2"></i>
+    No damage reports on file yet.
+  </div>
+</div>
+{% else %}
+
+<!-- Filters / search -->
+<div class="card mb-3">
+  <div class="card-body py-2">
+    <div class="row g-2 align-items-center">
+      <div class="col-md-5">
+        <div class="input-group input-group-sm">
+          <span class="input-group-text"><i class="bi bi-search"></i></span>
+          <input type="text" id="search-input" class="form-control"
+                 placeholder="Filter by call #, driver, vehicle…" oninput="filterRows()">
+        </div>
+      </div>
+      <div class="col-auto">
+        <select id="type-filter" class="form-select form-select-sm" onchange="filterRows()">
+          <option value="">All types</option>
+          <option value="pre_existing">Pre-existing</option>
+          <option value="customer_claim">Customer claim</option>
+        </select>
+      </div>
+      <div class="col-auto">
+        <select id="dispute-filter" class="form-select form-select-sm" onchange="filterRows()">
+          <option value="">All</option>
+          <option value="dispute">Disputes only</option>
+          <option value="no-dispute">No disputes</option>
+        </select>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="card">
+  <div class="table-responsive">
+    <table class="table table-hover align-middle mb-0">
+      <thead>
+        <tr>
+          <th>#</th>
+          <th>Call / Vehicle</th>
+          <th>Type</th>
+          <th>Driver</th>
+          <th>Photos</th>
+          <th>Submitted</th>
+          <th>Status</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody id="report-tbody">
+        {% for r in reports %}
+        <tr class="report-row"
+            data-search="{{ [r.call_number or '', r.driver_name or '',
+                              r.vehicle.display_name if r.vehicle else '',
+                              r.vehicle.plate or '' if r.vehicle else '']|join(' ')|lower }}"
+            data-type="{{ r.damage_type or '' }}"
+            data-dispute="{{ 'dispute' if r.is_dispute else 'no-dispute' }}">
+
+          <td class="text-muted small">{{ r.id }}</td>
+
+          <td>
+            {% if r.vehicle %}
+              <a href="{{ url_for('vehicles_detail', vehicle_id=r.vehicle.id) }}"
+                 class="fw-semibold text-decoration-none">
+                {{ r.vehicle.display_name }}
+              </a>
+              {% if r.call_number %}
+                <br><span class="small text-muted">Call {{ r.call_number }}</span>
+              {% endif %}
+            {% elif r.call_number %}
+              <span class="fw-semibold">Call {{ r.call_number }}</span>
+            {% else %}
+              <span class="text-muted">—</span>
+            {% endif %}
+          </td>
+
+          <td>
+            {% if r.damage_type == 'pre_existing' %}
+              <span class="badge bg-info text-dark">Pre-existing</span>
+            {% elif r.damage_type == 'customer_claim' %}
+              <span class="badge bg-warning text-dark">Customer claim</span>
+            {% else %}
+              <span class="text-muted small">—</span>
+            {% endif %}
+          </td>
+
+          <td>
+            {% if r.driver_name %}
+              {{ r.driver_name }}
+            {% else %}
+              <span class="text-muted">—</span>
+            {% endif %}
+          </td>
+
+          <td>
+            {% if r.photos %}
+              <span class="badge bg-secondary">
+                <i class="bi bi-camera me-1"></i>{{ r.photos|length }}
+              </span>
+            {% else %}
+              <span class="text-muted small">0</span>
+            {% endif %}
+          </td>
+
+          <td class="small text-muted text-nowrap">
+            {% if r.created_at %}
+              {{ r.created_at.strftime('%m/%d/%y') }}
+              <br>{{ r.created_at.strftime('%I:%M %p') }}
+            {% else %}
+              —
+            {% endif %}
+          </td>
+
+          <td>
+            {% if r.is_dispute %}
+              <span class="badge bg-danger"><i class="bi bi-exclamation-triangle-fill me-1"></i>Dispute</span>
+            {% endif %}
+            {% if r.is_locked %}
+              <span class="badge bg-dark ms-1"><i class="bi bi-lock-fill me-1"></i>Locked</span>
+            {% endif %}
+            {% if r.owner_present %}
+              <span class="badge bg-light text-dark border ms-1">
+                <i class="bi bi-person-check me-1"></i>Signed
+              </span>
+            {% endif %}
+          </td>
+
+          <td class="text-end text-nowrap">
+            <a href="{{ url_for('damage_docs.damage_view', report_id=r.id) }}"
+               class="btn btn-sm btn-outline-primary me-1" title="View report">
+              <i class="bi bi-eye"></i>
+            </a>
+            <a href="{{ url_for('damage_docs.damage_pdf', report_id=r.id) }}"
+               class="btn btn-sm btn-outline-secondary" title="Download PDF">
+              <i class="bi bi-file-earmark-pdf"></i>
+            </a>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<div id="no-results" class="text-center text-muted py-4" style="display:none;">
+  <i class="bi bi-search me-1"></i> No reports match your filters.
+</div>
+
+{% endif %}
+{% endblock %}
+
+{% block scripts %}
+<script>
+function filterRows() {
+  const q = document.getElementById('search-input').value.toLowerCase();
+  const typeVal = document.getElementById('type-filter').value;
+  const disputeVal = document.getElementById('dispute-filter').value;
+
+  let visible = 0;
+  document.querySelectorAll('.report-row').forEach(row => {
+    const text = row.dataset.search || '';
+    const type = row.dataset.type || '';
+    const dispute = row.dataset.dispute || '';
+
+    const matchSearch = !q || text.includes(q);
+    const matchType = !typeVal || type === typeVal;
+    const matchDispute = !disputeVal || dispute === disputeVal;
+
+    const show = matchSearch && matchType && matchDispute;
+    row.style.display = show ? '' : 'none';
+    if (show) visible++;
+  });
+
+  const noResults = document.getElementById('no-results');
+  if (noResults) noResults.style.display = visible === 0 ? 'block' : 'none';
+}
+</script>
+{% endblock %}

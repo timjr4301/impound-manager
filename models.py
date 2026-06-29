@@ -216,6 +216,16 @@ class Vehicle(db.Model):
         'PaymentTransaction', back_populates='vehicle',
         cascade='all, delete-orphan'
     )
+    damage_reports = db.relationship(
+        'DamageReport', back_populates='vehicle',
+        order_by='DamageReport.created_at',
+        cascade='all, delete-orphan'
+    )
+    notices = db.relationship(
+        'VehicleNotice', back_populates='vehicle',
+        order_by='VehicleNotice.notice_number',
+        cascade='all, delete-orphan'
+    )
 
     def __repr__(self):
         return f'<Vehicle {self.id}: {self.display_name}>'
@@ -595,6 +605,63 @@ class SyncLog(db.Model):
         return 'Manual sync needed'
 
 
+class DamageReport(db.Model):
+    __tablename__ = 'damage_reports'
+
+    id = db.Column(db.Integer, primary_key=True)
+    vehicle_id = db.Column(db.Integer, db.ForeignKey('vehicles.id'), nullable=True)
+    call_number = db.Column(db.String(50))
+    damage_type = db.Column(db.String(20))  # pre_existing | customer_claim
+    description = db.Column(db.Text)
+    owner_present = db.Column(db.Boolean, default=False)
+    driver_name = db.Column(db.String(100))
+    latitude = db.Column(db.Float)
+    longitude = db.Column(db.Float)
+    signature_data = db.Column(db.Text)   # base64 PNG data URL
+    is_dispute = db.Column(db.Boolean, default=False)
+    is_locked = db.Column(db.Boolean, default=False)
+    pdf_data = db.Column(db.LargeBinary)
+    submitted_by = db.Column(db.String(50))
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+    vehicle = db.relationship('Vehicle', back_populates='damage_reports')
+    photos = db.relationship(
+        'DamagePhoto', back_populates='report',
+        order_by='DamagePhoto.sort_order',
+        cascade='all, delete-orphan'
+    )
+    dots = db.relationship(
+        'DamageDot', back_populates='report',
+        order_by='DamageDot.sort_order',
+        cascade='all, delete-orphan'
+    )
+
+
+class DamagePhoto(db.Model):
+    __tablename__ = 'damage_photos'
+
+    id = db.Column(db.Integer, primary_key=True)
+    report_id = db.Column(db.Integer, db.ForeignKey('damage_reports.id'), nullable=False)
+    image_data = db.Column(db.Text)   # base64 data URL (data:image/jpeg;base64,...)
+    sort_order = db.Column(db.Integer, default=0)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+    report = db.relationship('DamageReport', back_populates='photos')
+
+
+class DamageDot(db.Model):
+    __tablename__ = 'damage_dots'
+
+    id = db.Column(db.Integer, primary_key=True)
+    report_id = db.Column(db.Integer, db.ForeignKey('damage_reports.id'), nullable=False)
+    x_pct = db.Column(db.Float)
+    y_pct = db.Column(db.Float)
+    label = db.Column(db.String(200))
+    sort_order = db.Column(db.Integer, default=0)
+
+    report = db.relationship('DamageReport', back_populates='dots')
+
+
 class TimecardException(db.Model):
     __tablename__ = 'timecard_exceptions'
 
@@ -612,3 +679,103 @@ class TimecardException(db.Model):
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
     driver = db.relationship('Driver', foreign_keys=[driver_id])
+
+
+# ── Chat Models ────────────────────────────────────────────────────────────────
+
+class ChatThread(db.Model):
+    __tablename__ = 'chat_threads'
+
+    id = db.Column(db.Integer, primary_key=True)
+    title = db.Column(db.String(200))
+    is_group = db.Column(db.Boolean, default=False)
+    created_by_id = db.Column(db.Integer, db.ForeignKey('users.id'))
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+    messages = db.relationship('ChatMessage', back_populates='thread',
+                               order_by='ChatMessage.created_at',
+                               cascade='all, delete-orphan')
+    members = db.relationship('ChatThreadMember', back_populates='thread',
+                              cascade='all, delete-orphan')
+    created_by = db.relationship('User', foreign_keys=[created_by_id])
+
+    @property
+    def last_message(self):
+        if self.messages:
+            return self.messages[-1]
+        return None
+
+    @property
+    def display_title(self):
+        if self.title:
+            return self.title
+        names = [m.user.display_name or m.user.username
+                 for m in self.members if m.user_id]
+        return ', '.join(names[:3]) or 'Chat'
+
+
+class ChatMessage(db.Model):
+    __tablename__ = 'chat_messages'
+
+    id = db.Column(db.Integer, primary_key=True)
+    thread_id = db.Column(db.Integer, db.ForeignKey('chat_threads.id'), nullable=False)
+    user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=True)
+    username = db.Column(db.String(50))
+    body = db.Column(db.Text, nullable=False)
+    is_wally = db.Column(db.Boolean, default=False)
+    alert_type = db.Column(db.String(50))
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+    thread = db.relationship('ChatThread', back_populates='messages')
+    user = db.relationship('User', foreign_keys=[user_id])
+
+
+class ChatThreadMember(db.Model):
+    __tablename__ = 'chat_thread_members'
+
+    id = db.Column(db.Integer, primary_key=True)
+    thread_id = db.Column(db.Integer, db.ForeignKey('chat_threads.id'), nullable=False)
+    user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False)
+    joined_at = db.Column(db.DateTime, default=datetime.utcnow)
+    last_read_at = db.Column(db.DateTime)
+
+    thread = db.relationship('ChatThread', back_populates='members')
+    user = db.relationship('User')
+
+
+class PushSubscription(db.Model):
+    __tablename__ = 'push_subscriptions'
+
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False)
+    endpoint = db.Column(db.Text, nullable=False, unique=True)
+    p256dh = db.Column(db.Text)
+    auth_key = db.Column(db.Text)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+    user = db.relationship('User')
+
+
+# ── UPS Vehicle Notices ────────────────────────────────────────────────────────
+
+class VehicleNotice(db.Model):
+    __tablename__ = 'vehicle_notices'
+
+    id = db.Column(db.Integer, primary_key=True)
+    vehicle_id = db.Column(db.Integer, db.ForeignKey('vehicles.id'), nullable=False)
+    notice_number = db.Column(db.Integer, default=1)
+    sent_at = db.Column(db.DateTime, default=datetime.utcnow)
+    tracking_number = db.Column(db.String(50))
+    status = db.Column(db.String(30), default='sent')  # sent | delivered | returned
+    label_data = db.Column(db.Text)  # base64 GIF label
+    recipient_name = db.Column(db.String(100))
+    recipient_address = db.Column(db.Text)
+    recipient_city = db.Column(db.String(50))
+    recipient_state = db.Column(db.String(2))
+    recipient_zip = db.Column(db.String(10))
+    sent_by = db.Column(db.String(50))
+    notes = db.Column(db.Text)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+    vehicle = db.relationship('Vehicle', back_populates='notices')

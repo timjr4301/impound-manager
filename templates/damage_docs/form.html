@@ -1,0 +1,1070 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <title>Damage Report — Broad &amp; James Towing</title>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.css" rel="stylesheet">
+  <style>
+    :root {
+      --accent: #e63946;
+      --accent-dark: #c1121f;
+      --surface: #1e1e2e;
+      --card-bg: #ffffff;
+    }
+    * { box-sizing: border-box; }
+    html, body {
+      margin: 0; padding: 0;
+      background: #f0f2f5;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      min-height: 100vh;
+    }
+    .top-bar {
+      background: #111827;
+      color: #fff;
+      padding: 14px 16px 10px;
+      position: sticky; top: 0; z-index: 100;
+    }
+    .top-bar h1 { font-size: 1.1rem; font-weight: 700; margin: 0; }
+    .top-bar p  { font-size: .75rem; color: #9ca3af; margin: 2px 0 0; }
+
+    /* Progress bar */
+    .prog-wrap { background: #1f2937; padding: 8px 16px 10px; }
+    .prog-steps {
+      display: flex; gap: 4px; align-items: center;
+    }
+    .step-pip {
+      flex: 1; height: 4px; border-radius: 2px;
+      background: #374151; transition: background .3s;
+    }
+    .step-pip.done  { background: #16a34a; }
+    .step-pip.active { background: #3b82f6; }
+    .step-label {
+      font-size: .65rem; color: #9ca3af;
+      text-align: center; margin-top: 4px;
+    }
+
+    /* Cards */
+    .section-card {
+      background: #fff; border-radius: 14px;
+      margin: 12px 12px;
+      box-shadow: 0 1px 4px rgba(0,0,0,.10);
+      overflow: hidden;
+    }
+    .section-header {
+      background: #111827; color: #fff;
+      padding: 12px 16px;
+      font-size: .85rem; font-weight: 600;
+      display: flex; align-items: center; gap: 8px;
+    }
+    .section-header .step-num {
+      background: #3b82f6; border-radius: 50%;
+      width: 22px; height: 22px; display: inline-flex;
+      align-items: center; justify-content: center;
+      font-size: .7rem; font-weight: 800;
+    }
+    .section-body { padding: 16px; }
+
+    /* Big inputs */
+    .big-input {
+      font-size: 1.2rem !important;
+      padding: 12px 14px !important;
+      border-radius: 10px !important;
+      border: 2px solid #e2e8f0 !important;
+      width: 100%;
+    }
+    .big-input:focus {
+      border-color: #3b82f6 !important;
+      box-shadow: 0 0 0 3px rgba(59,130,246,.15) !important;
+    }
+    label.form-label { font-weight: 600; font-size: .85rem; color: #374151; }
+
+    /* Damage type radios */
+    .damage-type-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+    .damage-type-card {
+      border: 2px solid #e2e8f0; border-radius: 12px;
+      padding: 14px 10px; cursor: pointer;
+      text-align: center; transition: all .2s;
+      user-select: none;
+    }
+    .damage-type-card:hover { border-color: #93c5fd; }
+    .damage-type-card.selected-pre  { border-color: #16a34a; background: #f0fdf4; }
+    .damage-type-card.selected-cust { border-color: #dc2626; background: #fef2f2; }
+    .damage-type-card .icon { font-size: 2rem; display: block; margin-bottom: 4px; }
+    .damage-type-card .label { font-weight: 700; font-size: .9rem; }
+    .damage-type-card .sub { font-size: .7rem; color: #6b7280; margin-top: 2px; }
+
+    /* SVG car diagram */
+    #car-diagram-wrap {
+      position: relative; touch-action: none;
+      user-select: none; -webkit-user-select: none;
+      cursor: crosshair;
+      background: #f8fafc;
+      border: 2px dashed #cbd5e1;
+      border-radius: 12px;
+      padding: 8px;
+    }
+    #car-svg { width: 100%; height: auto; display: block; }
+    .dot-marker {
+      position: absolute;
+      width: 22px; height: 22px;
+      background: #dc2626; border: 2px solid #fff;
+      border-radius: 50%;
+      transform: translate(-50%, -50%);
+      display: flex; align-items: center; justify-content: center;
+      color: #fff; font-size: .65rem; font-weight: 800;
+      cursor: pointer;
+      box-shadow: 0 2px 6px rgba(220,38,38,.45);
+      z-index: 10;
+    }
+    .dots-list .dot-row {
+      display: flex; align-items: center; gap: 8px;
+      padding: 6px 0; border-bottom: 1px solid #f1f5f9;
+      font-size: .85rem;
+    }
+    .dots-list .dot-num {
+      background: #dc2626; color: #fff; border-radius: 50%;
+      width: 20px; height: 20px;
+      display: inline-flex; align-items: center; justify-content: center;
+      font-size: .65rem; font-weight: 800; flex-shrink: 0;
+    }
+    .dot-label-input {
+      flex: 1; border: 1px solid #e2e8f0; border-radius: 6px;
+      padding: 4px 8px; font-size: .85rem;
+    }
+    .dot-label-input:focus { outline: none; border-color: #3b82f6; }
+
+    /* Photos */
+    .photo-grid {
+      display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px;
+      margin-top: 10px;
+    }
+    .photo-thumb {
+      aspect-ratio: 1; border-radius: 8px;
+      background: #f1f5f9; overflow: hidden;
+      position: relative;
+    }
+    .photo-thumb img {
+      width: 100%; height: 100%; object-fit: cover;
+    }
+    .photo-thumb .del-btn {
+      position: absolute; top: 3px; right: 3px;
+      background: rgba(220,38,38,.85); color: #fff;
+      border: none; border-radius: 50%;
+      width: 20px; height: 20px;
+      font-size: .7rem; cursor: pointer;
+      display: flex; align-items: center; justify-content: center;
+    }
+    .add-photo-tile {
+      aspect-ratio: 1; border-radius: 8px;
+      border: 2px dashed #94a3b8;
+      background: #f8fafc;
+      display: flex; flex-direction: column;
+      align-items: center; justify-content: center;
+      cursor: pointer; color: #64748b; font-size: .75rem; gap: 4px;
+    }
+    .add-photo-tile i { font-size: 1.5rem; }
+    .photo-counter {
+      font-size: .8rem; font-weight: 600;
+      color: #374151; margin-top: 6px;
+    }
+    .photo-counter.insufficient { color: #dc2626; }
+    .photo-counter.sufficient   { color: #16a34a; }
+
+    /* Toggle */
+    .big-toggle {
+      display: flex; border-radius: 10px; overflow: hidden;
+      border: 2px solid #e2e8f0; width: 100%;
+    }
+    .big-toggle label {
+      flex: 1; text-align: center; padding: 14px;
+      cursor: pointer; font-weight: 600; font-size: .95rem;
+      color: #6b7280; background: #f9fafb; transition: all .2s;
+    }
+    .big-toggle input[type=radio] { display: none; }
+    .big-toggle input#owner_yes:checked ~ label[for=owner_yes] {
+      background: #16a34a; color: #fff; border-color: #16a34a;
+    }
+    .big-toggle input#owner_no:checked ~ label[for=owner_no] {
+      background: #6b7280; color: #fff;
+    }
+
+    /* Signature */
+    #sig-canvas {
+      border: 2px solid #e2e8f0;
+      border-radius: 10px;
+      background: #fff;
+      cursor: crosshair;
+      touch-action: none;
+      width: 100%;
+      height: 140px;
+      display: block;
+    }
+    #sig-canvas.has-sig { border-color: #16a34a; }
+
+    /* Navigation buttons */
+    .nav-row {
+      display: flex; gap: 10px;
+      padding: 12px 12px 24px;
+    }
+    .btn-back {
+      flex: 0 0 auto;
+      background: #f1f5f9; color: #374151;
+      border: none; border-radius: 12px;
+      padding: 14px 20px; font-size: 1rem; font-weight: 600;
+      cursor: pointer;
+    }
+    .btn-next, .btn-submit {
+      flex: 1;
+      background: #2563eb; color: #fff;
+      border: none; border-radius: 12px;
+      padding: 14px 20px; font-size: 1rem; font-weight: 700;
+      cursor: pointer; transition: background .2s;
+    }
+    .btn-next:hover  { background: #1d4ed8; }
+    .btn-submit { background: #16a34a; }
+    .btn-submit:hover { background: #15803d; }
+    .btn-submit:disabled { background: #9ca3af; cursor: not-allowed; }
+
+    /* Success */
+    #success-screen {
+      display: none;
+      text-align: center;
+      padding: 48px 24px;
+    }
+    #success-screen .check-circle {
+      width: 80px; height: 80px;
+      background: #16a34a; border-radius: 50%;
+      display: flex; align-items: center; justify-content: center;
+      margin: 0 auto 20px;
+      font-size: 2.5rem; color: #fff;
+    }
+
+    /* Modal for dot labeling */
+    .dot-modal-overlay {
+      display: none; position: fixed; inset: 0;
+      background: rgba(0,0,0,.6); z-index: 999;
+      align-items: center; justify-content: center;
+    }
+    .dot-modal-overlay.show { display: flex; }
+    .dot-modal {
+      background: #fff; border-radius: 16px;
+      padding: 24px; margin: 20px; width: 100%; max-width: 360px;
+    }
+    .dot-modal h5 { font-weight: 700; margin-bottom: 12px; }
+
+    .section-wrap { display: none; }
+    .section-wrap.active { display: block; }
+  </style>
+</head>
+<body>
+
+<div class="top-bar">
+  <h1><i class="bi bi-camera-fill me-1"></i>Damage Documentation</h1>
+  <p>Broad &amp; James Towing — Field Report</p>
+</div>
+
+<!-- Progress bar -->
+<div class="prog-wrap">
+  <div class="prog-steps" id="prog-steps">
+    <div class="step-pip active" id="pip-0"></div>
+    <div class="step-pip" id="pip-1"></div>
+    <div class="step-pip" id="pip-2"></div>
+    <div class="step-pip" id="pip-3"></div>
+    <div class="step-pip" id="pip-4"></div>
+    <div class="step-pip" id="pip-5"></div>
+    <div class="step-pip" id="pip-6"></div>
+  </div>
+  <div class="step-label">
+    <span id="step-label-text">Step 1 of 7 — Vehicle Info</span>
+  </div>
+</div>
+
+<!-- ─────────────── STEP 0: Vehicle Info ─────────────────────────────── -->
+<div class="section-wrap active" id="step-0">
+  <div class="section-card">
+    <div class="section-header">
+      <span class="step-num">1</span> Vehicle Information
+    </div>
+    <div class="section-body">
+      <div class="mb-3">
+        <label class="form-label">Call Number</label>
+        <div class="input-group">
+          <input type="text" id="call_number_input" class="big-input"
+                 placeholder="e.g. 12345"
+                 value="{{ prefill_call or '' }}"
+                 inputmode="numeric" autocomplete="off">
+          <button class="btn btn-primary px-3 ms-2" type="button"
+                  id="lookup-btn" onclick="lookupVehicle()" style="border-radius:10px;min-width:80px">
+            <span id="lookup-spinner" class="spinner-border spinner-border-sm d-none me-1"></span>
+            Lookup
+          </button>
+        </div>
+        <div id="lookup-result" class="mt-2 text-muted small"></div>
+      </div>
+
+      <div id="vehicle-info-box" class="p-3 rounded-3 border bg-light mb-3"
+           style="{% if not vehicle %}display:none{% endif %}">
+        <div class="row g-2">
+          <div class="col-6">
+            <label class="form-label">Year</label>
+            <div id="veh-year" class="fw-bold fs-5">{{ vehicle.year if vehicle else '' }}</div>
+          </div>
+          <div class="col-6">
+            <label class="form-label">Color</label>
+            <div id="veh-color" class="fw-bold fs-5">{{ vehicle.color if vehicle else '' }}</div>
+          </div>
+          <div class="col-12">
+            <label class="form-label">Make / Model</label>
+            <div id="veh-make-model" class="fw-bold fs-5">
+              {{ (vehicle.make or '') + ' ' + (vehicle.model_name or '') if vehicle else '' }}
+            </div>
+          </div>
+          <div class="col-6">
+            <label class="form-label">Plate</label>
+            <div id="veh-plate" class="fw-bold">{{ vehicle.plate if vehicle else '' }}</div>
+          </div>
+          <div class="col-6">
+            <label class="form-label">VIN</label>
+            <div id="veh-vin" class="fw-bold" style="font-size:.8rem">{{ vehicle.vin if vehicle else '' }}</div>
+          </div>
+        </div>
+      </div>
+      <input type="hidden" id="vehicle_id_hidden" value="{{ vehicle.id if vehicle else '' }}">
+
+      <!-- Manual entry fallback -->
+      <div id="manual-entry-box" style="{% if vehicle %}display:none{% endif %}">
+        <p class="text-muted small mb-2">Vehicle not found? Enter manually:</p>
+        <div class="row g-2">
+          <div class="col-4"><input type="number" id="man-year" class="form-control" placeholder="Year" min="1980" max="2030" inputmode="numeric"></div>
+          <div class="col-4"><input type="text"   id="man-make"  class="form-control" placeholder="Make"></div>
+          <div class="col-4"><input type="text"   id="man-model" class="form-control" placeholder="Model"></div>
+          <div class="col-6"><input type="text"   id="man-plate" class="form-control" placeholder="Plate"></div>
+          <div class="col-6"><input type="text"   id="man-color" class="form-control" placeholder="Color"></div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+  <div class="nav-row">
+    <button class="btn-next" onclick="goNext(0)">Next <i class="bi bi-arrow-right ms-1"></i></button>
+  </div>
+</div>
+
+<!-- ─────────────── STEP 1: Damage Type ─────────────────────────────── -->
+<div class="section-wrap" id="step-1">
+  <div class="section-card">
+    <div class="section-header">
+      <span class="step-num">2</span> Damage Type
+    </div>
+    <div class="section-body">
+      <p class="text-muted small mb-3">Select the type of damage being documented:</p>
+      <div class="damage-type-grid">
+        <div class="damage-type-card" id="card-pre" onclick="selectDamageType('pre_existing')">
+          <span class="icon">🛡️</span>
+          <div class="label">Pre-Existing</div>
+          <div class="sub">Damage present at time of impound</div>
+          <div class="sub mt-1"><strong>Min. 4 photos</strong></div>
+        </div>
+        <div class="damage-type-card" id="card-cust" onclick="selectDamageType('customer_claim')">
+          <span class="icon">⚠️</span>
+          <div class="label">Customer Claim</div>
+          <div class="sub">Owner alleges damage occurred in our lot</div>
+          <div class="sub mt-1"><strong>Min. 2 photos · Flagged</strong></div>
+        </div>
+      </div>
+      <div id="type-error" class="text-danger small mt-2" style="display:none">
+        Please select a damage type.
+      </div>
+    </div>
+  </div>
+  <div class="nav-row">
+    <button class="btn-back" onclick="goBack(1)"><i class="bi bi-arrow-left"></i></button>
+    <button class="btn-next" onclick="goNext(1)">Next <i class="bi bi-arrow-right ms-1"></i></button>
+  </div>
+</div>
+
+<!-- ─────────────── STEP 2: Car Diagram ─────────────────────────────── -->
+<div class="section-wrap" id="step-2">
+  <div class="section-card">
+    <div class="section-header">
+      <span class="step-num">3</span> Damage Diagram
+    </div>
+    <div class="section-body">
+      <p class="text-muted small mb-2">
+        Tap the diagram to mark damage locations. Tap a red dot to remove it.
+      </p>
+      <div id="car-diagram-wrap" onclick="diagramTap(event)">
+        <!-- Top-down car SVG silhouette -->
+        <svg id="car-svg" viewBox="0 0 240 480" xmlns="http://www.w3.org/2000/svg">
+          <!-- Car body shadow -->
+          <ellipse cx="120" cy="244" rx="98" ry="218" fill="rgba(0,0,0,.06)"/>
+          <!-- Main body -->
+          <rect x="30" y="110" width="180" height="260" rx="22" ry="22" fill="#cbd5e1"/>
+          <!-- Roof / cabin -->
+          <rect x="52" y="155" width="136" height="160" rx="14" ry="14" fill="#94a3b8"/>
+          <!-- Windshield front -->
+          <path d="M62 165 Q120 145 178 165 L173 205 Q120 195 47 205 Z" fill="#bae6fd" opacity=".85"/>
+          <!-- Windshield rear -->
+          <path d="M62 305 Q120 315 178 305 L173 265 Q120 275 47 265 Z" fill="#bae6fd" opacity=".85"/>
+          <!-- Hood (front) -->
+          <path d="M50 110 Q120 95 190 110 L190 155 Q120 148 50 155 Z" fill="#e2e8f0"/>
+          <!-- Trunk (rear) -->
+          <path d="M50 370 Q120 385 190 370 L190 315 Q120 322 50 315 Z" fill="#e2e8f0"/>
+          <!-- Front bumper -->
+          <rect x="40" y="95" width="160" height="20" rx="8" fill="#94a3b8"/>
+          <!-- Rear bumper -->
+          <rect x="40" y="385" width="160" height="20" rx="8" fill="#94a3b8"/>
+          <!-- Front-left wheel -->
+          <rect x="14" y="108" width="30" height="50" rx="6" fill="#334155"/>
+          <rect x="16" y="110" width="26" height="46" rx="5" fill="#475569"/>
+          <!-- Front-right wheel -->
+          <rect x="196" y="108" width="30" height="50" rx="6" fill="#334155"/>
+          <rect x="198" y="110" width="26" height="46" rx="5" fill="#475569"/>
+          <!-- Rear-left wheel -->
+          <rect x="14" y="322" width="30" height="50" rx="6" fill="#334155"/>
+          <rect x="16" y="324" width="26" height="46" rx="5" fill="#475569"/>
+          <!-- Rear-right wheel -->
+          <rect x="196" y="322" width="30" height="50" rx="6" fill="#334155"/>
+          <rect x="198" y="324" width="26" height="46" rx="5" fill="#475569"/>
+          <!-- Door lines -->
+          <line x1="50" y1="245" x2="190" y2="245" stroke="#94a3b8" stroke-width="1.5" stroke-dasharray="4,3"/>
+          <!-- Side mirrors -->
+          <path d="M30 150 L14 158 L14 170 L30 170 Z" fill="#94a3b8"/>
+          <path d="M210 150 L226 158 L226 170 L210 170 Z" fill="#94a3b8"/>
+          <!-- Headlights -->
+          <path d="M45 96 Q60 88 80 92 L80 105 Q62 102 46 108 Z" fill="#fef9c3"/>
+          <path d="M195 96 Q180 88 160 92 L160 105 Q178 102 194 108 Z" fill="#fef9c3"/>
+          <!-- Tail lights -->
+          <path d="M45 384 Q60 392 80 388 L80 375 Q62 378 46 372 Z" fill="#fca5a5"/>
+          <path d="M195 384 Q180 392 160 388 L160 375 Q178 378 194 372 Z" fill="#fca5a5"/>
+          <!-- Center line -->
+          <line x1="120" y1="97" x2="120" y2="403" stroke="#64748b" stroke-width=".75" stroke-dasharray="3,5" opacity=".4"/>
+          <!-- Labels -->
+          <text x="120" y="75" text-anchor="middle" font-size="10" fill="#94a3b8" font-family="sans-serif">FRONT</text>
+          <text x="120" y="430" text-anchor="middle" font-size="10" fill="#94a3b8" font-family="sans-serif">REAR</text>
+          <text x="8" y="250" text-anchor="middle" font-size="9" fill="#94a3b8" font-family="sans-serif" transform="rotate(-90,8,250)">DRIVER</text>
+          <text x="232" y="250" text-anchor="middle" font-size="9" fill="#94a3b8" font-family="sans-serif" transform="rotate(90,232,250)">PASS</text>
+        </svg>
+        <!-- Dynamic dot markers injected here by JS -->
+      </div>
+
+      <!-- Dots list -->
+      <div id="dots-list" class="dots-list mt-3"></div>
+      <div id="no-dots-note" class="text-muted small mt-2">
+        No damage points marked yet. Tap the diagram above to add.
+      </div>
+
+    </div>
+  </div>
+  <div class="nav-row">
+    <button class="btn-back" onclick="goBack(2)"><i class="bi bi-arrow-left"></i></button>
+    <button class="btn-next" onclick="goNext(2)">Next <i class="bi bi-arrow-right ms-1"></i></button>
+  </div>
+</div>
+
+<!-- ─────────────── STEP 3: Photos ─────────────────────────────────── -->
+<div class="section-wrap" id="step-3">
+  <div class="section-card">
+    <div class="section-header">
+      <span class="step-num">4</span> Photos
+    </div>
+    <div class="section-body">
+      <p class="text-muted small mb-1" id="photo-req-text">
+        Capture photos of the damage.
+      </p>
+      <div class="photo-counter" id="photo-counter">0 photos captured</div>
+
+      <input type="file" id="camera-input" accept="image/*" capture="environment"
+             multiple style="display:none" onchange="handlePhotoCapture(event)">
+
+      <div class="photo-grid" id="photo-grid">
+        <div class="add-photo-tile" onclick="triggerCamera()">
+          <i class="bi bi-camera-fill"></i>
+          <span>Add Photo</span>
+        </div>
+      </div>
+
+      <div id="photo-error" class="text-danger small mt-2" style="display:none">
+        Not enough photos. See requirement above.
+      </div>
+    </div>
+  </div>
+  <div class="nav-row">
+    <button class="btn-back" onclick="goBack(3)"><i class="bi bi-arrow-left"></i></button>
+    <button class="btn-next" onclick="goNext(3)">Next <i class="bi bi-arrow-right ms-1"></i></button>
+  </div>
+</div>
+
+<!-- ─────────────── STEP 4: Description ─────────────────────────────── -->
+<div class="section-wrap" id="step-4">
+  <div class="section-card">
+    <div class="section-header">
+      <span class="step-num">5</span> Description
+    </div>
+    <div class="section-body">
+      <label class="form-label" for="description-input">Describe the damage in detail</label>
+      <textarea id="description-input" class="big-input" rows="5"
+                placeholder="Describe all visible damage, scratches, dents, broken parts, missing items…"
+                style="resize:vertical; font-size:1rem !important;"></textarea>
+    </div>
+  </div>
+  <div class="nav-row">
+    <button class="btn-back" onclick="goBack(4)"><i class="bi bi-arrow-left"></i></button>
+    <button class="btn-next" onclick="goNext(4)">Next <i class="bi bi-arrow-right ms-1"></i></button>
+  </div>
+</div>
+
+<!-- ─────────────── STEP 5: Owner Present ────────────────────────────── -->
+<div class="section-wrap" id="step-5">
+  <div class="section-card">
+    <div class="section-header">
+      <span class="step-num">6</span> Owner Present
+    </div>
+    <div class="section-body">
+      <p class="text-muted small mb-3">Was the vehicle owner present during documentation?</p>
+      <div class="big-toggle">
+        <input type="radio" name="owner_present" id="owner_yes" value="yes" onchange="setOwnerPresent(true)">
+        <label for="owner_yes"><i class="bi bi-person-check me-1"></i>Yes</label>
+        <input type="radio" name="owner_present" id="owner_no"  value="no"  onchange="setOwnerPresent(false)" checked>
+        <label for="owner_no"><i class="bi bi-person-x me-1"></i>No</label>
+      </div>
+    </div>
+  </div>
+  <div class="nav-row">
+    <button class="btn-back" onclick="goBack(5)"><i class="bi bi-arrow-left"></i></button>
+    <button class="btn-next" onclick="goNext(5)">Next <i class="bi bi-arrow-right ms-1"></i></button>
+  </div>
+</div>
+
+<!-- ─────────────── STEP 6: Signature ────────────────────────────────── -->
+<div class="section-wrap" id="step-6">
+  <div class="section-card">
+    <div class="section-header">
+      <span class="step-num">7</span> Signature
+    </div>
+    <div class="section-body">
+      <div class="mb-3">
+        <label class="form-label" for="driver-name-input">Driver / Inspector Name</label>
+        <input type="text" id="driver-name-input" class="big-input"
+               placeholder="Full name" autocomplete="name">
+      </div>
+      <label class="form-label">Signature</label>
+      <canvas id="sig-canvas"></canvas>
+      <div class="d-flex gap-2 mt-2">
+        <button class="btn btn-sm btn-outline-secondary" onclick="clearSig()">
+          <i class="bi bi-eraser me-1"></i>Clear
+        </button>
+        <span id="sig-status" class="text-muted small align-self-center"></span>
+      </div>
+      <div id="sig-error" class="text-danger small mt-2" style="display:none">
+        Signature is required.
+      </div>
+    </div>
+  </div>
+
+  <!-- GPS capture status -->
+  <div class="section-card" style="margin-top:0">
+    <div class="section-body py-3">
+      <div class="d-flex align-items-center gap-3">
+        <div id="gps-icon" class="fs-2 text-muted"><i class="bi bi-geo-alt"></i></div>
+        <div>
+          <div class="fw-semibold small" id="gps-status">Capturing GPS…</div>
+          <div class="text-muted" style="font-size:.75rem" id="gps-coords"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="nav-row">
+    <button class="btn-back" onclick="goBack(6)"><i class="bi bi-arrow-left"></i></button>
+    <button class="btn-submit" id="submit-btn" onclick="submitReport()">
+      <i class="bi bi-check-circle-fill me-2"></i>Submit Report
+    </button>
+  </div>
+</div>
+
+<!-- ─────────────── SUCCESS SCREEN ────────────────────────────────────── -->
+<div id="success-screen">
+  <div class="check-circle"><i class="bi bi-check-lg"></i></div>
+  <h4 class="fw-bold mb-2">Report Submitted!</h4>
+  <p class="text-muted mb-1">Report ID: <strong id="success-report-id"></strong></p>
+  <p class="text-muted small mb-4" id="dispute-note" style="display:none">
+    This report has been <span class="text-danger fw-bold">flagged as a customer claim / dispute</span>
+    and locked for review.
+  </p>
+  <a href="/damage/form" class="btn btn-primary w-100 py-3 rounded-3 fw-bold">
+    <i class="bi bi-plus-circle me-2"></i>New Report
+  </a>
+  <a href="/damage/report/__ID__" id="view-report-link"
+     class="btn btn-outline-secondary w-100 py-3 rounded-3 fw-bold mt-2">
+    <i class="bi bi-eye me-2"></i>View Report
+  </a>
+</div>
+
+<!-- ─────────────── DOT LABEL MODAL ──────────────────────────────────── -->
+<div class="dot-modal-overlay" id="dot-modal">
+  <div class="dot-modal">
+    <h5><i class="bi bi-geo-fill text-danger me-2"></i>What damage is here?</h5>
+    <input type="text" id="dot-label-input" class="form-control form-control-lg mb-3"
+           placeholder="e.g. Dent on door, cracked windshield…" autocomplete="off">
+    <div class="d-flex gap-2">
+      <button class="btn btn-danger flex-fill" onclick="confirmDot()">Add Marker</button>
+      <button class="btn btn-outline-secondary" onclick="cancelDot()">Cancel</button>
+    </div>
+  </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/signature_pad@4.1.7/dist/signature_pad.umd.min.js"></script>
+<script>
+// ──────────────────────────────────────────────────────────────────────────
+// STATE
+// ──────────────────────────────────────────────────────────────────────────
+const state = {
+  currentStep: 0,
+  totalSteps: 7,
+  vehicleId: '{{ vehicle.id if vehicle else "" }}' || null,
+  callNumber: '{{ prefill_call or "" }}',
+  damageType: null,
+  ownerPresent: false,
+  photos: [],       // [{dataUrl, file}]
+  dots: [],         // [{x_pct, y_pct, label}]
+  pendingDot: null, // {x_pct, y_pct} waiting for label
+  gps: { lat: null, lng: null },
+  signaturePad: null,
+};
+
+const STEP_LABELS = [
+  'Vehicle Info', 'Damage Type', 'Diagram', 'Photos',
+  'Description', 'Owner Present', 'Signature'
+];
+
+// ──────────────────────────────────────────────────────────────────────────
+// NAVIGATION
+// ──────────────────────────────────────────────────────────────────────────
+function goNext(fromStep) {
+  if (!validateStep(fromStep)) return;
+  const next = fromStep + 1;
+  if (next >= state.totalSteps) return;
+  setStep(next);
+}
+
+function goBack(fromStep) {
+  const prev = fromStep - 1;
+  if (prev < 0) return;
+  setStep(prev);
+}
+
+function setStep(n) {
+  document.querySelectorAll('.section-wrap').forEach(el => el.classList.remove('active'));
+  const target = document.getElementById(`step-${n}`);
+  if (target) {
+    target.classList.add('active');
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  }
+  state.currentStep = n;
+  updateProgress();
+  if (n === 6) initSignaturePad();
+}
+
+function updateProgress() {
+  const n = state.currentStep;
+  for (let i = 0; i < state.totalSteps; i++) {
+    const pip = document.getElementById(`pip-${i}`);
+    if (!pip) continue;
+    pip.className = 'step-pip';
+    if (i < n)      pip.classList.add('done');
+    else if (i === n) pip.classList.add('active');
+  }
+  document.getElementById('step-label-text').textContent =
+    `Step ${n + 1} of ${state.totalSteps} — ${STEP_LABELS[n]}`;
+}
+
+// ──────────────────────────────────────────────────────────────────────────
+// VALIDATION
+// ──────────────────────────────────────────────────────────────────────────
+function validateStep(step) {
+  if (step === 1) {
+    if (!state.damageType) {
+      document.getElementById('type-error').style.display = '';
+      return false;
+    }
+    document.getElementById('type-error').style.display = 'none';
+  }
+  if (step === 3) {
+    const minPhotos = state.damageType === 'pre_existing' ? 4 : 2;
+    if (state.photos.length < minPhotos) {
+      document.getElementById('photo-error').style.display = '';
+      return false;
+    }
+    document.getElementById('photo-error').style.display = 'none';
+  }
+  return true;
+}
+
+// ──────────────────────────────────────────────────────────────────────────
+// STEP 0 — VEHICLE LOOKUP
+// ──────────────────────────────────────────────────────────────────────────
+async function lookupVehicle() {
+  const cn = document.getElementById('call_number_input').value.trim();
+  if (!cn) return;
+  const spinner = document.getElementById('lookup-spinner');
+  const result  = document.getElementById('lookup-result');
+  spinner.classList.remove('d-none');
+  try {
+    const res = await fetch(`/damage/lookup?call_number=${encodeURIComponent(cn)}`);
+    const data = await res.json();
+    if (data.found) {
+      state.vehicleId = data.vehicle_id;
+      state.callNumber = data.call_number || cn;
+      document.getElementById('veh-year').textContent = data.year || '—';
+      document.getElementById('veh-color').textContent = data.color || '—';
+      document.getElementById('veh-make-model').textContent =
+        [(data.make || ''), (data.model_name || '')].filter(Boolean).join(' ') || '—';
+      document.getElementById('veh-plate').textContent = data.plate || '—';
+      document.getElementById('veh-vin').textContent = data.vin || '—';
+      document.getElementById('vehicle_id_hidden').value = data.vehicle_id;
+      document.getElementById('vehicle-info-box').style.display = '';
+      document.getElementById('manual-entry-box').style.display = 'none';
+      result.innerHTML = '<span class="text-success"><i class="bi bi-check-circle me-1"></i>Vehicle found</span>';
+    } else {
+      state.vehicleId = null;
+      document.getElementById('vehicle-info-box').style.display = 'none';
+      document.getElementById('manual-entry-box').style.display = '';
+      result.innerHTML = '<span class="text-warning"><i class="bi bi-exclamation-triangle me-1"></i>Not found — enter manually</span>';
+    }
+  } catch (e) {
+    result.innerHTML = '<span class="text-danger">Lookup failed — enter manually</span>';
+    document.getElementById('manual-entry-box').style.display = '';
+  } finally {
+    spinner.classList.add('d-none');
+  }
+}
+
+// Allow lookup on Enter key
+document.getElementById('call_number_input').addEventListener('keydown', function(e) {
+  if (e.key === 'Enter') { e.preventDefault(); lookupVehicle(); }
+});
+
+// Auto-lookup if pre-filled
+{% if prefill_call %}
+window.addEventListener('load', () => lookupVehicle());
+{% endif %}
+
+// ──────────────────────────────────────────────────────────────────────────
+// STEP 1 — DAMAGE TYPE
+// ──────────────────────────────────────────────────────────────────────────
+function selectDamageType(type) {
+  state.damageType = type;
+  document.getElementById('card-pre').classList.remove('selected-pre');
+  document.getElementById('card-cust').classList.remove('selected-cust');
+  if (type === 'pre_existing') {
+    document.getElementById('card-pre').classList.add('selected-pre');
+  } else {
+    document.getElementById('card-cust').classList.add('selected-cust');
+  }
+  document.getElementById('type-error').style.display = 'none';
+  updatePhotoRequirement();
+}
+
+function updatePhotoRequirement() {
+  const min = state.damageType === 'pre_existing' ? 4 : 2;
+  document.getElementById('photo-req-text').textContent =
+    state.damageType === 'customer_claim'
+      ? `Minimum ${min} photos required. This will be flagged as a DISPUTE.`
+      : `Minimum ${min} photos required to document pre-existing damage.`;
+  updatePhotoCounter();
+}
+
+// ──────────────────────────────────────────────────────────────────────────
+// STEP 2 — CAR DIAGRAM
+// ──────────────────────────────────────────────────────────────────────────
+function diagramTap(e) {
+  const wrap = document.getElementById('car-diagram-wrap');
+  // Ignore taps on existing dots
+  if (e.target.classList.contains('dot-marker') || e.target.closest('.dot-marker')) return;
+  const rect = wrap.getBoundingClientRect();
+  const x = (e.clientX - rect.left) / rect.width * 100;
+  const y = (e.clientY - rect.top)  / rect.height * 100;
+  openDotModal(x, y);
+}
+
+function openDotModal(xPct, yPct) {
+  state.pendingDot = { x_pct: xPct, y_pct: yPct };
+  document.getElementById('dot-label-input').value = '';
+  document.getElementById('dot-modal').classList.add('show');
+  setTimeout(() => document.getElementById('dot-label-input').focus(), 100);
+}
+
+function confirmDot() {
+  const label = document.getElementById('dot-label-input').value.trim();
+  if (!label) {
+    document.getElementById('dot-label-input').focus();
+    return;
+  }
+  if (state.pendingDot) {
+    state.dots.push({ ...state.pendingDot, label });
+    state.pendingDot = null;
+    renderDots();
+  }
+  document.getElementById('dot-modal').classList.remove('show');
+}
+
+function cancelDot() {
+  state.pendingDot = null;
+  document.getElementById('dot-modal').classList.remove('show');
+}
+
+document.getElementById('dot-label-input').addEventListener('keydown', function(e) {
+  if (e.key === 'Enter') { e.preventDefault(); confirmDot(); }
+});
+
+// Close modal when overlay background clicked
+document.getElementById('dot-modal').addEventListener('click', function(e) {
+  if (e.target === this) cancelDot();
+});
+
+function removeDot(idx) {
+  state.dots.splice(idx, 1);
+  renderDots();
+}
+
+function renderDots() {
+  const wrap = document.getElementById('car-diagram-wrap');
+  // Remove old markers
+  wrap.querySelectorAll('.dot-marker').forEach(el => el.remove());
+  // Add new markers
+  state.dots.forEach((dot, i) => {
+    const marker = document.createElement('div');
+    marker.className = 'dot-marker';
+    marker.title = dot.label;
+    marker.style.left = dot.x_pct + '%';
+    marker.style.top  = dot.y_pct + '%';
+    marker.textContent = i + 1;
+    marker.onclick = (e) => { e.stopPropagation(); removeDot(i); };
+    wrap.appendChild(marker);
+  });
+
+  // Update list
+  const list = document.getElementById('dots-list');
+  const noNote = document.getElementById('no-dots-note');
+  list.innerHTML = '';
+  if (state.dots.length === 0) {
+    noNote.style.display = '';
+    return;
+  }
+  noNote.style.display = 'none';
+  state.dots.forEach((dot, i) => {
+    const row = document.createElement('div');
+    row.className = 'dot-row';
+    row.innerHTML = `
+      <span class="dot-num">${i + 1}</span>
+      <input class="dot-label-input" type="text" value="${escHtml(dot.label)}"
+             onchange="state.dots[${i}].label = this.value" placeholder="Label…">
+      <button style="border:none;background:none;color:#dc2626;font-size:1.1rem;cursor:pointer"
+              onclick="removeDot(${i})" title="Remove"><i class="bi bi-x-circle"></i></button>`;
+    list.appendChild(row);
+  });
+}
+
+function escHtml(str) {
+  return String(str).replace(/[&<>"']/g, c =>
+    ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+
+// ──────────────────────────────────────────────────────────────────────────
+// STEP 3 — PHOTOS
+// ──────────────────────────────────────────────────────────────────────────
+function triggerCamera() {
+  document.getElementById('camera-input').click();
+}
+
+function handlePhotoCapture(e) {
+  const files = Array.from(e.target.files);
+  files.forEach(file => {
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      state.photos.push({ dataUrl: ev.target.result, file });
+      renderPhotos();
+    };
+    reader.readAsDataURL(file);
+  });
+  e.target.value = '';
+}
+
+function removePhoto(idx) {
+  state.photos.splice(idx, 1);
+  renderPhotos();
+}
+
+function renderPhotos() {
+  const grid = document.getElementById('photo-grid');
+  grid.innerHTML = '';
+  state.photos.forEach((p, i) => {
+    const tile = document.createElement('div');
+    tile.className = 'photo-thumb';
+    tile.innerHTML = `<img src="${p.dataUrl}" alt="Photo ${i+1}">
+      <button class="del-btn" onclick="removePhoto(${i})" title="Remove"><i class="bi bi-x-lg"></i></button>`;
+    grid.appendChild(tile);
+  });
+  // Add-photo tile
+  const addTile = document.createElement('div');
+  addTile.className = 'add-photo-tile';
+  addTile.innerHTML = `<i class="bi bi-camera-fill"></i><span>Add Photo</span>`;
+  addTile.onclick = triggerCamera;
+  grid.appendChild(addTile);
+  updatePhotoCounter();
+}
+
+function updatePhotoCounter() {
+  const min = state.damageType === 'pre_existing' ? 4 : (state.damageType ? 2 : 1);
+  const cnt = state.photos.length;
+  const el  = document.getElementById('photo-counter');
+  el.textContent = `${cnt} photo${cnt !== 1 ? 's' : ''} captured`;
+  el.className = 'photo-counter ' + (cnt >= min ? 'sufficient' : (cnt > 0 ? 'insufficient' : ''));
+  if (state.damageType) {
+    el.textContent += ` (${min} required)`;
+  }
+}
+
+// ──────────────────────────────────────────────────────────────────────────
+// STEP 5 — OWNER PRESENT
+// ──────────────────────────────────────────────────────────────────────────
+function setOwnerPresent(val) {
+  state.ownerPresent = val;
+}
+
+// ──────────────────────────────────────────────────────────────────────────
+// STEP 6 — SIGNATURE PAD
+// ──────────────────────────────────────────────────────────────────────────
+function initSignaturePad() {
+  if (state.signaturePad) return;
+  const canvas = document.getElementById('sig-canvas');
+  // Size canvas to element
+  const resize = () => {
+    const ratio = Math.max(window.devicePixelRatio || 1, 1);
+    canvas.width  = canvas.offsetWidth  * ratio;
+    canvas.height = canvas.offsetHeight * ratio;
+    canvas.getContext('2d').scale(ratio, ratio);
+    if (state.signaturePad) state.signaturePad.clear();
+  };
+  resize();
+  state.signaturePad = new SignaturePad(canvas, {
+    backgroundColor: 'rgb(255,255,255)',
+    penColor: '#1e40af',
+    minWidth: 1.5,
+    maxWidth: 3,
+  });
+  state.signaturePad.addEventListener('afterUpdateStroke', () => {
+    canvas.classList.add('has-sig');
+    document.getElementById('sig-status').textContent = 'Signature captured';
+    document.getElementById('sig-error').style.display = 'none';
+  });
+}
+
+function clearSig() {
+  if (state.signaturePad) {
+    state.signaturePad.clear();
+    document.getElementById('sig-canvas').classList.remove('has-sig');
+    document.getElementById('sig-status').textContent = '';
+  }
+}
+
+// ──────────────────────────────────────────────────────────────────────────
+// GPS
+// ──────────────────────────────────────────────────────────────────────────
+function captureGPS() {
+  if (!navigator.geolocation) {
+    document.getElementById('gps-status').textContent = 'GPS not available';
+    return;
+  }
+  navigator.geolocation.getCurrentPosition(
+    pos => {
+      state.gps.lat = pos.coords.latitude;
+      state.gps.lng = pos.coords.longitude;
+      document.getElementById('gps-status').textContent = 'GPS captured';
+      document.getElementById('gps-coords').textContent =
+        `${pos.coords.latitude.toFixed(6)}, ${pos.coords.longitude.toFixed(6)}`;
+      document.getElementById('gps-icon').innerHTML = '<i class="bi bi-geo-alt-fill text-success"></i>';
+    },
+    err => {
+      document.getElementById('gps-status').textContent = 'GPS unavailable — continuing';
+      document.getElementById('gps-icon').innerHTML = '<i class="bi bi-geo-alt text-warning"></i>';
+    },
+    { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
+  );
+}
+// Capture GPS as soon as page loads
+window.addEventListener('load', captureGPS);
+
+// ──────────────────────────────────────────────────────────────────────────
+// SUBMIT
+// ──────────────────────────────────────────────────────────────────────────
+async function submitReport() {
+  // Validate
+  const driverName = document.getElementById('driver-name-input').value.trim();
+  if (!driverName) {
+    document.getElementById('driver-name-input').focus();
+    return;
+  }
+  if (!state.signaturePad || state.signaturePad.isEmpty()) {
+    document.getElementById('sig-error').style.display = '';
+    return;
+  }
+  document.getElementById('sig-error').style.display = 'none';
+
+  const btn = document.getElementById('submit-btn');
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner-border spinner-border-sm me-2"></span>Submitting…';
+
+  const callNum = document.getElementById('call_number_input').value.trim() || state.callNumber;
+
+  const payload = {
+    vehicle_id: state.vehicleId ? parseInt(state.vehicleId) : null,
+    call_number: callNum,
+    damage_type: state.damageType,
+    description: document.getElementById('description-input').value.trim(),
+    owner_present: state.ownerPresent,
+    driver_name: driverName,
+    latitude: state.gps.lat,
+    longitude: state.gps.lng,
+    signature: state.signaturePad.toDataURL('image/png'),
+    photos: state.photos.map(p => p.dataUrl),
+    dots: state.dots,
+  };
+
+  try {
+    const res = await fetch('/damage/submit', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    const data = await res.json();
+    if (res.ok && data.ok) {
+      // Show success
+      document.querySelectorAll('.section-wrap').forEach(el => el.style.display = 'none');
+      document.querySelector('.prog-wrap').style.display = 'none';
+      const ss = document.getElementById('success-screen');
+      ss.style.display = '';
+      document.getElementById('success-report-id').textContent = '#' + data.report_id;
+      document.getElementById('view-report-link').href = `/damage/report/${data.report_id}`;
+      if (state.damageType === 'customer_claim') {
+        document.getElementById('dispute-note').style.display = '';
+      }
+    } else {
+      throw new Error(data.error || 'Submission failed');
+    }
+  } catch (err) {
+    btn.disabled = false;
+    btn.innerHTML = '<i class="bi bi-check-circle-fill me-2"></i>Submit Report';
+    alert('Submission failed: ' + err.message + '\n\nPlease try again.');
+  }
+}
+</script>
+</body>
+</html>

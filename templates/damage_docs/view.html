@@ -1,0 +1,341 @@
+{% extends 'base.html' %}
+{% block title %}Damage Report #{{ report.id }} — Impound Manager{% endblock %}
+
+{% block content %}
+<div class="d-flex align-items-center gap-2 mb-3 flex-wrap">
+  <h4 class="mb-0 fw-bold">
+    <i class="bi bi-file-earmark-text-fill text-primary me-2"></i>
+    Damage Report #{{ report.id }}
+  </h4>
+  {% if report.is_locked %}
+  <span class="badge bg-danger ms-1">
+    <i class="bi bi-lock-fill me-1"></i>LOCKED
+  </span>
+  {% endif %}
+  {% if report.is_dispute %}
+  <span class="badge bg-warning text-dark">
+    <i class="bi bi-exclamation-triangle-fill me-1"></i>DISPUTE
+  </span>
+  {% endif %}
+  <div class="ms-auto d-flex gap-2">
+    <a href="{{ url_for('damage_docs.damage_pdf', report_id=report.id) }}"
+       class="btn btn-sm btn-outline-primary" target="_blank">
+      <i class="bi bi-file-pdf me-1"></i>Download PDF
+    </a>
+    {% if report.vehicle %}
+    <a href="{{ url_for('vehicles_detail', vehicle_id=report.vehicle.id) }}"
+       class="btn btn-sm btn-outline-secondary">
+      <i class="bi bi-car-front me-1"></i>View Vehicle
+    </a>
+    {% endif %}
+  </div>
+</div>
+
+{% if report.is_dispute %}
+<div class="alert alert-danger d-flex align-items-center gap-2 mb-4">
+  <i class="bi bi-shield-exclamation fs-4"></i>
+  <div>
+    <strong>CUSTOMER CLAIM — FLAGGED AS DISPUTE</strong><br>
+    <small>This report is locked. Contact Tim before making any changes.</small>
+  </div>
+</div>
+{% endif %}
+
+<!-- ── Vehicle Info ──────────────────────────────────────────────── -->
+<div class="card mb-4">
+  <div class="card-header bg-dark text-white fw-semibold">
+    <i class="bi bi-car-front me-2"></i>Vehicle Information
+  </div>
+  <div class="card-body">
+    {% set v = report.vehicle %}
+    <div class="row g-3">
+      <div class="col-6 col-md-3">
+        <div class="text-muted small">Call Number</div>
+        <div class="fw-bold fs-5">{{ report.call_number or '—' }}</div>
+      </div>
+      <div class="col-6 col-md-3">
+        <div class="text-muted small">Year</div>
+        <div class="fw-bold">{{ v.year if v else '—' }}</div>
+      </div>
+      <div class="col-6 col-md-3">
+        <div class="text-muted small">Make</div>
+        <div class="fw-bold">{{ v.make if v else '—' }}</div>
+      </div>
+      <div class="col-6 col-md-3">
+        <div class="text-muted small">Model</div>
+        <div class="fw-bold">{{ (v.model_name or v.model) if v else '—' }}</div>
+      </div>
+      <div class="col-6 col-md-3">
+        <div class="text-muted small">Plate</div>
+        <div class="fw-bold">{{ v.plate if v else '—' }}</div>
+      </div>
+      <div class="col-6 col-md-3">
+        <div class="text-muted small">VIN</div>
+        <div class="fw-bold" style="font-size:.85rem">{{ v.vin if v else '—' }}</div>
+      </div>
+      <div class="col-6 col-md-3">
+        <div class="text-muted small">Color</div>
+        <div class="fw-bold">{{ v.color if v else '—' }}</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ── Damage Info ───────────────────────────────────────────────── -->
+<div class="card mb-4">
+  <div class="card-header bg-dark text-white fw-semibold">
+    <i class="bi bi-exclamation-diamond me-2"></i>Damage Details
+  </div>
+  <div class="card-body">
+    <div class="row g-3 mb-3">
+      <div class="col-6 col-md-3">
+        <div class="text-muted small">Damage Type</div>
+        {% if report.damage_type == 'customer_claim' %}
+          <span class="badge bg-danger fs-6 mt-1">Customer Claim</span>
+        {% else %}
+          <span class="badge bg-secondary fs-6 mt-1">Pre-Existing</span>
+        {% endif %}
+      </div>
+      <div class="col-6 col-md-3">
+        <div class="text-muted small">Owner Present</div>
+        <div class="fw-bold">
+          {% if report.owner_present %}
+            <span class="text-success"><i class="bi bi-check-circle-fill me-1"></i>Yes</span>
+          {% else %}
+            <span class="text-secondary"><i class="bi bi-x-circle me-1"></i>No</span>
+          {% endif %}
+        </div>
+      </div>
+      <div class="col-12 col-md-6">
+        <div class="text-muted small">Driver / Inspector</div>
+        <div class="fw-bold">{{ report.driver_name or '—' }}</div>
+      </div>
+    </div>
+
+    {% if report.description %}
+    <div class="mb-3">
+      <div class="text-muted small mb-1">Description</div>
+      <div class="p-3 bg-light rounded-3" style="white-space: pre-wrap; font-size:.95rem">
+        {{ report.description }}
+      </div>
+    </div>
+    {% endif %}
+
+    <!-- GPS + Timestamp -->
+    <div class="row g-2">
+      <div class="col-md-6">
+        <div class="text-muted small">Timestamp</div>
+        <div class="fw-semibold">
+          {% if report.created_at %}
+            {{ report.created_at.strftime('%B %d, %Y at %I:%M %p') }} UTC
+          {% else %}—{% endif %}
+        </div>
+      </div>
+      <div class="col-md-6">
+        <div class="text-muted small">GPS Location</div>
+        {% if report.latitude and report.longitude %}
+          <a href="https://maps.google.com/?q={{ report.latitude }},{{ report.longitude }}"
+             target="_blank" class="fw-semibold text-decoration-none">
+            <i class="bi bi-geo-alt-fill text-danger me-1"></i>
+            {{ '%.6f'|format(report.latitude) }}, {{ '%.6f'|format(report.longitude) }}
+            <i class="bi bi-box-arrow-up-right ms-1 small"></i>
+          </a>
+        {% else %}
+          <span class="text-muted">No GPS data</span>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ── Car Diagram ───────────────────────────────────────────────── -->
+{% if report.dots %}
+<div class="card mb-4">
+  <div class="card-header bg-dark text-white fw-semibold">
+    <i class="bi bi-diagram-3 me-2"></i>Damage Diagram
+  </div>
+  <div class="card-body">
+    <div style="position:relative; display:inline-block; width:100%; max-width:320px">
+      <!-- Top-down car SVG (read-only) -->
+      <svg id="view-car-svg" viewBox="0 0 240 480" xmlns="http://www.w3.org/2000/svg"
+           style="width:100%; height:auto; display:block; border-radius:10px; border:1px solid #e2e8f0">
+        <ellipse cx="120" cy="244" rx="98" ry="218" fill="rgba(0,0,0,.06)"/>
+        <rect x="30" y="110" width="180" height="260" rx="22" ry="22" fill="#cbd5e1"/>
+        <rect x="52" y="155" width="136" height="160" rx="14" ry="14" fill="#94a3b8"/>
+        <path d="M62 165 Q120 145 178 165 L173 205 Q120 195 47 205 Z" fill="#bae6fd" opacity=".85"/>
+        <path d="M62 305 Q120 315 178 305 L173 265 Q120 275 47 265 Z" fill="#bae6fd" opacity=".85"/>
+        <path d="M50 110 Q120 95 190 110 L190 155 Q120 148 50 155 Z" fill="#e2e8f0"/>
+        <path d="M50 370 Q120 385 190 370 L190 315 Q120 322 50 315 Z" fill="#e2e8f0"/>
+        <rect x="40" y="95"  width="160" height="20" rx="8" fill="#94a3b8"/>
+        <rect x="40" y="385" width="160" height="20" rx="8" fill="#94a3b8"/>
+        <rect x="14" y="108" width="30" height="50" rx="6" fill="#334155"/>
+        <rect x="16" y="110" width="26" height="46" rx="5" fill="#475569"/>
+        <rect x="196" y="108" width="30" height="50" rx="6" fill="#334155"/>
+        <rect x="198" y="110" width="26" height="46" rx="5" fill="#475569"/>
+        <rect x="14" y="322" width="30" height="50" rx="6" fill="#334155"/>
+        <rect x="16" y="324" width="26" height="46" rx="5" fill="#475569"/>
+        <rect x="196" y="322" width="30" height="50" rx="6" fill="#334155"/>
+        <rect x="198" y="324" width="26" height="46" rx="5" fill="#475569"/>
+        <line x1="50" y1="245" x2="190" y2="245" stroke="#94a3b8" stroke-width="1.5" stroke-dasharray="4,3"/>
+        <path d="M30 150 L14 158 L14 170 L30 170 Z" fill="#94a3b8"/>
+        <path d="M210 150 L226 158 L226 170 L210 170 Z" fill="#94a3b8"/>
+        <path d="M45 96 Q60 88 80 92 L80 105 Q62 102 46 108 Z" fill="#fef9c3"/>
+        <path d="M195 96 Q180 88 160 92 L160 105 Q178 102 194 108 Z" fill="#fef9c3"/>
+        <path d="M45 384 Q60 392 80 388 L80 375 Q62 378 46 372 Z" fill="#fca5a5"/>
+        <path d="M195 384 Q180 392 160 388 L160 375 Q178 378 194 372 Z" fill="#fca5a5"/>
+        <line x1="120" y1="97" x2="120" y2="403" stroke="#64748b" stroke-width=".75" stroke-dasharray="3,5" opacity=".4"/>
+        <text x="120" y="75"  text-anchor="middle" font-size="10" fill="#94a3b8" font-family="sans-serif">FRONT</text>
+        <text x="120" y="430" text-anchor="middle" font-size="10" fill="#94a3b8" font-family="sans-serif">REAR</text>
+        {% for dot in report.dots %}
+        <circle cx="{{ (dot.x_pct / 100 * 240)|round(1) }}"
+                cy="{{ (dot.y_pct / 100 * 480)|round(1) }}"
+                r="8" fill="#dc2626" stroke="#fff" stroke-width="2" opacity=".9"/>
+        <text x="{{ (dot.x_pct / 100 * 240)|round(1) }}"
+              y="{{ (dot.y_pct / 100 * 480 + 4)|round(1) }}"
+              text-anchor="middle" font-size="7" fill="#fff" font-weight="bold" font-family="sans-serif">
+          {{ loop.index }}
+        </text>
+        {% endfor %}
+      </svg>
+    </div>
+
+    <!-- Dot legend -->
+    <div class="mt-3">
+      {% for dot in report.dots %}
+      <div class="d-flex align-items-start gap-2 py-2 border-bottom">
+        <span class="badge bg-danger rounded-circle d-flex align-items-center justify-content-center"
+              style="width:24px;height:24px;flex-shrink:0;font-size:.7rem">{{ loop.index }}</span>
+        <div>
+          <div class="fw-semibold small">{{ dot.label or '—' }}</div>
+          <div class="text-muted" style="font-size:.7rem">
+            Position: {{ '%.1f'|format(dot.x_pct) }}%, {{ '%.1f'|format(dot.y_pct) }}%
+          </div>
+        </div>
+      </div>
+      {% endfor %}
+    </div>
+  </div>
+</div>
+{% endif %}
+
+<!-- ── Photos ────────────────────────────────────────────────────── -->
+{% if report.photos %}
+<div class="card mb-4">
+  <div class="card-header bg-dark text-white fw-semibold">
+    <i class="bi bi-images me-2"></i>Photos
+    <span class="badge bg-secondary ms-2">{{ report.photos|length }}</span>
+  </div>
+  <div class="card-body">
+    <div class="row g-2" id="photo-gallery">
+      {% for photo in report.photos %}
+      <div class="col-6 col-md-4 col-lg-3">
+        <div style="border-radius:8px; overflow:hidden; cursor:pointer"
+             onclick="openLightbox('{{ loop.index0 }}')">
+          <img src="{{ photo.image_data }}" alt="Photo {{ loop.index }}"
+               class="img-fluid w-100"
+               style="object-fit:cover; aspect-ratio:1; border-radius:8px;
+                      border:2px solid #e2e8f0; transition:opacity .2s"
+               onmouseover="this.style.opacity='.8'" onmouseout="this.style.opacity='1'">
+        </div>
+      </div>
+      {% endfor %}
+    </div>
+  </div>
+</div>
+{% endif %}
+
+<!-- ── Signature ─────────────────────────────────────────────────── -->
+{% if report.signature_data or report.driver_name %}
+<div class="card mb-4">
+  <div class="card-header bg-dark text-white fw-semibold">
+    <i class="bi bi-pen me-2"></i>Driver Signature
+  </div>
+  <div class="card-body">
+    <div class="text-muted small mb-1">Signed by: <strong>{{ report.driver_name or '—' }}</strong></div>
+    {% if report.signature_data %}
+    <div class="border rounded-3 p-2 bg-white d-inline-block">
+      <img src="{{ report.signature_data }}" alt="Signature"
+           style="max-width:280px; max-height:100px; display:block">
+    </div>
+    {% else %}
+    <div class="text-muted small">(Signature data unavailable)</div>
+    {% endif %}
+  </div>
+</div>
+{% endif %}
+
+<!-- ── Footer actions ────────────────────────────────────────────── -->
+<div class="d-flex gap-2 mb-5 flex-wrap">
+  <a href="{{ url_for('damage_docs.damage_pdf', report_id=report.id) }}"
+     class="btn btn-primary" target="_blank">
+    <i class="bi bi-file-pdf me-1"></i>Download PDF
+  </a>
+  {% if current_user.role == 'tim' %}
+  <a href="{{ url_for('damage_docs.damage_reports_list') }}"
+     class="btn btn-outline-secondary">
+    <i class="bi bi-list-ul me-1"></i>All Reports
+  </a>
+  {% endif %}
+  <a href="{{ url_for('damage_docs.damage_form') }}" class="btn btn-outline-success">
+    <i class="bi bi-plus-circle me-1"></i>New Report
+  </a>
+</div>
+
+<!-- ── Lightbox ──────────────────────────────────────────────────── -->
+{% if report.photos %}
+<div class="modal fade" id="lightbox-modal" tabindex="-1">
+  <div class="modal-dialog modal-dialog-centered modal-xl">
+    <div class="modal-content bg-black border-0">
+      <div class="modal-header border-0 py-2">
+        <span class="text-white small" id="lb-counter"></span>
+        <button type="button" class="btn-close btn-close-white ms-auto" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body text-center p-0 position-relative">
+        <button onclick="lbPrev()" class="btn btn-link text-white position-absolute start-0 top-50 translate-middle-y fs-2 px-3" style="z-index:5"><i class="bi bi-chevron-left"></i></button>
+        <img id="lb-img" src="" alt="Photo" class="img-fluid" style="max-height:80vh; object-fit:contain">
+        <button onclick="lbNext()" class="btn btn-link text-white position-absolute end-0 top-50 translate-middle-y fs-2 px-3" style="z-index:5"><i class="bi bi-chevron-right"></i></button>
+      </div>
+    </div>
+  </div>
+</div>
+{% endif %}
+{% endblock %}
+
+{% block scripts %}
+{% if report.photos %}
+<script>
+const photoSrcs = [
+  {% for photo in report.photos %}
+  "{{ photo.image_data|replace('"', '\\"') }}",
+  {% endfor %}
+];
+let lbIdx = 0;
+
+function openLightbox(idx) {
+  lbIdx = idx;
+  updateLightbox();
+  new bootstrap.Modal(document.getElementById('lightbox-modal')).show();
+}
+function updateLightbox() {
+  document.getElementById('lb-img').src = photoSrcs[lbIdx];
+  document.getElementById('lb-counter').textContent =
+    `Photo ${lbIdx + 1} of ${photoSrcs.length}`;
+}
+function lbPrev() {
+  lbIdx = (lbIdx - 1 + photoSrcs.length) % photoSrcs.length;
+  updateLightbox();
+}
+function lbNext() {
+  lbIdx = (lbIdx + 1) % photoSrcs.length;
+  updateLightbox();
+}
+document.addEventListener('keydown', e => {
+  const m = document.getElementById('lightbox-modal');
+  if (!m.classList.contains('show')) return;
+  if (e.key === 'ArrowLeft')  lbPrev();
+  if (e.key === 'ArrowRight') lbNext();
+  if (e.key === 'Escape') bootstrap.Modal.getInstance(m)?.hide();
+});
+</script>
+{% endif %}
+{% endblock %}

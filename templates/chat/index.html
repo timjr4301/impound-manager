@@ -1,0 +1,606 @@
+{% extends "base.html" %}
+{% block title %}Chat – Impound Manager{% endblock %}
+
+{% block content %}
+<style>
+  /* ── Chat page layout ─────────────────────────────────────────────────────── */
+  .chat-wrapper {
+    height: calc(100vh - 90px);
+    display: flex;
+    overflow: hidden;
+    margin: 0 -1.5rem;          /* cancel container px-4 */
+    border-radius: 8px;
+    box-shadow: 0 1px 4px rgba(0,0,0,.1);
+    background: #fff;
+  }
+
+  /* ── Sidebar ───────────────────────────────────────────────────────────────── */
+  .chat-sidebar {
+    width: 270px;
+    min-width: 270px;
+    border-right: 1px solid #dee2e6;
+    display: flex;
+    flex-direction: column;
+    background: #f8f9fa;
+    transition: transform .22s ease;
+  }
+  .sidebar-header {
+    padding: .65rem 1rem;
+    border-bottom: 1px solid #dee2e6;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    font-weight: 600;
+    font-size: .9rem;
+    background: #fff;
+  }
+  .thread-list { overflow-y: auto; flex: 1; }
+  .thread-item {
+    padding: .6rem 1rem;
+    cursor: pointer;
+    border-bottom: 1px solid #e9ecef;
+    transition: background .12s;
+  }
+  .thread-item:hover  { background: #e9ecef; }
+  .thread-item.active { background: #dbeafe; border-left: 3px solid #0d6efd; }
+  .thread-name    { font-weight: 500; font-size: .88rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .thread-preview { font-size: .75rem; color: #6c757d; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+  /* ── Main panel ────────────────────────────────────────────────────────────── */
+  .chat-main {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+    background: #fff;
+  }
+  .chat-header {
+    padding: .6rem 1rem;
+    border-bottom: 1px solid #dee2e6;
+    font-weight: 600;
+    font-size: .9rem;
+    display: flex;
+    align-items: center;
+    gap: .5rem;
+    background: #fff;
+  }
+  .messages-area {
+    flex: 1;
+    overflow-y: auto;
+    padding: 1rem .85rem;
+    display: flex;
+    flex-direction: column;
+    gap: .45rem;
+    background: #f8f9fa;
+    scroll-behavior: smooth;
+  }
+
+  /* ── Bubbles ───────────────────────────────────────────────────────────────── */
+  .bubble-wrap { display: flex; align-items: flex-end; gap: .35rem; }
+  .bubble-wrap.mine { flex-direction: row-reverse; }
+  .bubble {
+    max-width: 68%;
+    padding: .45rem .8rem;
+    border-radius: 16px;
+    font-size: .875rem;
+    line-height: 1.45;
+    word-break: break-word;
+    white-space: pre-wrap;
+  }
+  .bubble.mine   { background: #0d6efd; color: #fff; border-bottom-right-radius: 3px; }
+  .bubble.theirs { background: #fff; color: #212529; border: 1px solid #dee2e6; border-bottom-left-radius: 3px; }
+  .bubble.wally  { background: #f3e8ff; color: #4a0080; border: 1px solid #d8b4fe; border-bottom-left-radius: 3px; }
+  .bubble-sender { font-size: .7rem; font-weight: 700; opacity: .65; margin-bottom: .1rem; }
+  .bubble-ts     { font-size: .68rem; opacity: .5; margin-top: .2rem; }
+  .mine .bubble-ts { text-align: right; color: rgba(255,255,255,.75); }
+  .bubble-av {
+    width: 26px; height: 26px; border-radius: 50%;
+    background: #6c757d; color: #fff;
+    display: flex; align-items: center; justify-content: center;
+    font-size: .68rem; font-weight: 700; flex-shrink: 0;
+  }
+  .wally-av { background: #7c3aed !important; }
+
+  /* ── Wally typing ──────────────────────────────────────────────────────────── */
+  .wally-typing {
+    display: none;
+    align-items: center;
+    gap: .4rem;
+    font-size: .78rem;
+    color: #7c3aed;
+    padding: .3rem 1rem .1rem;
+    background: #f8f9fa;
+  }
+  .wally-typing.show { display: flex; }
+  .typing-dot { display: inline-block; width: 5px; height: 5px; background: #7c3aed; border-radius: 50%; animation: tdot .9s infinite; }
+  .typing-dot:nth-child(2) { animation-delay: .2s; }
+  .typing-dot:nth-child(3) { animation-delay: .4s; }
+  @keyframes tdot { 0%,60%,100% { transform: translateY(0); } 30% { transform: translateY(-5px); } }
+
+  /* ── Input bar ─────────────────────────────────────────────────────────────── */
+  .chat-input-area { padding: .65rem 1rem; border-top: 1px solid #dee2e6; background: #fff; }
+  .chat-input-row  { display: flex; gap: .45rem; align-items: flex-end; }
+  #msg-input {
+    flex: 1; resize: none; border-radius: 20px;
+    padding: .45rem 1rem; font-size: .875rem;
+    border: 1px solid #ced4da;
+    overflow-y: hidden; min-height: 38px; max-height: 110px; line-height: 1.5;
+  }
+  #msg-input:focus { outline: none; border-color: #86b7fe; box-shadow: 0 0 0 .2rem rgba(13,110,253,.25); }
+  #send-btn {
+    border-radius: 50%; width: 38px; height: 38px;
+    padding: 0; display: flex; align-items: center; justify-content: center; flex-shrink: 0;
+  }
+  .input-hint { font-size: .7rem; color: #adb5bd; margin-top: .2rem; padding-left: .4rem; }
+
+  /* ── Empty state ───────────────────────────────────────────────────────────── */
+  .chat-empty {
+    flex: 1; display: flex; flex-direction: column;
+    align-items: center; justify-content: center;
+    color: #adb5bd; gap: .75rem;
+  }
+  .chat-empty i { font-size: 3rem; opacity: .3; }
+
+  /* ── Mobile ────────────────────────────────────────────────────────────────── */
+  @media (max-width: 767.98px) {
+    .chat-wrapper { margin: 0 -.75rem; border-radius: 0; height: calc(100vh - 90px); }
+    .chat-sidebar {
+      position: absolute; z-index: 20;
+      height: calc(100vh - 90px);
+      transform: translateX(-100%);
+      width: 85%;
+    }
+    .chat-sidebar.open { transform: translateX(0); box-shadow: 4px 0 12px rgba(0,0,0,.15); }
+    .bubble { max-width: 85%; }
+  }
+</style>
+
+<div class="chat-wrapper" id="chat-wrapper">
+
+  <!-- ── Sidebar ── -->
+  <div class="chat-sidebar" id="chat-sidebar">
+    <div class="sidebar-header">
+      <span><i class="bi bi-chat-dots me-1"></i>Chats</span>
+      <button class="btn btn-primary btn-sm py-0 px-2" id="new-chat-btn" title="New Chat">
+        <i class="bi bi-pencil-square"></i>
+      </button>
+    </div>
+    <div class="thread-list" id="thread-list">
+      {% if threads %}
+        {% for t in threads %}
+        <div class="thread-item" data-thread-id="{{ t.id }}" data-thread-title="{{ t.title | e }}">
+          <div class="thread-name">{{ t.title | e }}</div>
+          <div class="thread-preview text-muted">Tap to open</div>
+        </div>
+        {% endfor %}
+      {% else %}
+        <div class="text-center text-muted small p-3" id="no-threads-msg">
+          No chats yet — start one!
+        </div>
+      {% endif %}
+    </div>
+  </div>
+
+  <!-- ── Main panel ── -->
+  <div class="chat-main" id="chat-main">
+
+    <!-- Header (hidden until a thread is opened) -->
+    <div class="chat-header d-none" id="chat-header">
+      <button class="btn btn-sm btn-outline-secondary py-0 d-md-none me-1" id="back-btn">
+        <i class="bi bi-arrow-left"></i>
+      </button>
+      <i class="bi bi-chat-dots text-primary"></i>
+      <span id="chat-header-title" class="text-truncate"></span>
+    </div>
+
+    <!-- Empty state -->
+    <div class="chat-empty" id="chat-empty">
+      <i class="bi bi-chat-square-dots"></i>
+      <div style="font-size:.95rem;">Select a chat or start a new one</div>
+      <div class="small text-muted">Type <strong>@Wally</strong> in any thread to ask the AI assistant</div>
+      <button class="btn btn-primary btn-sm mt-1" id="new-chat-btn-empty">
+        <i class="bi bi-pencil-square me-1"></i>New Chat
+      </button>
+    </div>
+
+    <!-- Messages -->
+    <div class="messages-area d-none" id="messages-area"></div>
+
+    <!-- Wally typing indicator -->
+    <div class="wally-typing" id="wally-typing">
+      <i class="bi bi-robot"></i>
+      <span>Wally is typing</span>
+      <div class="d-flex gap-1 ms-1">
+        <span class="typing-dot"></span>
+        <span class="typing-dot"></span>
+        <span class="typing-dot"></span>
+      </div>
+    </div>
+
+    <!-- Input -->
+    <div class="chat-input-area d-none" id="chat-input-area">
+      <div class="chat-input-row">
+        <textarea id="msg-input" rows="1" placeholder="Message… type @Wally to ask AI" disabled></textarea>
+        <button class="btn btn-primary" id="send-btn" disabled><i class="bi bi-send-fill"></i></button>
+      </div>
+      <div class="input-hint">Enter to send &bull; Shift+Enter for newline &bull; <strong>@Wally</strong> asks AI</div>
+    </div>
+  </div>
+</div>
+
+<!-- ── New Chat Modal ── -->
+<div class="modal fade" id="newChatModal" tabindex="-1">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title"><i class="bi bi-pencil-square me-2"></i>New Chat</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <label class="form-label fw-semibold mb-1">Who to include</label>
+        <div id="user-checkbox-list" class="border rounded p-2 mb-3" style="max-height:200px; overflow-y:auto;">
+          <div class="text-muted small text-center py-2">
+            <span class="spinner-border spinner-border-sm me-1"></span>Loading users…
+          </div>
+        </div>
+        <label class="form-label fw-semibold mb-1">
+          Chat name <span class="fw-normal text-muted small">(optional — auto-named if blank)</span>
+        </label>
+        <input type="text" id="new-chat-title" class="form-control" placeholder="e.g. Dispatch team">
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+        <button type="button" class="btn btn-primary" id="create-chat-btn">
+          <i class="bi bi-check-lg me-1"></i>Create Chat
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
+<script>
+const CURRENT_USER_ID = {{ current_user.id }};
+const CURRENT_USERNAME = {{ (current_user.display_name or current_user.username) | tojson }};
+
+let activeThreadId = null;
+let socket = null;
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Socket.IO
+// ─────────────────────────────────────────────────────────────────────────────
+function connectSocket() {
+  socket = io('/chat', { auth: { user_id: CURRENT_USER_ID } });
+
+  socket.on('connect', () => {
+    if (activeThreadId) socket.emit('join_thread', { thread_id: activeThreadId });
+  });
+
+  socket.on('new_message', (msg) => {
+    if (msg.thread_id === activeThreadId) appendMessage(msg);
+    updateThreadPreview(msg.thread_id, msg.body);
+  });
+
+  socket.on('wally_typing', (data) => {
+    if (data.thread_id === activeThreadId) {
+      document.getElementById('wally-typing').classList.add('show');
+      scrollMessages();
+    }
+  });
+
+  socket.on('wally_done', (data) => {
+    if (data.thread_id === activeThreadId)
+      document.getElementById('wally-typing').classList.remove('show');
+  });
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Open a thread
+// ─────────────────────────────────────────────────────────────────────────────
+async function openThread(threadId, title) {
+  activeThreadId = threadId;
+
+  document.querySelectorAll('.thread-item').forEach(el => el.classList.remove('active'));
+  const activeEl = document.querySelector(`.thread-item[data-thread-id="${threadId}"]`);
+  if (activeEl) activeEl.classList.add('active');
+
+  document.getElementById('chat-empty').classList.add('d-none');
+  document.getElementById('chat-header').classList.remove('d-none');
+  document.getElementById('messages-area').classList.remove('d-none');
+  document.getElementById('chat-input-area').classList.remove('d-none');
+  document.getElementById('chat-header-title').textContent = title;
+  document.getElementById('wally-typing').classList.remove('show');
+
+  // Mobile: close sidebar
+  document.getElementById('chat-sidebar').classList.remove('open');
+
+  const area = document.getElementById('messages-area');
+  area.innerHTML = '<div class="text-center text-muted py-4"><span class="spinner-border spinner-border-sm"></span></div>';
+
+  try {
+    const resp = await fetch(`/chat/thread/${threadId}`);
+    if (!resp.ok) throw new Error('Request failed');
+    const messages = await resp.json();
+    area.innerHTML = '';
+    if (messages.length === 0) {
+      area.innerHTML = '<div class="text-center text-muted small py-4">No messages yet — say something!</div>';
+    } else {
+      messages.forEach(m => appendMessage(m, false));
+    }
+    scrollMessages();
+  } catch {
+    area.innerHTML = '<div class="text-center text-danger small py-4">Failed to load messages.</div>';
+  }
+
+  if (socket && socket.connected) socket.emit('join_thread', { thread_id: threadId });
+
+  const inp = document.getElementById('msg-input');
+  inp.disabled = false;
+  inp.focus();
+  document.getElementById('send-btn').disabled = false;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Render a message bubble
+// ─────────────────────────────────────────────────────────────────────────────
+function appendMessage(msg, scroll = true) {
+  const area    = document.getElementById('messages-area');
+  const isMe    = msg.user_id === CURRENT_USER_ID;
+  const isWally = msg.is_wally;
+
+  // Remove loading/empty placeholder
+  const ph = area.querySelector('.text-center');
+  if (ph && area.children.length === 1) area.innerHTML = '';
+
+  const wrap = document.createElement('div');
+  wrap.className = 'bubble-wrap' + (isMe ? ' mine' : '');
+
+  // Avatar
+  const av = document.createElement('div');
+  av.className = 'bubble-av' + (isWally ? ' wally-av' : '');
+  if (isWally) {
+    av.innerHTML = '<i class="bi bi-robot" style="font-size:.75rem;"></i>';
+  } else {
+    av.textContent = (msg.username || '?').charAt(0).toUpperCase();
+    if (!isMe) av.style.background = hashColor(msg.username || '');
+  }
+
+  // Bubble
+  const bub = document.createElement('div');
+  bub.className = 'bubble ' + (isMe ? 'mine' : isWally ? 'wally' : 'theirs');
+
+  const senderLine = !isMe
+    ? `<div class="bubble-sender">${esc(msg.username || '')}</div>`
+    : '';
+  const ts = msg.created_at ? `<div class="bubble-ts">${fmtTime(msg.created_at)}</div>` : '';
+  bub.innerHTML = `${senderLine}${esc(msg.body)}${ts}`;
+
+  if (isMe) { wrap.appendChild(bub); wrap.appendChild(av); }
+  else       { wrap.appendChild(av);  wrap.appendChild(bub); }
+
+  area.appendChild(wrap);
+  if (scroll) scrollMessages();
+}
+
+function updateThreadPreview(threadId, body) {
+  const item = document.querySelector(`.thread-item[data-thread-id="${threadId}"]`);
+  if (!item) return;
+  const prev = item.querySelector('.thread-preview');
+  if (prev) prev.textContent = body.length > 48 ? body.slice(0, 48) + '…' : body;
+  // Bubble to top of list
+  document.getElementById('thread-list').insertBefore(item, document.getElementById('thread-list').firstChild);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Send
+// ─────────────────────────────────────────────────────────────────────────────
+function sendMessage() {
+  const inp  = document.getElementById('msg-input');
+  const body = inp.value.trim();
+  if (!body || !activeThreadId || !socket) return;
+  socket.emit('send_message', { thread_id: activeThreadId, body });
+  inp.value = '';
+  inp.style.height = '';
+  document.getElementById('send-btn').disabled = true;
+  setTimeout(() => { document.getElementById('send-btn').disabled = false; }, 350);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// New Chat modal
+// ─────────────────────────────────────────────────────────────────────────────
+let usersCache = null;
+
+async function loadUsersForModal() {
+  try {
+    const resp = await fetch('/chat/users');
+    usersCache = await resp.json();
+    renderUserCBs(usersCache);
+  } catch {
+    document.getElementById('user-checkbox-list').innerHTML =
+      '<div class="text-danger small p-2">Failed to load users.</div>';
+  }
+}
+
+function renderUserCBs(users) {
+  const el = document.getElementById('user-checkbox-list');
+  if (!users.length) {
+    el.innerHTML = '<div class="text-muted small p-2">No other active users.</div>';
+    return;
+  }
+  el.innerHTML = users.map(u => `
+    <div class="form-check py-1 border-bottom">
+      <input class="form-check-input" type="checkbox" value="${u.id}" id="ucb-${u.id}">
+      <label class="form-check-label" for="ucb-${u.id}">
+        <strong>${esc(u.display_name)}</strong>
+        <span class="text-muted small ms-1">@${esc(u.username)} &bull; ${esc(u.role)}</span>
+      </label>
+    </div>
+  `).join('');
+}
+
+async function createChat() {
+  const checked  = [...document.querySelectorAll('#user-checkbox-list input:checked')];
+  if (!checked.length) { alert('Select at least one person.'); return; }
+  const user_ids = checked.map(cb => parseInt(cb.value));
+  const title    = document.getElementById('new-chat-title').value.trim();
+
+  const btn = document.getElementById('create-chat-btn');
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>Creating…';
+
+  try {
+    const resp = await fetch('/chat/thread/new', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ user_ids, title }),
+    });
+    const data = await resp.json();
+    if (!resp.ok) throw new Error(data.error || 'Failed');
+
+    addThreadToSidebar(data.id, data.title);
+    bootstrap.Modal.getInstance(document.getElementById('newChatModal')).hide();
+    openThread(data.id, data.title);
+  } catch (err) {
+    alert('Could not create chat: ' + err.message);
+  } finally {
+    btn.disabled = false;
+    btn.innerHTML = '<i class="bi bi-check-lg me-1"></i>Create Chat';
+  }
+}
+
+function addThreadToSidebar(id, title) {
+  const list  = document.getElementById('thread-list');
+  const noMsg = document.getElementById('no-threads-msg');
+  if (noMsg) noMsg.remove();
+
+  const item = document.createElement('div');
+  item.className = 'thread-item';
+  item.dataset.threadId    = id;
+  item.dataset.threadTitle = title;
+  item.innerHTML = `<div class="thread-name">${esc(title)}</div>
+    <div class="thread-preview text-muted">Just created</div>`;
+  item.addEventListener('click', () => openThread(id, title));
+  list.insertBefore(item, list.firstChild);
+}
+
+function openNewChatModal() {
+  document.getElementById('new-chat-title').value = '';
+  document.getElementById('user-checkbox-list').innerHTML =
+    '<div class="text-muted small text-center py-2"><span class="spinner-border spinner-border-sm me-1"></span>Loading users…</div>';
+  loadUsersForModal();
+  new bootstrap.Modal(document.getElementById('newChatModal')).show();
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Web Push
+// ─────────────────────────────────────────────────────────────────────────────
+async function registerPush() {
+  try {
+    const { key } = await fetch('/chat/vapid-public-key').then(r => r.json());
+    if (!key) return;
+    const sw  = await navigator.serviceWorker.ready;
+    let sub   = await sw.pushManager.getSubscription();
+    if (!sub) {
+      sub = await sw.pushManager.subscribe({
+        userVisibleOnly: true,
+        applicationServerKey: b64ToUint8(key),
+      });
+    }
+    const j = sub.toJSON();
+    await fetch('/chat/subscribe', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ endpoint: j.endpoint, p256dh: j.keys.p256dh, auth: j.keys.auth }),
+    });
+  } catch (e) { console.debug('Push skipped:', e.message); }
+}
+
+function b64ToUint8(b64) {
+  const pad = '='.repeat((4 - b64.length % 4) % 4);
+  const raw = atob((b64 + pad).replace(/-/g, '+').replace(/_/g, '/'));
+  return Uint8Array.from([...raw].map(c => c.charCodeAt(0)));
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Utilities
+// ─────────────────────────────────────────────────────────────────────────────
+function scrollMessages() {
+  const a = document.getElementById('messages-area');
+  a.scrollTop = a.scrollHeight;
+}
+
+function esc(s) {
+  return String(s || '')
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
+
+function fmtTime(iso) {
+  try {
+    const d   = new Date(iso + (iso.endsWith('Z') ? '' : 'Z'));
+    const now = new Date();
+    const m   = Math.floor((now - d) / 60000);
+    if (m < 1)    return 'just now';
+    if (m < 60)   return m + 'm ago';
+    if (m < 1440) return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    return d.toLocaleDateString([], { month: 'short', day: 'numeric' });
+  } catch { return ''; }
+}
+
+function hashColor(s) {
+  let h = 0;
+  for (let i = 0; i < s.length; i++) h = s.charCodeAt(i) + ((h << 5) - h);
+  const palette = ['#0d6efd','#198754','#dc3545','#fd7e14','#6610f2','#d63384','#0dcaf0','#6c757d'];
+  return palette[Math.abs(h) % palette.length];
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Init
+// ─────────────────────────────────────────────────────────────────────────────
+document.addEventListener('DOMContentLoaded', () => {
+  connectSocket();
+
+  // Thread clicks
+  document.querySelectorAll('.thread-item').forEach(item => {
+    item.addEventListener('click', () => {
+      openThread(parseInt(item.dataset.threadId), item.dataset.threadTitle);
+    });
+  });
+
+  // Textarea auto-resize + Enter-to-send
+  const inp = document.getElementById('msg-input');
+  inp.addEventListener('input', () => {
+    inp.style.height = '';
+    inp.style.height = Math.min(inp.scrollHeight, 110) + 'px';
+    document.getElementById('send-btn').disabled = !inp.value.trim();
+  });
+  inp.addEventListener('keydown', e => {
+    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMessage(); }
+  });
+
+  document.getElementById('send-btn').addEventListener('click', sendMessage);
+
+  document.getElementById('new-chat-btn').addEventListener('click', openNewChatModal);
+  document.getElementById('new-chat-btn-empty').addEventListener('click', openNewChatModal);
+  document.getElementById('create-chat-btn').addEventListener('click', createChat);
+
+  // Mobile back button
+  document.getElementById('back-btn').addEventListener('click', () => {
+    document.getElementById('chat-sidebar').classList.add('open');
+    activeThreadId = null;
+  });
+
+  // Web Push
+  if ('serviceWorker' in navigator && 'PushManager' in window) registerPush();
+
+  // Auto-open first thread on larger screens
+  {% if threads %}
+  if (window.innerWidth >= 768) {
+    openThread({{ threads[0].id }}, {{ threads[0].title | tojson }});
+  }
+  {% endif %}
+});
+</script>
+{% endblock %}

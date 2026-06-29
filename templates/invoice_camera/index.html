@@ -1,0 +1,350 @@
+{% extends 'base.html' %}
+{% block title %}Invoice Camera{% endblock %}
+
+{% block content %}
+<style>
+  .cam-btn {
+    height: 120px;
+    font-size: 1.4rem;
+    font-weight: 700;
+    border-radius: 16px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 14px;
+    cursor: pointer;
+    transition: transform .1s;
+    user-select: none;
+    -webkit-user-select: none;
+  }
+  .cam-btn:active { transform: scale(.97); }
+  #preview-img { max-height: 260px; object-fit: contain; border-radius: 8px; }
+  .field-card .form-control { font-size: 1rem; }
+  #result-card { display: none; }
+  #success-card { display: none; }
+  #webcam-container { display: none; }
+  #vehicle-results { max-height: 220px; overflow-y: auto; }
+  .vehicle-option {
+    cursor: pointer;
+    padding: 10px 14px;
+    border-bottom: 1px solid #f0f0f0;
+    transition: background .15s;
+  }
+  .vehicle-option:hover { background: #f0f7ff; }
+  .vehicle-option.selected { background: #d0ebff; }
+</style>
+
+<div class="row justify-content-center">
+  <div class="col-lg-6 col-md-8">
+
+    <h4 class="mb-3 d-flex align-items-center gap-2">
+      <i class="bi bi-camera2 fs-4"></i> Invoice Camera
+    </h4>
+
+    <!-- Capture buttons -->
+    <div id="capture-section">
+      <div class="row g-3 mb-3">
+        <div class="col-12">
+          <label for="camera-input" class="cam-btn btn btn-dark w-100">
+            <i class="bi bi-camera-fill fs-2"></i>
+            <span>Take Photo</span>
+          </label>
+          <input type="file" id="camera-input" accept="image/*" capture="environment"
+                 class="d-none" onchange="handleCapture(this)">
+        </div>
+        <div class="col-12">
+          <button class="cam-btn btn btn-outline-secondary w-100" onclick="toggleWebcam()">
+            <i class="bi bi-webcam fs-2"></i>
+            <span>Use Webcam</span>
+          </button>
+        </div>
+      </div>
+
+      <div id="webcam-container" class="mb-3">
+        <video id="webcam-video" class="w-100 rounded mb-2" autoplay playsinline
+               style="max-height:300px;background:#000;"></video>
+        <button class="btn btn-primary w-100 py-3" onclick="captureWebcam()">
+          <i class="bi bi-camera me-2"></i> Capture Frame
+        </button>
+        <canvas id="webcam-canvas" class="d-none"></canvas>
+      </div>
+    </div>
+
+    <!-- Preview -->
+    <div id="preview-section" class="mb-3" style="display:none;">
+      <img id="preview-img" class="w-100 mb-3" alt="Invoice preview">
+      <div id="loading-state" class="text-center py-3" style="display:none;">
+        <div class="spinner-border text-primary" role="status"></div>
+        <div class="mt-2 text-muted">Reading invoice…</div>
+      </div>
+    </div>
+
+    <!-- Extracted fields -->
+    <div id="result-card" class="card mb-3">
+      <div class="card-header d-flex justify-content-between">
+        <span><i class="bi bi-check2-circle me-1 text-success"></i> Invoice Details</span>
+        <button class="btn btn-sm btn-outline-secondary" onclick="resetForm()">
+          <i class="bi bi-arrow-counterclockwise me-1"></i> Retake
+        </button>
+      </div>
+      <div class="card-body">
+        <div class="row g-2 mb-3">
+          <div class="col-6">
+            <label class="form-label fw-semibold">Account Name</label>
+            <input type="text" class="form-control" id="f-account" placeholder="Account or name">
+          </div>
+          <div class="col-6">
+            <label class="form-label fw-semibold">Amount</label>
+            <div class="input-group">
+              <span class="input-group-text">$</span>
+              <input type="number" class="form-control" id="f-amount" step="0.01" placeholder="0.00">
+            </div>
+          </div>
+          <div class="col-6">
+            <label class="form-label fw-semibold">Invoice / Check #</label>
+            <input type="text" class="form-control" id="f-invoice" placeholder="Number">
+          </div>
+          <div class="col-6">
+            <label class="form-label fw-semibold">Date</label>
+            <input type="date" class="form-control" id="f-date">
+          </div>
+          <div class="col-6">
+            <label class="form-label fw-semibold">Payment Type</label>
+            <select class="form-select" id="f-type">
+              <option value="CASH">Cash</option>
+              <option value="CHECK">Check</option>
+              <option value="CARD">Card</option>
+            </select>
+          </div>
+          <div class="col-6">
+            <label class="form-label fw-semibold">Notes</label>
+            <input type="text" class="form-control" id="f-notes" placeholder="Optional">
+          </div>
+        </div>
+
+        <!-- Vehicle search -->
+        <div class="mb-3">
+          <label class="form-label fw-semibold">Match to Account / Vehicle</label>
+          <div class="input-group">
+            <input type="text" class="form-control" id="vehicle-search"
+                   placeholder="Search by name, plate, call #…" oninput="searchVehicles()">
+            <span class="input-group-text"><i class="bi bi-search"></i></span>
+          </div>
+          <div id="vehicle-results" class="border rounded mt-1" style="display:none;"></div>
+          <input type="hidden" id="selected-vehicle-id">
+          <div id="selected-vehicle-display" class="mt-1"></div>
+        </div>
+
+        <button class="btn btn-success w-100 py-3" onclick="confirmPayment()">
+          <i class="bi bi-check-lg me-2"></i> Confirm &amp; Log Payment
+        </button>
+      </div>
+    </div>
+
+    <!-- Success -->
+    <div id="success-card" class="card border-success mb-3">
+      <div class="card-body text-center py-4">
+        <i class="bi bi-check-circle-fill text-success fs-1 mb-2 d-block"></i>
+        <h5 id="success-msg">Payment logged!</h5>
+        <button class="btn btn-outline-success mt-3" onclick="resetForm()">
+          <i class="bi bi-camera me-1"></i> Take Another
+        </button>
+      </div>
+    </div>
+
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+let capturedB64 = null;
+let webcamStream = null;
+let searchTimer = null;
+
+// ── Capture from file input ─────────────────────────────────────────────────
+function handleCapture(input) {
+  const file = input.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = e => {
+    showPreview(e.target.result);
+    readInvoice(e.target.result, file.type);
+  };
+  reader.readAsDataURL(file);
+}
+
+// ── Webcam ──────────────────────────────────────────────────────────────────
+function toggleWebcam() {
+  const container = document.getElementById('webcam-container');
+  if (container.style.display === 'none') {
+    startWebcam();
+    container.style.display = 'block';
+  } else {
+    stopWebcam();
+    container.style.display = 'none';
+  }
+}
+
+function startWebcam() {
+  navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } })
+    .then(stream => {
+      webcamStream = stream;
+      document.getElementById('webcam-video').srcObject = stream;
+    })
+    .catch(() => alert('Could not access camera.'));
+}
+
+function stopWebcam() {
+  if (webcamStream) { webcamStream.getTracks().forEach(t => t.stop()); webcamStream = null; }
+}
+
+function captureWebcam() {
+  const video = document.getElementById('webcam-video');
+  const canvas = document.getElementById('webcam-canvas');
+  canvas.width = video.videoWidth;
+  canvas.height = video.videoHeight;
+  canvas.getContext('2d').drawImage(video, 0, 0);
+  const dataUrl = canvas.toDataURL('image/jpeg', 0.85);
+  stopWebcam();
+  document.getElementById('webcam-container').style.display = 'none';
+  showPreview(dataUrl);
+  readInvoice(dataUrl, 'image/jpeg');
+}
+
+// ── Process image ───────────────────────────────────────────────────────────
+function showPreview(dataUrl) {
+  capturedB64 = dataUrl;
+  document.getElementById('preview-img').src = dataUrl;
+  document.getElementById('preview-section').style.display = 'block';
+}
+
+async function readInvoice(dataUrl, mediaType) {
+  document.getElementById('loading-state').style.display = 'block';
+  document.getElementById('result-card').style.display = 'none';
+
+  const b64 = dataUrl.split(',')[1] || dataUrl;
+
+  try {
+    const resp = await fetch('/invoice-camera/read', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ image: b64, media_type: mediaType || 'image/jpeg' }),
+    });
+    const json = await resp.json();
+    if (!resp.ok) { alert('Error: ' + (json.error || 'Unknown error')); return; }
+    populateFields(json.data || {});
+  } catch (e) {
+    alert('Network error: ' + e.message);
+  } finally {
+    document.getElementById('loading-state').style.display = 'none';
+    document.getElementById('result-card').style.display = 'block';
+  }
+}
+
+function populateFields(d) {
+  document.getElementById('f-account').value = d.account_name || '';
+  document.getElementById('f-amount').value = d.amount ? parseFloat(d.amount).toFixed(2) : '';
+  document.getElementById('f-invoice').value = d.invoice_number || d.check_number || '';
+  document.getElementById('f-date').value = d.date || new Date().toISOString().slice(0,10);
+  document.getElementById('f-notes').value = d.notes || '';
+  if (d.payment_type) {
+    const sel = document.getElementById('f-type');
+    [...sel.options].forEach(o => { if (o.value === d.payment_type) o.selected = true; });
+  }
+  // Pre-populate vehicle search with account name
+  if (d.account_name) {
+    document.getElementById('vehicle-search').value = d.account_name;
+    searchVehicles();
+  }
+}
+
+// ── Vehicle search ──────────────────────────────────────────────────────────
+function searchVehicles() {
+  clearTimeout(searchTimer);
+  searchTimer = setTimeout(_doSearch, 300);
+}
+
+async function _doSearch() {
+  const q = document.getElementById('vehicle-search').value.trim();
+  const container = document.getElementById('vehicle-results');
+  if (!q) { container.style.display = 'none'; return; }
+
+  const resp = await fetch('/invoice-camera/search?q=' + encodeURIComponent(q));
+  const vehicles = await resp.json();
+  container.style.display = vehicles.length ? 'block' : 'none';
+  container.innerHTML = vehicles.map(v => `
+    <div class="vehicle-option" onclick="selectVehicle(${v.id}, ${JSON.stringify(v.display_name)}, ${JSON.stringify(v.account)})">
+      <strong>${escHtml(v.display_name)}</strong>
+      <span class="ms-2 text-muted small">${escHtml(v.plate)}</span>
+      ${v.account ? `<span class="ms-2 text-muted small">${escHtml(v.account)}</span>` : ''}
+      ${v.balance_due ? `<span class="ms-auto badge bg-warning text-dark float-end">$${parseFloat(v.balance_due).toFixed(2)}</span>` : ''}
+    </div>`).join('');
+}
+
+function selectVehicle(id, name, account) {
+  document.getElementById('selected-vehicle-id').value = id;
+  document.getElementById('vehicle-results').style.display = 'none';
+  document.getElementById('vehicle-search').value = account || name;
+  document.getElementById('selected-vehicle-display').innerHTML =
+    `<div class="badge bg-success py-2 px-3 mt-1">
+       <i class="bi bi-check-circle me-1"></i> ${escHtml(name)}
+     </div>`;
+  if (!document.getElementById('f-account').value) {
+    document.getElementById('f-account').value = account || name;
+  }
+}
+
+// ── Confirm payment ─────────────────────────────────────────────────────────
+async function confirmPayment() {
+  const vehicle_id = document.getElementById('selected-vehicle-id').value;
+  const amount = parseFloat(document.getElementById('f-amount').value);
+  const payment_type = document.getElementById('f-type').value;
+  const reference_number = document.getElementById('f-invoice').value.trim();
+  const notes = document.getElementById('f-notes').value.trim();
+
+  if (!vehicle_id) { alert('Please search and select a vehicle/account first.'); return; }
+  if (!amount || amount <= 0) { alert('Please enter a valid amount.'); return; }
+
+  const btn = document.querySelector('#result-card .btn-success');
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner-border spinner-border-sm me-2"></span>Logging…';
+
+  try {
+    const resp = await fetch('/invoice-camera/confirm', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ vehicle_id, amount, payment_type, reference_number, notes }),
+    });
+    const json = await resp.json();
+    if (!resp.ok || json.error) { alert('Error: ' + (json.error || 'Unknown')); return; }
+
+    document.getElementById('result-card').style.display = 'none';
+    document.getElementById('success-msg').textContent =
+      `$${parseFloat(json.amount).toFixed(2)} logged for ${json.vehicle}`;
+    document.getElementById('success-card').style.display = 'block';
+  } catch (e) {
+    alert('Network error: ' + e.message);
+  } finally {
+    btn.disabled = false;
+    btn.innerHTML = '<i class="bi bi-check-lg me-2"></i> Confirm & Log Payment';
+  }
+}
+
+// ── Reset ───────────────────────────────────────────────────────────────────
+function resetForm() {
+  capturedB64 = null;
+  document.getElementById('camera-input').value = '';
+  document.getElementById('preview-section').style.display = 'none';
+  document.getElementById('result-card').style.display = 'none';
+  document.getElementById('success-card').style.display = 'none';
+  document.getElementById('selected-vehicle-id').value = '';
+  document.getElementById('selected-vehicle-display').innerHTML = '';
+  document.getElementById('vehicle-results').style.display = 'none';
+}
+
+function escHtml(s) {
+  return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+</script>
+{% endblock %}

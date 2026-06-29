@@ -1,0 +1,229 @@
+{% extends 'base.html' %}
+{% block title %}UPS Notices — {{ vehicle.display_name }}{% endblock %}
+
+{% block content %}
+<div class="d-flex align-items-center gap-2 mb-3">
+  <a href="{{ url_for('heather.dashboard') }}" class="btn btn-sm btn-outline-secondary">
+    <i class="bi bi-arrow-left"></i>
+  </a>
+  <h4 class="mb-0">UPS Notices — {{ vehicle.display_name }}</h4>
+  {% if vehicle.plate %}
+  <span class="badge bg-secondary">{{ vehicle.plate }} {{ vehicle.plate_state }}</span>
+  {% endif %}
+</div>
+
+<div class="row g-3">
+  <!-- Notice History -->
+  <div class="col-md-7">
+    <div class="card">
+      <div class="card-header d-flex justify-content-between align-items-center">
+        <span><i class="bi bi-clock-history me-1"></i> Notice History</span>
+        <span class="badge bg-secondary">{{ notices|length }} sent</span>
+      </div>
+      <div class="card-body p-0">
+        {% if notices %}
+        <table class="table table-sm mb-0">
+          <thead>
+            <tr>
+              <th>#</th>
+              <th>Sent</th>
+              <th>Recipient</th>
+              <th>Tracking</th>
+              <th>Status</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for n in notices %}
+            <tr>
+              <td><strong>Notice {{ n.notice_number }}</strong></td>
+              <td>{{ n.sent_at.strftime('%m/%d/%Y') if n.sent_at }}</td>
+              <td class="small text-muted">
+                {{ n.recipient_name }}<br>
+                {{ n.recipient_city }}, {{ n.recipient_state }}
+              </td>
+              <td>
+                {% if n.tracking_number %}
+                <a href="https://www.ups.com/track?tracknum={{ n.tracking_number }}" target="_blank"
+                   class="small font-monospace">
+                  {{ n.tracking_number[:12] }}…
+                </a>
+                {% else %}
+                <span class="text-muted small">—</span>
+                {% endif %}
+              </td>
+              <td>
+                {% if n.status == 'delivered' %}
+                <span class="badge bg-success">Delivered</span>
+                {% elif n.status == 'returned' %}
+                <span class="badge bg-danger">Returned</span>
+                {% else %}
+                <span class="badge bg-warning text-dark">Sent</span>
+                {% endif %}
+              </td>
+              <td>
+                {% if n.label_data %}
+                <button class="btn btn-xs btn-outline-secondary" onclick="printLabel('{{ n.label_data }}')">
+                  <i class="bi bi-printer"></i>
+                </button>
+                {% endif %}
+              </td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+        {% else %}
+        <div class="p-4 text-center text-muted">
+          <i class="bi bi-envelope-x fs-2"></i><br>
+          No notices have been sent yet.
+        </div>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+
+  <!-- Send Next Notice -->
+  <div class="col-md-5">
+    <div class="card border-primary">
+      <div class="card-header bg-primary text-white">
+        <i class="bi bi-send me-1"></i>
+        Send Notice {{ next_notice_number }}
+        {% if ups_configured %}
+        <span class="badge bg-light text-dark ms-1">UPS API</span>
+        {% endif %}
+      </div>
+      <div class="card-body">
+        {% if not ups_configured %}
+        <div class="alert alert-warning small">
+          UPS API credentials not configured. Set UPS_CLIENT_ID, UPS_CLIENT_SECRET, and UPS_ACCOUNT_NUMBER in environment variables.
+        </div>
+        {% endif %}
+
+        <form method="POST" action="{{ url_for('heather.send_notice', vehicle_id=vehicle.id) }}" id="notice-form">
+          <div class="mb-3">
+            <label class="form-label fw-semibold">Recipient</label>
+            <select class="form-select form-select-sm mb-2" id="recipient-select" onchange="fillRecipient()">
+              <option value="">— choose recipient —</option>
+              {% if vehicle.owner_name %}
+              <option value="owner">Owner: {{ vehicle.owner_name }}</option>
+              {% endif %}
+              {% if vehicle.lienholder_name %}
+              <option value="lienholder">Lienholder: {{ vehicle.lienholder_name }}</option>
+              {% endif %}
+              <option value="custom">Custom…</option>
+            </select>
+
+            <input type="text" class="form-control form-control-sm mb-1" name="recipient_name"
+                   id="recipient_name" placeholder="Full name" required
+                   value="{{ vehicle.owner_name or '' }}">
+            <input type="text" class="form-control form-control-sm mb-1" name="recipient_address"
+                   id="recipient_address" placeholder="Street address"
+                   value="{{ vehicle.owner_address or '' }}">
+            <div class="row g-1">
+              <div class="col-6">
+                <input type="text" class="form-control form-control-sm" name="recipient_city"
+                       id="recipient_city" placeholder="City">
+              </div>
+              <div class="col-2">
+                <input type="text" class="form-control form-control-sm" name="recipient_state"
+                       id="recipient_state" placeholder="OH" maxlength="2">
+              </div>
+              <div class="col-4">
+                <input type="text" class="form-control form-control-sm" name="recipient_zip"
+                       id="recipient_zip" placeholder="ZIP">
+              </div>
+            </div>
+          </div>
+
+          <div class="mb-3">
+            <label class="form-label fw-semibold">Notes</label>
+            <input type="text" class="form-control form-control-sm" name="notes"
+                   placeholder="Optional notes…">
+          </div>
+
+          <button type="submit" class="btn btn-primary w-100" id="send-btn"
+                  {% if not ups_configured %}disabled{% endif %}>
+            <i class="bi bi-send me-1"></i>
+            Generate UPS Label & Send Notice {{ next_notice_number }}
+          </button>
+
+          {% if not ups_configured %}
+          <div class="text-muted small mt-2 text-center">Configure UPS credentials to enable.</div>
+          {% endif %}
+        </form>
+
+        <!-- Label preview after send -->
+        <div id="label-preview" class="mt-3" style="display:none;">
+          <hr>
+          <h6>Label Generated</h6>
+          <div id="label-img-container"></div>
+          <button class="btn btn-outline-secondary btn-sm mt-2" onclick="printLabel(window._lastLabel)">
+            <i class="bi bi-printer me-1"></i> Print Label
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Vehicle info -->
+    <div class="card mt-3">
+      <div class="card-header small text-muted">Vehicle Details</div>
+      <div class="card-body small">
+        <div><strong>Call #:</strong> {{ vehicle.call_number or '—' }}</div>
+        <div><strong>VIN:</strong> {{ vehicle.vin or '—' }}</div>
+        <div><strong>Plate:</strong> {{ vehicle.plate }} {{ vehicle.plate_state }}</div>
+        <div><strong>Impound:</strong> {{ vehicle.impound_date|mdY }}</div>
+        <div><strong>Owner:</strong> {{ vehicle.owner_name or '—' }}</div>
+        {% if vehicle.lienholder_name %}
+        <div><strong>Lienholder:</strong> {{ vehicle.lienholder_name }}</div>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+const ownerData = {
+  name: {{ (vehicle.owner_name or '')|tojson }},
+  address: {{ (vehicle.owner_address or '')|tojson }},
+  city: '',
+  state: 'OH',
+  zip: '',
+};
+const lienholderData = {
+  name: {{ (vehicle.lienholder_name or '')|tojson }},
+  address: {{ (vehicle.lienholder_address or '')|tojson }},
+  city: {{ (vehicle.lienholder_city or '')|tojson }},
+  state: {{ (vehicle.lienholder_state or 'OH')|tojson }},
+  zip: {{ (vehicle.lienholder_zip or '')|tojson }},
+};
+
+function fillRecipient() {
+  const sel = document.getElementById('recipient-select').value;
+  const d = sel === 'owner' ? ownerData : sel === 'lienholder' ? lienholderData : null;
+  if (!d) return;
+  document.getElementById('recipient_name').value = d.name;
+  document.getElementById('recipient_address').value = d.address;
+  document.getElementById('recipient_city').value = d.city;
+  document.getElementById('recipient_state').value = d.state;
+  document.getElementById('recipient_zip').value = d.zip;
+}
+
+function printLabel(b64) {
+  if (!b64) return;
+  const win = window.open('', '_blank');
+  win.document.write(`<html><body style="margin:0"><img src="data:image/gif;base64,${b64}" style="max-width:100%"></body></html>`);
+  win.document.close();
+  win.print();
+}
+
+// Show label if present in flash data
+{% if label_b64 %}
+window._lastLabel = {{ label_b64|tojson }};
+document.getElementById('label-preview').style.display = 'block';
+document.getElementById('label-img-container').innerHTML =
+  `<img src="data:image/gif;base64,${window._lastLabel}" class="img-fluid border">`;
+{% endif %}
+</script>
+{% endblock %}

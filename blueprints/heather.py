@@ -315,6 +315,269 @@ def envelope_scan():
     return render_template('heather/envelope_scan.html', vehicles=active_vehicles)
 
 
+# ── UPS Notices ────────────────────────────────────────────────────────────────
+
+def _ups_get_token():
+    """Fetch a short-lived OAuth2 token from UPS."""
+    import requests as _req
+    client_id = os.environ.get('UPS_CLIENT_ID', '')
+    client_secret = os.environ.get('UPS_CLIENT_SECRET', '')
+    if not client_id or not client_secret:
+        raise RuntimeError('UPS_CLIENT_ID / UPS_CLIENT_SECRET not configured')
+    resp = _req.post(
+        'https://onlinetools.ups.com/security/v1/oauth/token',
+        data={'grant_type': 'client_credentials'},
+        auth=(client_id, client_secret),
+        timeout=15,
+    )
+    resp.raise_for_status()
+    return resp.json()['access_token']
+
+
+def _ups_create_label(vehicle, notice_number, recipient_name, recipient_address,
+                      recipient_city, recipient_state, recipient_zip):
+    """Call UPS Ship API and return (tracking_number, label_b64_gif)."""
+    import requests as _req
+    account_number = os.environ.get('UPS_ACCOUNT_NUMBER', '81Y7X1')
+    token = _ups_get_token()
+
+    company_name = current_app.config.get('COMPANY_NAME', 'Broad & James Towing')
+    company_address = current_app.config.get('COMPANY_ADDRESS', '3201 E Broad St')
+
+    # Parse shipper address
+    parts = [p.strip() for p in company_address.split(',')]
+    shipper_line = parts[0] if parts else '3201 E Broad St'
+    shipper_city = 'Columbus'
+    shipper_state = 'OH'
+    shipper_zip = '43213'
+
+    reference = (vehicle.call_number or vehicle.plate or f'VEH{vehicle.id}')[:35]
+
+    payload = {
+        'ShipmentRequest': {
+            'Shipment': {
+                'Shipper': {
+                    'Name': company_name,
+                    'ShipperNumber': account_number,
+                    'Address': {
+                        'AddressLine': [shipper_line],
+                        'City': shipper_city,
+                        'StateProvinceCode': shipper_state,
+                        'PostalCode': shipper_zip,
+                        'CountryCode': 'US',
+                    },
+                },
+                'ShipTo': {
+                    'Name': recipient_name,
+                    'Address': {
+                        'AddressLine': [recipient_address or ''],
+                        'City': recipient_city or '',
+                        'StateProvinceCode': (recipient_state or 'OH')[:2],
+                        'PostalCode': recipient_zip or '',
+                        'CountryCode': 'US',
+                    },
+                },
+                'ShipFrom': {
+                    'Name': company_name,
+                    'Address': {
+                        'AddressLine': [shipper_line],
+                        'City': shipper_city,
+                        'StateProvinceCode': shipper_state,
+                        'PostalCode': shipper_zip,
+                        'CountryCode': 'US',
+                    },
+                },
+                'Service': {'Code': '03', 'Description': 'UPS Ground'},
+                'Package': {
+                    'PackagingType': {'Code': '02', 'Description': 'Customer Supplied Package'},
+                    'Dimensions': {
+                        'UnitOfMeasurement': {'Code': 'IN'},
+                        'Length': '9', 'Width': '6', 'Height': '1',
+                    },
+                    'PackageWeight': {
+                        'UnitOfMeasurement': {'Code': 'LBS'},
+                        'Weight': '0.1',
+                    },
+                    'ReferenceNumber': {'Value': reference},
+                },
+                'PaymentInformation': {
+                    'ShipmentCharge': {
+                        'Type': '01',
+                        'BillShipper': {'AccountNumber': account_number},
+                    },
+                },
+            },
+            'LabelSpecification': {
+                'LabelImageFormat': {'Code': 'GIF', 'Description': 'GIF'},
+            },
+        },
+    }
+
+    resp = _req.post(
+        'https://onlinetools.ups.com/api/shipments/v1801/ship',
+        json=payload,
+        headers={
+            'Authorization': f'Bearer {token}',
+            'Content-Type': 'application/json',
+            'transId': f'notice-{vehicle.id}-{notice_number}',
+            'transactionSrc': 'impound-manager',
+        },
+        timeout=20,
+    )
+    resp.raise_for_status()
+    data = resp.json()
+    results = data['ShipmentResponse']['ShipmentResults']
+    pkg = results['PackageResults']
+    if isinstance(pkg, list):
+        pkg = pkg[0]
+    tracking = pkg['TrackingNumber']
+    label_b64 = pkg['ShippingLabel']['GraphicImage']
+    return tracking, label_b64
+
+
+@bp.route('/notices')
+@_heather_required
+def notices_search():
+    from models import VehicleNotice
+    q = request.args.get('q', '').strip()
+    results = []
+    if q:
+        like = f'%{q}%'
+        results = (
+            Vehicle.query
+            .filter(
+                db.or_(
+                    Vehicle.plate.ilike(like),
+                    Vehicle.vin.ilike(like),
+                    Vehicle.owner_name.ilike(like),
+                    Vehicle.call_number.ilike(like),
+                    Vehicle.stock_number.ilike(like),
+                )
+            )
+            .order_by(Vehicle.impound_date.desc())
+            .limit(30)
+            .all()
+        )
+        # Pre-load notices for each vehicle
+        for v in results:
+            _ = v.notices  # noqa: trigger lazy load
+    recent_notices = (
+        VehicleNotice.query
+        .order_by(VehicleNotice.sent_at.desc())
+        .limit(20)
+        .all()
+    )
+    return render_template('heather/notices_search.html',
+                           q=q, results=results, recent_notices=recent_notices)
+
+
+@bp.route('/notices/<int:vehicle_id>')
+@_heather_required
+def notices(vehicle_id):
+    from models import VehicleNotice
+    vehicle = db.get_or_404(Vehicle, vehicle_id)
+    notices = (
+        VehicleNotice.query
+        .filter_by(vehicle_id=vehicle.id)
+        .order_by(VehicleNotice.notice_number)
+        .all()
+    )
+    next_notice_number = len(notices) + 1
+    ups_configured = bool(
+        os.environ.get('UPS_CLIENT_ID') and os.environ.get('UPS_CLIENT_SECRET')
+    )
+    label_b64 = request.args.get('label')
+    return render_template('heather/notices.html',
+                           vehicle=vehicle,
+                           notices=notices,
+                           next_notice_number=next_notice_number,
+                           ups_configured=ups_configured,
+                           label_b64=label_b64)
+
+
+@bp.route('/notices/<int:vehicle_id>/send', methods=['POST'])
+@_heather_required
+def send_notice(vehicle_id):
+    from models import VehicleNotice
+    vehicle = db.get_or_404(Vehicle, vehicle_id)
+
+    recipient_name = request.form.get('recipient_name', '').strip()
+    recipient_address = request.form.get('recipient_address', '').strip()
+    recipient_city = request.form.get('recipient_city', '').strip()
+    recipient_state = request.form.get('recipient_state', 'OH').strip()
+    recipient_zip = request.form.get('recipient_zip', '').strip()
+    notes = request.form.get('notes', '').strip() or None
+
+    if not recipient_name:
+        flash('Recipient name is required.', 'danger')
+        return redirect(url_for('heather.notices', vehicle_id=vehicle.id))
+
+    existing_count = VehicleNotice.query.filter_by(vehicle_id=vehicle.id).count()
+    notice_number = existing_count + 1
+
+    try:
+        tracking, label_b64 = _ups_create_label(
+            vehicle, notice_number,
+            recipient_name, recipient_address,
+            recipient_city, recipient_state, recipient_zip,
+        )
+        notice = VehicleNotice(
+            vehicle_id=vehicle.id,
+            notice_number=notice_number,
+            tracking_number=tracking,
+            label_data=label_b64,
+            recipient_name=recipient_name,
+            recipient_address=recipient_address,
+            recipient_city=recipient_city,
+            recipient_state=recipient_state,
+            recipient_zip=recipient_zip,
+            sent_by=current_user.display_name or current_user.username,
+            notes=notes,
+        )
+        db.session.add(notice)
+
+        # Wally alert to Tim/Lawrence
+        try:
+            from models import ChatThread, ChatMessage, ChatThreadMember
+            from models import User as _User
+            alert_thread = (
+                ChatThread.query
+                .filter(ChatThread.title == 'Wally Alerts')
+                .first()
+            )
+            if not alert_thread:
+                alert_thread = ChatThread(title='Wally Alerts', is_group=True)
+                db.session.add(alert_thread)
+                db.session.flush()
+                for u in _User.query.filter(_User.role.in_(['tim', 'lawrence'])).all():
+                    db.session.add(ChatThreadMember(thread_id=alert_thread.id, user_id=u.id))
+            db.session.add(ChatMessage(
+                thread_id=alert_thread.id,
+                username='Wally',
+                is_wally=True,
+                alert_type='ups_notice',
+                body=(
+                    f'📬 UPS Notice #{notice_number} sent for {vehicle.display_name} '
+                    f'(plate {vehicle.plate or "—"}) to {recipient_name}. '
+                    f'Tracking: {tracking}'
+                ),
+            ))
+        except Exception:
+            pass  # don't fail the whole request for a chat alert
+
+        db.session.commit()
+        flash(
+            f'Notice #{notice_number} sent! Tracking: {tracking}',
+            'success',
+        )
+        return redirect(
+            url_for('heather.notices', vehicle_id=vehicle.id) + f'?label={label_b64}'
+        )
+    except Exception as exc:
+        flash(f'UPS API error: {exc}', 'danger')
+        return redirect(url_for('heather.notices', vehicle_id=vehicle.id))
+
+
 @bp.route('/envelope-scan/camera', methods=['POST'])
 @_heather_required
 def envelope_scan_camera():
