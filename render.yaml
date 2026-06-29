@@ -2,6 +2,7 @@ services:
   - type: web
     name: impound-manager
     env: python
+    pythonVersion: 3.11.9
     plan: free
     buildCommand: pip install -r requirements.txt
     startCommand: gunicorn --worker-class eventlet -w 1 app:app
