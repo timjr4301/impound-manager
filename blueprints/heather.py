@@ -12,6 +12,7 @@ from flask_login import login_required, current_user
 from models import db, Vehicle, CertifiedLetter, EnvelopeScan, VehicleNote
 from sqlalchemy import or_
 from models import PPI_LETTER1_DAYS, PPI_LETTER2_DAYS, POLICE_LETTER1_DAYS
+from permissions import require_permission
 
 bp = Blueprint('heather', __name__, url_prefix='/heather')
 
@@ -193,12 +194,9 @@ def mark_no_record(vehicle_id):
 
 
 @bp.route('/resolve-urgent/<int:vehicle_id>', methods=['POST'])
-@login_required
+@require_permission('all_access')
 def resolve_urgent(vehicle_id):
-    """Tim-only: clear the No Record Found URGENT flag."""
-    if current_user.role not in ('tim', 'jim'):
-        flash('Only Tim can resolve No Record Found flags.', 'danger')
-        return redirect(url_for('heather.dashboard'))
+    """Admin-only: clear the No Record Found URGENT flag."""
     vehicle = db.get_or_404(Vehicle, vehicle_id)
     vehicle.task_no_record_resolved = True
     vehicle.task_no_record_resolved_by = current_user.display_name or 'Tim'

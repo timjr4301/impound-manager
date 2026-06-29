@@ -1,9 +1,10 @@
 """
-Admin blueprint — user management (Tim only).
+Admin blueprint — user management (Tim/Jim only).
 """
 from flask import Blueprint, render_template, request, redirect, url_for, flash, jsonify
 from flask_login import login_required, current_user
 from models import db, User
+from permissions import has_permission
 
 bp = Blueprint('admin', __name__, url_prefix='/admin')
 
@@ -12,7 +13,7 @@ def _admin_required(f):
     from functools import wraps
     @wraps(f)
     def decorated(*args, **kwargs):
-        if not current_user.is_authenticated or current_user.role not in ('tim', 'jim'):
+        if not has_permission(current_user, 'all_access'):
             flash('Admin access required.', 'danger')
             return redirect(url_for('dashboard'))
         return f(*args, **kwargs)

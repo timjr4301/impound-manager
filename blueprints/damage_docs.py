@@ -12,6 +12,7 @@ from flask import (Blueprint, render_template, request, redirect, url_for,
                    flash, jsonify, send_file, current_app)
 from flask_login import login_required, current_user
 from models import db, Vehicle, DamageReport, DamagePhoto, DamageDot
+from permissions import require_permission
 
 bp = Blueprint('damage_docs', __name__, url_prefix='/damage')
 
@@ -442,12 +443,9 @@ def damage_pdf(report_id):
 
 
 @bp.route('/reports')
-@login_required
+@require_permission('all_access')
 def damage_reports_list():
-    """List all damage reports (Tim only)."""
-    if current_user.role not in ('tim', 'jim'):
-        flash('Access restricted.', 'danger')
-        return redirect(url_for('dashboard'))
+    """List all damage reports (admin only)."""
 
     reports = (DamageReport.query
                .order_by(DamageReport.created_at.desc())
