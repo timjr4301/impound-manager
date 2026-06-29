@@ -135,7 +135,7 @@ def _do_import():
             release_date = _parse_date(_get(row, norm_map, 'Release Date'))
 
             year_raw = _get(row, norm_map, 'Year')
-            year = int(year_raw) if year_raw.isdigit() else None
+            year = year_raw or None  # stored as VARCHAR(10) now
 
             have_keys_raw = _get(row, norm_map, 'Have Keys').lower()
             have_keys = have_keys_raw in ('yes', 'true', '1', 'y')

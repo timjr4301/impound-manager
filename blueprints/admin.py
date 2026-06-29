@@ -96,6 +96,28 @@ def users_delete(user_id):
     return redirect(url_for('admin.users'))
 
 
+@bp.route('/run-migrations', methods=['GET'])
+@_admin_required
+def run_migrations():
+    """One-time column resize migration. Remove this route after running."""
+    from sqlalchemy import text
+    results = []
+    migrations = [
+        "ALTER TABLE vehicles ALTER COLUMN plate_state TYPE VARCHAR(20)",
+        "ALTER TABLE vehicles ALTER COLUMN year TYPE VARCHAR(10)",
+        "ALTER TABLE vehicles ALTER COLUMN model TYPE VARCHAR(100)",
+    ]
+    try:
+        with db.engine.connect() as conn:
+            for sql in migrations:
+                conn.execute(text(sql))
+                results.append({'sql': sql, 'status': 'ok'})
+            conn.commit()
+        return jsonify({'ok': True, 'migrations': results})
+    except Exception as exc:
+        return jsonify({'ok': False, 'error': str(exc), 'completed': results}), 500
+
+
 @bp.route('/users/list-json')
 @_admin_required
 def users_list_json():
