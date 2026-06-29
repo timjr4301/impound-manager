@@ -86,27 +86,35 @@ def _do_import():
     except UnicodeDecodeError:
         content = raw.decode('latin-1')
 
-    lines = content.splitlines()
+    lines = [l for l in content.splitlines() if l.strip()]  # drop blank lines
     if not lines:
         return jsonify({'error': 'Uploaded file is empty.'}), 400
 
-    # Auto-detect Towbook report format (title row + date row before column headers)
-    # vs a plain CSV that starts directly with column headers.
-    # Towbook exports: row 0 = report title, row 1 = report date, row 2 = column headers.
-    # Plain CSV: row 0 = column headers.
-    _TOWBOOK_COLS = {'stock', 'vin', 'make', 'model', 'year', 'plate', 'impound', 'account'}
-    first_row_fields = {_norm(f) for f in lines[0].split(',')}
-    if first_row_fields & _TOWBOOK_COLS:
-        skip = 0  # already a column-header row
-    elif len(lines) >= 3:
-        skip = 2  # Towbook report format: skip title + date rows
-    else:
-        return jsonify({'error': 'File too short or unrecognized format.'}), 400
+    # Towbook exports always have exactly 2 metadata rows before column headers:
+    #   Row 0: "Report - Impounds"
+    #   Row 1: export timestamp (e.g. "Exported: 06/29/2026 10:34 AM")
+    #   Row 2: column headers
+    #   Row 3+: data
+    # We skip rows 0 and 1 unconditionally.
+    if len(lines) < 3:
+        return jsonify({
+            'error': f'File has only {len(lines)} non-empty row(s). '
+                     'Expected a Towbook impound CSV with 2 metadata rows then column headers.',
+            'first_row': lines[0] if lines else '',
+        }), 400
 
-    csv_body = '\n'.join(lines[skip:])
+    csv_body = '\n'.join(lines[2:])
     reader = csv.DictReader(io.StringIO(csv_body))
     headers = reader.fieldnames or []
     norm_map = {_norm(h): h for h in headers}
+
+    # Confirm we got a recognisable Towbook header row, not another metadata row
+    if _norm('Stock #') not in norm_map and _norm('Stock') not in norm_map:
+        return jsonify({
+            'error': "Could not find a 'Stock #' column — is this a Towbook Impounds CSV? "
+                     "Check that the file was exported from Towbook's Impounds report.",
+            'detected_headers': headers[:15],
+        }), 400
 
     inserted = updated = skipped = 0
     errors = []
@@ -114,7 +122,7 @@ def _do_import():
     for row_idx, row in enumerate(reader):
         stock = None
         try:
-            stock = _get(row, norm_map, 'Stock #', 'Stock')
+            stock = _get(row, norm_map, 'Stock #', 'Stock #', 'Stock')
             if not stock:
                 skipped += 1
                 continue
@@ -122,6 +130,8 @@ def _do_import():
             tasks = _parse_tasks(_get(row, norm_map, 'Tasks'))
 
             impound_date = _parse_date(_get(row, norm_map, 'Impound Date'))
+            # Release Date exists in CSV but Vehicle has no release_date column;
+            # use it only to flip status to RELEASED on existing records.
             release_date = _parse_date(_get(row, norm_map, 'Release Date'))
 
             year_raw = _get(row, norm_map, 'Year')
@@ -130,24 +140,32 @@ def _do_import():
             have_keys_raw = _get(row, norm_map, 'Have Keys').lower()
             have_keys = have_keys_raw in ('yes', 'true', '1', 'y')
 
+            # Daily Storage Total from Towbook = accumulated charge (rate × days).
+            # Store in balance_due only when no explicit Balance Due value is present.
+            balance_due = (
+                _money(_get(row, norm_map, 'Balance Due'))
+                or _money(_get(row, norm_map, 'Total'))
+                or _money(_get(row, norm_map, 'Daily Storage Total'))
+            )
+
             fields = {
-                'stock_number':   stock,
-                'call_number':    _get(row, norm_map, 'Call #', 'Call') or None,
-                'invoice_number': _get(row, norm_map, 'Invoice #', 'Invoice') or None,
-                'account':        _get(row, norm_map, 'Account') or None,
-                'color':          _get(row, norm_map, 'Color') or None,
-                'make':           _get(row, norm_map, 'Make') or None,
-                'model':          _get(row, norm_map, 'Model') or None,
-                'year':           year,
-                'plate':          _get(row, norm_map, 'Plate') or None,
-                'plate_state':    _get(row, norm_map, 'Plate State') or None,
-                'vin':            _get(row, norm_map, 'VIN') or None,
-                'impound_reason': _get(row, norm_map, 'Impound Reason') or None,
-                'impound_date':   impound_date,
+                'stock_number':     stock,
+                'call_number':      _get(row, norm_map, 'Call #', 'Call') or None,
+                'invoice_number':   _get(row, norm_map, 'Invoice #', 'Invoice') or None,
+                'account':          _get(row, norm_map, 'Account') or None,
+                'color':            _get(row, norm_map, 'Color') or None,
+                'make':             _get(row, norm_map, 'Make') or None,
+                'model':            _get(row, norm_map, 'Model') or None,
+                'year':             year,
+                'plate':            _get(row, norm_map, 'Plate') or None,
+                'plate_state':      _get(row, norm_map, 'Plate State') or None,
+                'vin':              _get(row, norm_map, 'VIN') or None,
+                'impound_reason':   _get(row, norm_map, 'Impound Reason') or None,
+                'impound_date':     impound_date,
                 'storage_location': _get(row, norm_map, 'Storage Lot') or None,
-                'have_keys':      have_keys,
-                'balance_due':    _money(_get(row, norm_map, 'Balance Due')),
-                'last_synced':    datetime.utcnow(),
+                'have_keys':        have_keys,
+                'balance_due':      balance_due,
+                'last_synced':      datetime.utcnow(),
                 **tasks,
             }
 
@@ -156,6 +174,9 @@ def _do_import():
                 for k, v in fields.items():
                     if v is not None:
                         setattr(existing, k, v)
+                # If Towbook shows a release date, mark the vehicle released
+                if release_date and existing.status == 'ACTIVE':
+                    existing.status = 'RELEASED'
                 existing.updated_at = datetime.utcnow()
                 updated += 1
             else:
@@ -165,7 +186,7 @@ def _do_import():
                 v = Vehicle(
                     **fields,
                     impound_type='PPI',
-                    status='ACTIVE',
+                    status='RELEASED' if release_date else 'ACTIVE',
                     created_at=datetime.utcnow(),
                     updated_at=datetime.utcnow(),
                 )
@@ -173,7 +194,7 @@ def _do_import():
                 inserted += 1
 
         except Exception as exc:
-            errors.append({'row': row_idx + skip + 1, 'stock': stock or '?', 'error': str(exc)})
+            errors.append({'row': row_idx + 3, 'stock': stock or '?', 'error': str(exc)})
 
     try:
         db.session.commit()
