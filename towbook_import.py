@@ -6,7 +6,7 @@ GET  /api/import-towbook/status last import result
 import csv, io, re
 from datetime import datetime, date
 from flask import Blueprint, request, jsonify
-from flask_login import current_user
+from flask_login import login_required, current_user
 from models import db, Vehicle, SyncLog
 
 bp = Blueprint('towbook_import', __name__, url_prefix='/api/import-towbook')
@@ -66,7 +66,16 @@ _last_import: dict = {}
 
 
 @bp.route('', methods=['POST'])
+@login_required
 def import_csv():
+    try:
+        return _do_import()
+    except Exception as exc:
+        db.session.rollback()
+        return jsonify({'error': f'Unexpected server error: {exc}'}), 500
+
+
+def _do_import():
     uploaded = request.files.get('file') or request.files.get('csv_file')
     if not uploaded:
         return jsonify({'error': 'No file. Use field name "file" or "csv_file".'}), 400
@@ -78,19 +87,32 @@ def import_csv():
         content = raw.decode('latin-1')
 
     lines = content.splitlines()
-    if len(lines) < 3:
-        return jsonify({'error': 'File too short — need at least 3 rows (title, date, header).'}), 400
+    if not lines:
+        return jsonify({'error': 'Uploaded file is empty.'}), 400
 
-    # Skip row 0 (report title) and row 1 (report date); row 2 is the header
-    csv_body = '\n'.join(lines[2:])
+    # Auto-detect Towbook report format (title row + date row before column headers)
+    # vs a plain CSV that starts directly with column headers.
+    # Towbook exports: row 0 = report title, row 1 = report date, row 2 = column headers.
+    # Plain CSV: row 0 = column headers.
+    _TOWBOOK_COLS = {'stock', 'vin', 'make', 'model', 'year', 'plate', 'impound', 'account'}
+    first_row_fields = {_norm(f) for f in lines[0].split(',')}
+    if first_row_fields & _TOWBOOK_COLS:
+        skip = 0  # already a column-header row
+    elif len(lines) >= 3:
+        skip = 2  # Towbook report format: skip title + date rows
+    else:
+        return jsonify({'error': 'File too short or unrecognized format.'}), 400
+
+    csv_body = '\n'.join(lines[skip:])
     reader = csv.DictReader(io.StringIO(csv_body))
     headers = reader.fieldnames or []
-    norm_map = {_norm(h): h for h in headers}   # normalized → original header
+    norm_map = {_norm(h): h for h in headers}
 
     inserted = updated = skipped = 0
     errors = []
 
     for row_idx, row in enumerate(reader):
+        stock = None
         try:
             stock = _get(row, norm_map, 'Stock #', 'Stock')
             if not stock:
@@ -151,9 +173,13 @@ def import_csv():
                 inserted += 1
 
         except Exception as exc:
-            errors.append({'row': row_idx + 3, 'stock': stock if 'stock' in dir() else '?', 'error': str(exc)})
+            errors.append({'row': row_idx + skip + 1, 'stock': stock or '?', 'error': str(exc)})
 
-    db.session.commit()
+    try:
+        db.session.commit()
+    except Exception as exc:
+        db.session.rollback()
+        return jsonify({'error': f'Database error while saving: {exc}'}), 500
 
     # Recalculate task pipeline for all active vehicles after every sync
     try:
