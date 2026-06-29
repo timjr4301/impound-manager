@@ -196,7 +196,7 @@ def mark_no_record(vehicle_id):
 @login_required
 def resolve_urgent(vehicle_id):
     """Tim-only: clear the No Record Found URGENT flag."""
-    if current_user.role not in ('tim',):
+    if current_user.role not in ('tim', 'jim'):
         flash('Only Tim can resolve No Record Found flags.', 'danger')
         return redirect(url_for('heather.dashboard'))
     vehicle = db.get_or_404(Vehicle, vehicle_id)

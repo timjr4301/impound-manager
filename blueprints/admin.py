@@ -12,7 +12,7 @@ def _admin_required(f):
     from functools import wraps
     @wraps(f)
     def decorated(*args, **kwargs):
-        if not current_user.is_authenticated or current_user.role != 'tim':
+        if not current_user.is_authenticated or current_user.role not in ('tim', 'jim'):
             flash('Admin access required.', 'danger')
             return redirect(url_for('dashboard'))
         return f(*args, **kwargs)

@@ -12,7 +12,7 @@ from models import db, Vehicle, PaymentTransaction
 bp = Blueprint('invoice_camera', __name__, url_prefix='/invoice-camera')
 
 # Roles allowed to use this feature
-_ALLOWED_ROLES = {'tim', 'lawrence', 'lori'}
+_ALLOWED_ROLES = {'tim', 'lawrence', 'lori', 'brady', 'jim'}
 
 
 def _allowed(f):

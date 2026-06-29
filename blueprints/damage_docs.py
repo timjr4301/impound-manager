@@ -445,7 +445,7 @@ def damage_pdf(report_id):
 @login_required
 def damage_reports_list():
     """List all damage reports (Tim only)."""
-    if current_user.role != 'tim':
+    if current_user.role not in ('tim', 'jim'):
         flash('Access restricted.', 'danger')
         return redirect(url_for('dashboard'))
 

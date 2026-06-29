@@ -14,7 +14,7 @@ PPI_TITLE_FROM_LETTER2 = 30 # Must be 30 days since Letter 2
 POLICE_LETTER1_DAYS = 10    # Notification required within 10 days (ORC 4513.61)
 POLICE_TITLE_FROM_LETTER1 = 30
 
-ROLES = ['tim', 'heather', 'tina', 'dispatcher']
+ROLES = ['tim', 'heather', 'tina', 'dispatcher', 'lawrence', 'brady', 'jim']
 
 
 class User(UserMixin, db.Model):
@@ -39,48 +39,51 @@ class User(UserMixin, db.Model):
 
     @property
     def can_see_all(self):
-        return self.role == 'tim'
+        return self.role in ('tim', 'jim')
 
     @property
     def is_heather(self):
-        """Tim and Heather can perform Heather-role actions."""
-        return self.role in ('heather', 'tim')
+        """Tim, Jim, Lawrence, Brady, and Heather can perform Heather-role actions."""
+        return self.role in ('heather', 'tim', 'jim', 'lawrence', 'brady')
 
     @property
     def is_tina(self):
-        """Tim and Tina can perform Tina-role actions."""
-        return self.role in ('tina', 'tim')
+        """Tim, Jim, Lawrence, Brady, and Tina can perform Tina-role actions."""
+        return self.role in ('tina', 'tim', 'jim', 'lawrence', 'brady')
 
     @property
     def is_dispatcher(self):
-        return self.role in ('dispatcher', 'tim')
+        return self.role in ('dispatcher', 'tim', 'jim', 'lawrence', 'brady')
 
     @property
     def can_edit_vehicles(self):
-        """Tim and Tina can create/edit/release vehicle records."""
-        return self.role in ('tim', 'tina')
+        return self.role in ('tim', 'tina', 'jim', 'lawrence', 'brady')
 
     @property
     def can_see_heather_dashboard(self):
-        """Tim, Heather, and Tina can view Heather's dashboard."""
-        return self.role in ('tim', 'heather', 'tina')
+        return self.role in ('tim', 'heather', 'tina', 'jim', 'lawrence', 'brady')
 
     @property
     def can_see_tina_dashboard(self):
-        return self.role in ('tim', 'tina')
+        return self.role in ('tim', 'tina', 'jim', 'lawrence', 'brady')
 
     @property
     def can_see_drivers(self):
-        """Only Tim has access to driver pay, payroll, timecards, HR."""
-        return self.role == 'tim'
+        """Only Tim and Jim (owner) have access to driver pay, payroll, timecards, HR."""
+        return self.role in ('tim', 'jim')
 
     @property
     def can_see_dispatch(self):
-        return self.role in ('tim', 'dispatcher')
+        return self.role in ('tim', 'dispatcher', 'jim', 'lawrence', 'brady')
 
     @property
     def can_collect_payments(self):
-        return self.role in ('tim', 'tina', 'dispatcher')
+        return self.role in ('tim', 'tina', 'dispatcher', 'jim', 'lawrence', 'brady')
+
+    @property
+    def is_owner(self):
+        """Jim is the owner — override actions should be visually flagged (purple)."""
+        return self.role == 'jim'
 
 
 class Vehicle(db.Model):

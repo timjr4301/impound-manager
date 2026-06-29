@@ -160,8 +160,10 @@ def seed_default_users(app):
             ('heather',    'bjt-heather-2024!',    'heather',    'Heather'),
             ('tina',       'bjt-tina-2024!',       'tina',       'Tina'),
             ('dispatcher', 'bjt-dispatch-2024!',   'dispatcher', 'Dispatch'),
-            ('lawrence',   'bjt-lawrence-2024!',   'lawrence',   'Lawrence'),
+            ('lawrence',   'BJ2026!',              'lawrence',   'Lawrence'),
             ('lori',       'bjt-lori-2024!',       'lori',       'Lori'),
+            ('brady',      'BJ2026!',              'brady',      'Brady'),
+            ('jim',        'BJ2026!',              'jim',        'Jim'),
         ]
         for username, password, role, display in staff_defaults:
             if not User.query.filter_by(username=username).first():
