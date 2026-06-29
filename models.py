@@ -189,6 +189,10 @@ class Vehicle(db.Model):
     created_at = db.Column(db.DateTime)
     updated_at = db.Column(db.DateTime)
 
+    # Release / Tina pipeline sync
+    possible_release = db.Column(db.Boolean, default=False)   # flagged missing from latest CSV
+    base44_id = db.Column(db.String(100))                     # ID after push to Base44 Tina Tracker
+
     letters = db.relationship(
         'CertifiedLetter', back_populates='vehicle',
         order_by='CertifiedLetter.letter_number',

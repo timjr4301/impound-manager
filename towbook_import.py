@@ -118,6 +118,7 @@ def _do_import():
 
     inserted = updated = skipped = 0
     errors = []
+    csv_stock_numbers = []   # collect every stock # seen in this CSV
 
     for row_idx, row in enumerate(reader):
         stock = None
@@ -126,6 +127,7 @@ def _do_import():
             if not stock:
                 skipped += 1
                 continue
+            csv_stock_numbers.append(stock)
 
             tasks = _parse_tasks(_get(row, norm_map, 'Tasks'))
 
@@ -202,6 +204,16 @@ def _do_import():
         db.session.rollback()
         return jsonify({'error': f'Database error while saving: {exc}'}), 500
 
+    # Flag active vehicles absent from this CSV as possible releases
+    possible_release_count = 0
+    try:
+        from tina_sync import check_possible_releases, flag_vehicle_possible_release
+        for v in check_possible_releases(csv_stock_numbers):
+            flag_vehicle_possible_release(v.id)
+            possible_release_count += 1
+    except Exception as exc:
+        current_app.logger.warning(f'possible-release check failed: {exc}')
+
     # Recalculate task pipeline for all active vehicles after every sync
     try:
         from task_engine import recalculate_all
@@ -241,6 +253,7 @@ def _do_import():
         'inserted': inserted,
         'updated': updated,
         'skipped': skipped,
+        'possible_releases_flagged': possible_release_count,
         'errors': errors,
         'urgency': urgency_counts,
         'imported_at': datetime.utcnow().isoformat(),
