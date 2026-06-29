@@ -106,3 +106,29 @@ def users_list_json():
         'display_name': u.display_name or u.username,
         'role': u.role,
     } for u in users])
+
+
+@bp.route('/run-migrations', methods=['GET'])
+@_admin_required
+def run_migrations():
+    """One-time column resize migration. Remove this route after running."""
+    from sqlalchemy import text
+    results = []
+    migrations = [
+        "ALTER TABLE vehicles ALTER COLUMN plate TYPE VARCHAR(100)",
+        "ALTER TABLE vehicles ALTER COLUMN make TYPE VARCHAR(100)",
+        "ALTER TABLE vehicles ALTER COLUMN model_name TYPE VARCHAR(100)",
+        "ALTER TABLE vehicles ALTER COLUMN color TYPE VARCHAR(50)",
+        "ALTER TABLE vehicles ALTER COLUMN impound_reason TYPE VARCHAR(500)",
+        "ALTER TABLE vehicles ALTER COLUMN account TYPE VARCHAR(200)",
+        "ALTER TABLE vehicles ALTER COLUMN storage_location TYPE VARCHAR(200)",
+    ]
+    try:
+        with db.engine.connect() as conn:
+            for sql in migrations:
+                conn.execute(text(sql))
+                results.append({'sql': sql, 'status': 'ok'})
+            conn.commit()
+        return jsonify({'ok': True, 'migrations': results})
+    except Exception as exc:
+        return jsonify({'ok': False, 'error': str(exc), 'completed': results}), 500
