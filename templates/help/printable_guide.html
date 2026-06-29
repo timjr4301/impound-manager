@@ -1,0 +1,65 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>{{ data.title }} — Broad & James Towing</title>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.css" rel="stylesheet">
+  <style>
+    body { background: #fff; font-size: 13px; }
+    .accent { color: {{ data.color }}; }
+    .section-heading { color: {{ data.color }}; border-bottom: 2px solid {{ data.color }}; padding-bottom: 4px; }
+    @media print {
+      .no-print { display: none !important; }
+      body { font-size: 12px; }
+      .card { break-inside: avoid; }
+    }
+  </style>
+</head>
+<body class="p-4" style="max-width:780px;margin:0 auto;">
+
+  <div class="d-flex justify-content-between align-items-start mb-4">
+    <div>
+      <h3 class="fw-bold mb-0 accent"><i class="bi bi-truck me-2"></i>Broad & James Towing</h3>
+      <h4 class="mt-1 mb-0 fw-semibold">{{ data.title }}</h4>
+      <small class="text-muted">Impound Manager — Quick Start Guide</small>
+    </div>
+    <div class="text-end no-print">
+      <button onclick="window.print()" class="btn btn-sm btn-outline-secondary">
+        <i class="bi bi-printer me-1"></i> Print / Save PDF
+      </button>
+      <a href="javascript:history.back()" class="btn btn-sm btn-outline-secondary ms-1">Back</a>
+    </div>
+  </div>
+
+  <div class="alert alert-light border small no-print">
+    <strong>Tip:</strong> Use your browser's Print function (Ctrl+P or Cmd+P) to save this as a PDF
+    or print a physical copy. Set margins to "Minimal" for best results.
+  </div>
+
+  <div class="row g-3">
+  {% for section in data.sections %}
+  <div class="col-12">
+    <div class="card border-0 shadow-sm">
+      <div class="card-body">
+        <h6 class="section-heading fw-bold mb-3">{{ section.heading }}</h6>
+        <ol class="mb-0 ps-3">
+          {% for item in section.items %}
+          <li class="mb-2">{{ item }}</li>
+          {% endfor %}
+        </ol>
+      </div>
+    </div>
+  </div>
+  {% endfor %}
+  </div>
+
+  <div class="mt-4 text-muted small text-center">
+    <strong>Broad &amp; James Towing</strong> &bull; Impound Manager &bull;
+    Log in at: <strong>impound-manager.onrender.com</strong>
+    &bull; Default password: <strong>BandJ2024!</strong>
+    &bull; Contact Tim for help.
+  </div>
+
+</body>
+</html>

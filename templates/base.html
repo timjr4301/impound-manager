@@ -57,6 +57,9 @@
 
       {# ── TIM: full nav ── #}
       {% if current_user.can_see_all %}
+        <a href="{{ url_for('hub') }}" class="nav-link text-white px-2">
+          <i class="bi bi-grid-3x3-gap"></i> Hub
+        </a>
         <a href="{{ url_for('dashboard') }}" class="nav-link text-white px-2">
           <i class="bi bi-speedometer2"></i> Overview
         </a>
@@ -72,8 +75,8 @@
         <a href="{{ url_for('drivers.dashboard') }}" class="nav-link text-white px-2">
           <i class="bi bi-people"></i> Drivers
         </a>
-        <a href="{{ url_for('pipeline') }}" class="nav-link text-white px-2">
-          <i class="bi bi-calendar3"></i> Letters
+        <a href="{{ url_for('heather.letters') }}" class="nav-link text-white px-2">
+          <i class="bi bi-envelope"></i> Letters
         </a>
         <a href="{{ url_for('vehicles_list') }}" class="nav-link text-white px-2">
           <i class="bi bi-list-ul"></i> Vehicles
@@ -106,10 +109,13 @@
           <i class="bi bi-plus-lg"></i> New
         </a>
 
-      {# ── HEATHER: own dashboard + vehicles + notices ── #}
+      {# ── HEATHER: own dashboard + letters + vehicles + notices ── #}
       {% elif current_user.role == 'heather' %}
         <a href="{{ url_for('heather.dashboard') }}" class="nav-link text-white px-2">
           <i class="bi bi-house-door"></i> My Dashboard
+        </a>
+        <a href="{{ url_for('heather.letters') }}" class="nav-link text-white px-2">
+          <i class="bi bi-envelope"></i> Letters
         </a>
         <a href="{{ url_for('vehicles_list') }}" class="nav-link text-white px-2">
           <i class="bi bi-list-ul"></i> Vehicles
@@ -118,8 +124,11 @@
           <i class="bi bi-truck"></i> Notices
         </a>
 
-      {# ── LAWRENCE / LORI: invoice + vehicles ── #}
+      {# ── LAWRENCE / LORI: hub + invoice + vehicles ── #}
       {% elif current_user.role in ('lawrence', 'lori') %}
+        <a href="{{ url_for('hub') }}" class="nav-link text-white px-2">
+          <i class="bi bi-grid-3x3-gap"></i> Hub
+        </a>
         <a href="{{ url_for('vehicles_list') }}" class="nav-link text-white px-2">
           <i class="bi bi-list-ul"></i> Vehicles
         </a>
@@ -156,8 +165,13 @@
         </a>
       {% endif %}
 
+      {# ── Help button ── #}
+      <button class="btn btn-outline-light btn-sm" id="helpBtn" onclick="openHelp()" title="Help">
+        <i class="bi bi-question-circle"></i>
+      </button>
+
       {# ── User menu (everyone) ── #}
-      <div class="dropdown ms-2">
+      <div class="dropdown ms-1">
         <button class="btn btn-outline-light btn-sm dropdown-toggle" type="button" data-bs-toggle="dropdown">
           <i class="bi bi-person-circle me-1"></i>{{ current_user.display_name or current_user.username }}
         </button>
@@ -273,5 +287,36 @@
     navigator.serviceWorker.register('/static/sw.js').catch(() => {});
   }
   </script>
+
+  {# ── Help Modal ── #}
+  {% if current_user.is_authenticated %}
+  <div class="modal fade" id="helpModal" tabindex="-1">
+    <div class="modal-dialog modal-lg">
+      <div class="modal-content">
+        <div class="modal-header bg-dark text-white py-2">
+          <h5 class="modal-title small fw-bold"><i class="bi bi-question-circle me-2"></i>Help</h5>
+          <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+        </div>
+        <div class="modal-body" id="helpModalBody">
+          <div class="text-center py-4"><div class="spinner-border text-primary" role="status"></div></div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <script>
+  async function openHelp() {
+    const modal = new bootstrap.Modal(document.getElementById('helpModal'));
+    modal.show();
+    const page = window.location.pathname;
+    try {
+      const resp = await fetch(`/help/content?page=${encodeURIComponent(page)}`);
+      document.getElementById('helpModalBody').innerHTML = await resp.text();
+    } catch (e) {
+      document.getElementById('helpModalBody').innerHTML =
+        '<p class="text-danger small">Could not load help content. Try refreshing.</p>';
+    }
+  }
+  </script>
+  {% endif %}
 </body>
 </html>

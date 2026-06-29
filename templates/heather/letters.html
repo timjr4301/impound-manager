@@ -1,0 +1,528 @@
+{% extends 'base.html' %}
+{% block title %}Letters — Impound Manager{% endblock %}
+
+{% block content %}
+<div class="d-flex align-items-center mb-3 gap-3 flex-wrap">
+  <div>
+    <h2 class="h4 mb-0 fw-bold"><i class="bi bi-envelope me-2"></i>Letters &amp; Envelope Scanner</h2>
+    <small class="text-muted">{{ today.strftime('%A, %B ') + today.day|string + ', ' + today.year|string }}</small>
+  </div>
+  <div class="ms-auto d-flex gap-2 flex-wrap">
+    {% if can_act %}
+    <button class="btn btn-primary btn-sm" data-bs-toggle="modal" data-bs-target="#scanModal">
+      <i class="bi bi-camera-fill me-1"></i> Scan Envelope
+    </button>
+    <a href="{{ url_for('print_post_office') }}" class="btn btn-outline-secondary btn-sm" target="_blank">
+      <i class="bi bi-printer me-1"></i> Post Office List
+    </a>
+    {% endif %}
+    <a href="{{ url_for('heather.dashboard') }}" class="btn btn-outline-secondary btn-sm">
+      <i class="bi bi-arrow-left me-1"></i> Back
+    </a>
+  </div>
+</div>
+
+{# ── Summary badges ── #}
+<div class="row g-2 mb-4">
+  <div class="col-6 col-md-3">
+    <div class="card border-0 shadow-sm text-center py-3 {% if pending|selectattr('is_overdue')|list %}bg-danger text-white{% else %}bg-light{% endif %}">
+      <div class="h2 fw-bold mb-0">{{ pending|length }}</div>
+      <div class="small fw-semibold">NEED TO SEND</div>
+    </div>
+  </div>
+  <div class="col-6 col-md-3">
+    <div class="card border-0 shadow-sm text-center py-3 bg-warning">
+      <div class="h2 fw-bold mb-0">{{ awaiting|length }}</div>
+      <div class="small fw-semibold">AWAITING DELIVERY</div>
+    </div>
+  </div>
+  <div class="col-6 col-md-3">
+    <div class="card border-0 shadow-sm text-center py-3 {% if returned %}bg-danger text-white{% else %}bg-light{% endif %}">
+      <div class="h2 fw-bold mb-0">{{ returned|length }}</div>
+      <div class="small fw-semibold">RETURNED / RTS</div>
+    </div>
+  </div>
+  <div class="col-6 col-md-3">
+    <div class="card border-0 shadow-sm text-center py-3 bg-success text-white">
+      <div class="h2 fw-bold mb-0">{{ confirmed|length }}</div>
+      <div class="small fw-semibold">CONFIRMED (30d)</div>
+    </div>
+  </div>
+</div>
+
+{# ── Tab navigation ── #}
+<ul class="nav nav-tabs mb-3" id="lettersTab">
+  <li class="nav-item">
+    <button class="nav-link active" data-bs-toggle="tab" data-bs-target="#tab-pending">
+      Need to Send <span class="badge bg-secondary ms-1">{{ pending|length }}</span>
+    </button>
+  </li>
+  <li class="nav-item">
+    <button class="nav-link" data-bs-toggle="tab" data-bs-target="#tab-awaiting">
+      Awaiting Delivery <span class="badge bg-warning text-dark ms-1">{{ awaiting|length }}</span>
+    </button>
+  </li>
+  <li class="nav-item">
+    <button class="nav-link {% if returned %}text-danger fw-semibold{% endif %}" data-bs-toggle="tab" data-bs-target="#tab-returned">
+      Returned / RTS {% if returned %}<span class="badge bg-danger ms-1">{{ returned|length }}</span>{% endif %}
+    </button>
+  </li>
+  <li class="nav-item">
+    <button class="nav-link" data-bs-toggle="tab" data-bs-target="#tab-confirmed">
+      Confirmed (30d)
+    </button>
+  </li>
+  <li class="nav-item">
+    <button class="nav-link" data-bs-toggle="tab" data-bs-target="#tab-scans">
+      Scan History
+    </button>
+  </li>
+</ul>
+
+<div class="tab-content">
+
+  {# ── PENDING TAB ── #}
+  <div class="tab-pane fade show active" id="tab-pending">
+    {% if pending %}
+    <div class="card shadow-sm">
+      <div class="card-body p-0">
+        <table class="table table-sm table-hover mb-0">
+          <thead><tr>
+            <th>Vehicle</th><th>Owner</th><th>Letter</th><th>Due Date</th><th>Days Until</th><th>Impound Type</th>
+            {% if can_act %}<th></th>{% endif %}
+          </tr></thead>
+          <tbody>
+          {% for l in pending %}
+          <tr class="{% if l.is_overdue %}table-danger{% elif l.days_until_due <= 2 %}table-warning{% endif %}">
+            <td>
+              <a href="{{ url_for('vehicles_detail', vehicle_id=l.vehicle.id) }}" class="row-link fw-semibold">
+                {{ l.vehicle.display_name }}
+              </a>
+            </td>
+            <td class="small text-muted">{{ l.vehicle.owner_name or '—' }}</td>
+            <td><span class="badge bg-secondary">{{ l.label }}</span></td>
+            <td class="small">{{ l.due_date|mdY }}</td>
+            <td>
+              {% if l.is_overdue %}
+                <span class="badge bg-danger">{{ l.days_overdue }}d OVERDUE</span>
+              {% elif l.days_until_due == 0 %}
+                <span class="badge bg-warning text-dark">TODAY</span>
+              {% else %}
+                <span class="text-muted small">{{ l.days_until_due }}d</span>
+              {% endif %}
+            </td>
+            <td><span class="badge bg-outline-secondary border text-muted">{{ l.vehicle.impound_type }}</span></td>
+            {% if can_act %}
+            <td class="text-end">
+              <div class="d-flex gap-1 justify-content-end">
+                <a href="{{ url_for('heather.letter_template', letter_id=l.id) }}"
+                   class="btn btn-sm btn-outline-primary py-0" target="_blank">Print</a>
+                <a href="{{ url_for('letters_mark_sent', letter_id=l.id) }}"
+                   class="btn btn-sm btn-outline-success py-0">Mark Sent</a>
+              </div>
+            </td>
+            {% endif %}
+          </tr>
+          {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+    {% else %}
+    <div class="alert alert-success"><i class="bi bi-check-circle me-2"></i>All letters have been sent. Nothing pending.</div>
+    {% endif %}
+  </div>
+
+  {# ── AWAITING DELIVERY TAB ── #}
+  <div class="tab-pane fade" id="tab-awaiting">
+    {% if awaiting %}
+    <div class="card shadow-sm">
+      <div class="card-body p-0">
+        <table class="table table-sm table-hover mb-0">
+          <thead><tr>
+            <th>Vehicle</th><th>Letter</th><th>Sent</th><th>Tracking #</th><th>Days Since Sent</th>
+            {% if can_act %}<th></th>{% endif %}
+          </tr></thead>
+          <tbody>
+          {% for l in awaiting %}
+          <tr>
+            <td>
+              <a href="{{ url_for('vehicles_detail', vehicle_id=l.vehicle.id) }}" class="row-link fw-semibold">
+                {{ l.vehicle.display_name }}
+              </a>
+              <div class="small text-muted">{{ l.vehicle.owner_name or '—' }}</div>
+            </td>
+            <td><span class="badge bg-secondary">{{ l.label }}</span></td>
+            <td class="small">{{ l.sent_date|mdY }}</td>
+            <td class="font-monospace small">{{ l.tracking_number or '—' }}</td>
+            <td class="small text-muted">
+              {% if l.sent_date %}{{ (today - l.sent_date).days }}d ago{% endif %}
+              {% if l.sent_date and (today - l.sent_date).days > 10 %}
+                <span class="badge bg-warning text-dark ms-1">Check tracking</span>
+              {% endif %}
+            </td>
+            {% if can_act %}
+            <td class="text-end">
+              <div class="d-flex gap-1 justify-content-end">
+                {% if l.id %}
+                <button class="btn btn-sm btn-outline-primary py-0"
+                        onclick="openScanForLetter({{ l.id }}, '{{ l.vehicle.display_name }}', '{{ l.label }}')">
+                  <i class="bi bi-camera"></i> Scan
+                </button>
+                {% endif %}
+                <form method="POST" action="{{ url_for('letters_confirm_delivery', letter_id=l.id) }}" class="d-inline">
+                  <input type="hidden" name="delivery_date" value="{{ today.isoformat() }}">
+                  <button type="submit" class="btn btn-sm btn-outline-success py-0">Confirm Delivered</button>
+                </form>
+                <button class="btn btn-sm btn-outline-danger py-0"
+                        data-bs-toggle="modal" data-bs-target="#rtsModal{{ l.id }}">RTS</button>
+              </div>
+            </td>
+            {% endif %}
+          </tr>
+
+          {# RTS modal #}
+          {% if can_act %}
+          <div class="modal fade" id="rtsModal{{ l.id }}" tabindex="-1">
+            <div class="modal-dialog modal-sm">
+              <div class="modal-content">
+                <div class="modal-header bg-danger text-white py-2">
+                  <h6 class="modal-title">Return to Sender — {{ l.vehicle.display_name }}</h6>
+                  <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+                </div>
+                <form method="POST" action="{{ url_for('heather.mark_return_to_sender', letter_id=l.id) }}">
+                  <div class="modal-body">
+                    <div class="mb-2">
+                      <label class="form-label small fw-semibold">Reason / notes</label>
+                      <input type="text" name="notes" class="form-control form-control-sm"
+                             placeholder="Address unknown, moved, etc.">
+                    </div>
+                  </div>
+                  <div class="modal-footer py-2">
+                    <button type="button" class="btn btn-sm btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                    <button type="submit" class="btn btn-sm btn-danger">Mark RTS</button>
+                  </div>
+                </form>
+              </div>
+            </div>
+          </div>
+          {% endif %}
+          {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+    {% else %}
+    <div class="alert alert-success"><i class="bi bi-check-circle me-2"></i>No letters awaiting delivery confirmation.</div>
+    {% endif %}
+  </div>
+
+  {# ── RETURNED / RTS TAB ── #}
+  <div class="tab-pane fade" id="tab-returned">
+    {% if returned %}
+    <div class="alert alert-danger d-flex gap-2 align-items-center mb-3">
+      <i class="bi bi-exclamation-triangle-fill fs-5"></i>
+      <div><strong>Action required:</strong> These letters came back. Verify the address and resend.</div>
+    </div>
+    <div class="card shadow-sm border-danger">
+      <div class="card-body p-0">
+        <table class="table table-sm table-hover mb-0">
+          <thead><tr>
+            <th>Vehicle</th><th>Owner</th><th>Letter</th><th>Sent</th><th>Tracking</th><th>Notes</th>
+            {% if can_act %}<th></th>{% endif %}
+          </tr></thead>
+          <tbody>
+          {% for l in returned %}
+          <tr class="table-danger">
+            <td>
+              <a href="{{ url_for('vehicles_detail', vehicle_id=l.vehicle.id) }}" class="row-link fw-semibold text-danger">
+                {{ l.vehicle.display_name }}
+              </a>
+            </td>
+            <td class="small">{{ l.vehicle.owner_name or '—' }}</td>
+            <td><span class="badge bg-danger">{{ l.label }}</span></td>
+            <td class="small">{{ l.sent_date|mdY if l.sent_date else '—' }}</td>
+            <td class="font-monospace small">{{ l.tracking_number or '—' }}</td>
+            <td class="small text-muted">{{ l.notes or '—' }}</td>
+            {% if can_act %}
+            <td>
+              <a href="{{ url_for('vehicles_detail', vehicle_id=l.vehicle.id) }}"
+                 class="btn btn-sm btn-outline-danger py-0">Fix Address</a>
+            </td>
+            {% endif %}
+          </tr>
+          {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+    {% else %}
+    <div class="alert alert-success"><i class="bi bi-check-circle me-2"></i>No returned letters. Good work!</div>
+    {% endif %}
+  </div>
+
+  {# ── CONFIRMED TAB ── #}
+  <div class="tab-pane fade" id="tab-confirmed">
+    {% if confirmed %}
+    <div class="card shadow-sm">
+      <div class="card-body p-0">
+        <table class="table table-sm table-hover mb-0">
+          <thead><tr>
+            <th>Vehicle</th><th>Letter</th><th>Sent</th><th>Confirmed Delivered</th><th>Tracking</th>
+          </tr></thead>
+          <tbody>
+          {% for l in confirmed %}
+          <tr>
+            <td>
+              <a href="{{ url_for('vehicles_detail', vehicle_id=l.vehicle.id) }}" class="row-link fw-semibold">
+                {{ l.vehicle.display_name }}
+              </a>
+            </td>
+            <td><span class="badge bg-success">{{ l.label }}</span></td>
+            <td class="small text-muted">{{ l.sent_date|mdY if l.sent_date else '—' }}</td>
+            <td class="small fw-semibold text-success">{{ l.delivery_confirmed_date|mdY }}</td>
+            <td class="font-monospace small">{{ l.tracking_number or '—' }}</td>
+          </tr>
+          {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+    {% else %}
+    <div class="text-muted small mt-3">No confirmed deliveries in the last 30 days.</div>
+    {% endif %}
+  </div>
+
+  {# ── SCAN HISTORY TAB ── #}
+  <div class="tab-pane fade" id="tab-scans">
+    {% if recent_scans %}
+    <div class="card shadow-sm">
+      <div class="card-body p-0">
+        <table class="table table-sm table-hover mb-0">
+          <thead><tr>
+            <th>Vehicle</th><th>Tracking</th><th>Scanned</th><th>Result</th><th>Notes</th>
+          </tr></thead>
+          <tbody>
+          {% for s in recent_scans %}
+          <tr>
+            <td>
+              {% if s.vehicle %}
+              <a href="{{ url_for('vehicles_detail', vehicle_id=s.vehicle.id) }}" class="row-link small fw-semibold">
+                {{ s.vehicle.display_name }}
+              </a>
+              {% else %}—{% endif %}
+            </td>
+            <td class="font-monospace small">{{ s.tracking_number or '—' }}</td>
+            <td class="small text-muted">{{ s.scan_date.strftime('%m/%d %I:%M %p') if s.scan_date else '—' }}</td>
+            <td>
+              {% if s.is_return_to_sender %}
+                <span class="badge bg-danger">Return to Sender</span>
+              {% elif s.is_delivered %}
+                <span class="badge bg-success">Delivered</span>
+              {% else %}
+                <span class="badge bg-secondary">Unknown</span>
+              {% endif %}
+            </td>
+            <td class="small text-muted">{{ s.scan_notes or '—' }}</td>
+          </tr>
+          {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+    {% else %}
+    <div class="text-muted small mt-3">No envelope scans recorded yet.</div>
+    {% endif %}
+  </div>
+
+</div>{# end tab-content #}
+
+
+{# ── Camera Scan Modal ── #}
+<div class="modal fade" id="scanModal" tabindex="-1">
+  <div class="modal-dialog modal-lg">
+    <div class="modal-content">
+      <div class="modal-header bg-dark text-white">
+        <h5 class="modal-title"><i class="bi bi-camera-fill me-2"></i>Scan Envelope</h5>
+        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"
+                onclick="stopCamera()"></button>
+      </div>
+      <div class="modal-body">
+
+        <div class="mb-3">
+          <label class="form-label fw-semibold small">Letter (optional — auto-updates if selected)</label>
+          <select id="scanLetterId" class="form-select form-select-sm">
+            <option value="">— Not linked to a specific letter —</option>
+            {% for l in awaiting %}
+            <option value="{{ l.id }}">{{ l.vehicle.display_name }} — {{ l.label }} (sent {{ l.sent_date|mdY }})</option>
+            {% endfor %}
+          </select>
+        </div>
+
+        {# Camera feed #}
+        <div class="text-center mb-3">
+          <video id="camFeed" class="rounded border w-100" style="max-height:320px;display:none;"
+                 autoplay playsinline></video>
+          <canvas id="camCanvas" style="display:none;"></canvas>
+          <img id="previewImg" class="rounded border w-100" style="max-height:320px;display:none;"/>
+        </div>
+
+        <div class="d-flex gap-2 justify-content-center flex-wrap mb-3">
+          <button id="btnStart" class="btn btn-dark btn-sm" onclick="startCamera()">
+            <i class="bi bi-camera-video me-1"></i> Start Camera
+          </button>
+          <button id="btnCapture" class="btn btn-primary btn-sm" style="display:none;"
+                  onclick="captureFrame()">
+            <i class="bi bi-camera me-1"></i> Capture
+          </button>
+          <label class="btn btn-outline-secondary btn-sm mb-0">
+            <i class="bi bi-upload me-1"></i> Upload Image
+            <input type="file" accept="image/*" style="display:none;" onchange="handleUpload(event)">
+          </label>
+        </div>
+
+        <div id="scanResult" style="display:none;" class="mt-3">
+          <div class="card border-0 bg-light">
+            <div class="card-body py-2 px-3">
+              <div id="scanResultBody"></div>
+            </div>
+          </div>
+        </div>
+
+        <div id="scanSpinner" style="display:none;" class="text-center mt-3">
+          <div class="spinner-border text-primary" role="status"></div>
+          <div class="small text-muted mt-2">Claude is reading the envelope…</div>
+        </div>
+
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal"
+                onclick="stopCamera()">Close</button>
+        <button id="btnScanSubmit" class="btn btn-primary btn-sm" style="display:none;"
+                onclick="submitScan()">
+          <i class="bi bi-check-lg me-1"></i> Confirm &amp; Save
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+
+{% endblock %}
+
+{% block scripts %}
+<script>
+let stream = null;
+let capturedB64 = null;
+let pendingScanResult = null;
+
+function openScanForLetter(id, vehicle, label) {
+  document.getElementById('scanLetterId').value = id;
+  new bootstrap.Modal(document.getElementById('scanModal')).show();
+  setTimeout(startCamera, 300);
+}
+
+async function startCamera() {
+  try {
+    stream = await navigator.mediaDevices.getUserMedia({
+      video: { facingMode: 'environment', width: { ideal: 1920 }, height: { ideal: 1080 } }
+    });
+    const vid = document.getElementById('camFeed');
+    vid.srcObject = stream;
+    vid.style.display = '';
+    document.getElementById('btnStart').style.display = 'none';
+    document.getElementById('btnCapture').style.display = '';
+  } catch (e) {
+    alert('Camera access denied or not available: ' + e.message);
+  }
+}
+
+function stopCamera() {
+  if (stream) { stream.getTracks().forEach(t => t.stop()); stream = null; }
+}
+
+function captureFrame() {
+  const vid = document.getElementById('camFeed');
+  const canvas = document.getElementById('camCanvas');
+  canvas.width = vid.videoWidth;
+  canvas.height = vid.videoHeight;
+  canvas.getContext('2d').drawImage(vid, 0, 0);
+  capturedB64 = canvas.toDataURL('image/jpeg', 0.92);
+  document.getElementById('previewImg').src = capturedB64;
+  document.getElementById('previewImg').style.display = '';
+  vid.style.display = 'none';
+  stopCamera();
+  document.getElementById('btnCapture').style.display = 'none';
+  document.getElementById('btnStart').style.display = '';
+  runScan(capturedB64);
+}
+
+function handleUpload(e) {
+  const file = e.target.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = ev => {
+    capturedB64 = ev.target.result;
+    document.getElementById('previewImg').src = capturedB64;
+    document.getElementById('previewImg').style.display = '';
+    runScan(capturedB64);
+  };
+  reader.readAsDataURL(file);
+}
+
+async function runScan(b64) {
+  document.getElementById('scanSpinner').style.display = '';
+  document.getElementById('scanResult').style.display = 'none';
+  document.getElementById('btnScanSubmit').style.display = 'none';
+
+  const letterId = document.getElementById('scanLetterId').value;
+  try {
+    const resp = await fetch('/heather/letters/scan', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({ image: b64, letter_id: letterId ? parseInt(letterId) : null }),
+    });
+    const data = await resp.json();
+    document.getElementById('scanSpinner').style.display = 'none';
+
+    if (!resp.ok || data.error) {
+      document.getElementById('scanResultBody').innerHTML =
+        `<span class="text-danger"><i class="bi bi-x-circle me-1"></i>${data.error || 'Scan failed'}</span>`;
+      document.getElementById('scanResult').style.display = '';
+      return;
+    }
+
+    pendingScanResult = data;
+    const r = data.result;
+    const outcomeClass = r.outcome === 'DELIVERED' ? 'success' : r.outcome === 'RETURNED' || r.outcome === 'UNDELIVERABLE' ? 'danger' : 'warning';
+    let html = `<div class="d-flex align-items-center gap-2 mb-2">
+      <span class="badge bg-${outcomeClass} fs-6">${r.outcome || 'UNKNOWN'}</span>
+      ${r.tracking_number ? `<span class="font-monospace small">${r.tracking_number}</span>` : ''}
+    </div>`;
+    if (r.delivery_date) html += `<div class="small"><strong>Delivery date:</strong> ${r.delivery_date}</div>`;
+    if (r.return_reason) html += `<div class="small text-danger"><strong>Return reason:</strong> ${r.return_reason}</div>`;
+    if (r.notes) html += `<div class="small text-muted">${r.notes}</div>`;
+
+    if (data.updated_letter) {
+      html += `<div class="mt-2 alert alert-${outcomeClass} py-1 px-2 small mb-0">
+        <i class="bi bi-check-circle me-1"></i>
+        <strong>${data.updated_letter.label}</strong> for ${data.updated_letter.vehicle} — updated automatically.
+      </div>`;
+    }
+
+    document.getElementById('scanResultBody').innerHTML = html;
+    document.getElementById('scanResult').style.display = '';
+    document.getElementById('btnScanSubmit').style.display = data.updated_letter ? 'none' : '';
+  } catch (err) {
+    document.getElementById('scanSpinner').style.display = 'none';
+    document.getElementById('scanResultBody').innerHTML =
+      `<span class="text-danger">Network error: ${err.message}</span>`;
+    document.getElementById('scanResult').style.display = '';
+  }
+}
+
+function submitScan() {
+  document.getElementById('btnScanSubmit').disabled = true;
+  location.reload();
+}
+</script>
+{% endblock %}

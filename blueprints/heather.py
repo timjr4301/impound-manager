@@ -574,6 +574,198 @@ def send_notice(vehicle_id):
         return redirect(url_for('heather.notices', vehicle_id=vehicle.id))
 
 
+@bp.route('/letters')
+@_heather_view
+def letters():
+    """Letters management tab — sent/pending/RTS status for all active vehicles."""
+    today = date.today()
+
+    # All unsent letters (pending)
+    pending = (
+        CertifiedLetter.query
+        .join(Vehicle)
+        .filter(Vehicle.status == 'ACTIVE')
+        .filter(CertifiedLetter.sent_date.is_(None))
+        .order_by(CertifiedLetter.due_date.asc())
+        .all()
+    )
+
+    # Sent letters awaiting delivery confirmation
+    awaiting = (
+        CertifiedLetter.query
+        .join(Vehicle)
+        .filter(Vehicle.status == 'ACTIVE')
+        .filter(CertifiedLetter.sent_date.isnot(None))
+        .filter(CertifiedLetter.delivery_confirmed_date.is_(None))
+        .order_by(CertifiedLetter.sent_date.asc())
+        .all()
+    )
+
+    # Return-to-sender letters
+    returned = (
+        CertifiedLetter.query
+        .join(Vehicle)
+        .filter(CertifiedLetter.return_to_sender == True)
+        .filter(Vehicle.status == 'ACTIVE')
+        .order_by(CertifiedLetter.sent_date.desc())
+        .all()
+    )
+
+    # Fully confirmed deliveries (last 30 days)
+    confirmed = (
+        CertifiedLetter.query
+        .join(Vehicle)
+        .filter(CertifiedLetter.delivery_confirmed_date.isnot(None))
+        .filter(CertifiedLetter.delivery_confirmed_date >= today - timedelta(days=30))
+        .order_by(CertifiedLetter.delivery_confirmed_date.desc())
+        .limit(50)
+        .all()
+    )
+
+    # Recent envelope scans
+    from models import EnvelopeScan
+    recent_scans = (
+        EnvelopeScan.query
+        .order_by(EnvelopeScan.scan_date.desc())
+        .limit(30)
+        .all()
+    )
+
+    return render_template('heather/letters.html',
+        today=today,
+        pending=pending,
+        awaiting=awaiting,
+        returned=returned,
+        confirmed=confirmed,
+        recent_scans=recent_scans,
+        can_act=current_user.is_heather,
+    )
+
+
+@bp.route('/letters/scan', methods=['POST'])
+@_heather_required
+def letters_scan():
+    """AJAX: Claude vision reads a scanned envelope and updates the matching letter."""
+    data = request.get_json() or {}
+    image_b64 = data.get('image', '')
+    letter_id = data.get('letter_id')
+
+    if not image_b64:
+        return jsonify({'error': 'No image provided'}), 400
+
+    api_key = os.environ.get('ANTHROPIC_API_KEY')
+    if not api_key:
+        return jsonify({'error': 'ANTHROPIC_API_KEY not configured'}), 500
+
+    if ',' in image_b64:
+        image_b64 = image_b64.split(',', 1)[1]
+
+    try:
+        import anthropic as _anthropic
+        client = _anthropic.Anthropic(api_key=api_key)
+        msg = client.messages.create(
+            model='claude-sonnet-4-6',
+            max_tokens=512,
+            messages=[{
+                'role': 'user',
+                'content': [
+                    {
+                        'type': 'image',
+                        'source': {'type': 'base64', 'media_type': 'image/jpeg', 'data': image_b64},
+                    },
+                    {
+                        'type': 'text',
+                        'text': (
+                            'This is a USPS certified mail envelope or return card for an impound lot. '
+                            'Respond ONLY with valid JSON — no extra text:\n'
+                            '{\n'
+                            '  "tracking_number": "full 20-22 digit USPS tracking number, null if not visible",\n'
+                            '  "outcome": "DELIVERED | RETURNED | UNDELIVERABLE | UNKNOWN",\n'
+                            '  "delivery_date": "YYYY-MM-DD if stamped, null if not",\n'
+                            '  "return_reason": "reason envelope was returned, null if delivered",\n'
+                            '  "notes": "any other relevant stamps or markings"\n'
+                            '}'
+                        ),
+                    },
+                ],
+            }],
+        )
+        raw = msg.content[0].text.strip()
+        import json, re
+        try:
+            result = json.loads(raw)
+        except json.JSONDecodeError:
+            m = re.search(r'\{.*\}', raw, re.DOTALL)
+            result = json.loads(m.group()) if m else {}
+
+        # Update the letter if an ID was provided
+        updated_letter = None
+        if letter_id:
+            letter = CertifiedLetter.query.get(int(letter_id))
+            if letter:
+                outcome = result.get('outcome', 'UNKNOWN')
+                if outcome == 'DELIVERED':
+                    if not letter.delivery_confirmed_date:
+                        raw_d = result.get('delivery_date')
+                        try:
+                            letter.delivery_confirmed_date = (
+                                date.fromisoformat(raw_d) if raw_d else date.today()
+                            )
+                        except ValueError:
+                            letter.delivery_confirmed_date = date.today()
+                elif outcome in ('RETURNED', 'UNDELIVERABLE'):
+                    letter.return_to_sender = True
+                    if not letter.notes:
+                        letter.notes = result.get('return_reason') or outcome
+                    # Add urgent note to vehicle
+                    db.session.add(VehicleNote(
+                        vehicle_id=letter.vehicle_id,
+                        body=(
+                            f'ALERT: {letter.label} returned / undeliverable. '
+                            f'{result.get("return_reason") or ""} — '
+                            'Heather must verify address and resend.'
+                        ),
+                        author='Envelope Scanner',
+                        created_at=datetime.utcnow(),
+                    ))
+                    # Update letter urgency
+                    letter.vehicle.letter_urgency = 'RED'
+
+                db.session.commit()
+                updated_letter = {
+                    'id': letter.id,
+                    'label': letter.label,
+                    'vehicle': letter.vehicle.display_name,
+                    'outcome': outcome,
+                }
+
+        return jsonify({'ok': True, 'result': result, 'updated_letter': updated_letter})
+
+    except Exception as exc:
+        return jsonify({'error': str(exc)}), 500
+
+
+@bp.route('/letters/<int:letter_id>/mark-rts', methods=['POST'])
+@_heather_required
+def mark_return_to_sender(letter_id):
+    """Mark a letter as returned to sender."""
+    letter = db.get_or_404(CertifiedLetter, letter_id)
+    letter.return_to_sender = True
+    notes = request.form.get('notes', '').strip()
+    if notes:
+        letter.notes = notes
+    letter.vehicle.letter_urgency = 'RED'
+    db.session.add(VehicleNote(
+        vehicle_id=letter.vehicle_id,
+        body=f'Letter #{letter.letter_number} returned to sender. {notes}',
+        author=current_user.display_name or 'Heather',
+        created_at=datetime.utcnow(),
+    ))
+    db.session.commit()
+    flash(f'{letter.vehicle.display_name} — {letter.label} marked Return to Sender. Address must be fixed.', 'danger')
+    return redirect(url_for('heather.letters'))
+
+
 @bp.route('/envelope-scan/camera', methods=['POST'])
 @_heather_required
 def envelope_scan_camera():

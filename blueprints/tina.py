@@ -6,7 +6,7 @@ from datetime import date, datetime
 from flask import (Blueprint, render_template, request, redirect,
                    url_for, flash, current_app, send_file)
 from flask_login import login_required, current_user
-from models import db, Vehicle, TitleFiling, Invoice, VehicleNote
+from models import db, Vehicle, TitleFiling, Invoice, VehicleNote, DamageReport
 
 bp = Blueprint('tina', __name__, url_prefix='/tina')
 
@@ -77,6 +77,15 @@ def dashboard():
         .all()
     )
 
+    # Damage reports submitted by drivers — unreviewed (last 60 days)
+    damage_reports = (
+        DamageReport.query
+        .filter(DamageReport.is_locked == False)
+        .order_by(DamageReport.created_at.desc())
+        .limit(50)
+        .all()
+    )
+
     return render_template('tina/dashboard.html',
         today=today,
         queued=queued,
@@ -85,6 +94,7 @@ def dashboard():
         disposition_needed=disposition_needed,
         court_upcoming=court_upcoming,
         recent_invoices=recent_invoices,
+        damage_reports=damage_reports,
     )
 
 
@@ -106,6 +116,17 @@ def set_stage(vehicle_id):
             ))
         db.session.commit()
         flash(f'{vehicle.display_name} moved to {stage}.', 'success')
+    return redirect(url_for('tina.dashboard'))
+
+
+@bp.route('/damage-report/<int:report_id>/lock', methods=['POST'])
+@_tina_required
+def lock_damage_report(report_id):
+    """Mark a damage report as reviewed (locks it out of the unreviewed list)."""
+    report = db.get_or_404(DamageReport, report_id)
+    report.is_locked = True
+    db.session.commit()
+    flash('Damage report marked as reviewed.', 'success')
     return redirect(url_for('tina.dashboard'))
 
 

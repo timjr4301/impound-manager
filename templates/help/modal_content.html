@@ -1,0 +1,21 @@
+<div style="color:{{ data.color }}" class="mb-3">
+  <h5 class="fw-bold mb-0"><i class="bi bi-question-circle-fill me-2"></i>{{ data.title }}</h5>
+</div>
+
+{% for section in data.sections %}
+<div class="mb-3">
+  <h6 class="fw-bold border-bottom pb-1 mb-2" style="color:{{ data.color }}">{{ section.heading }}</h6>
+  <ul class="mb-0 ps-3">
+    {% for item in section.items %}
+    <li class="small mb-1">{{ item }}</li>
+    {% endfor %}
+  </ul>
+</div>
+{% endfor %}
+
+<div class="mt-3 pt-2 border-top d-flex gap-2">
+  <a href="{{ url_for('help.printable_guide', role=role) }}" target="_blank"
+     class="btn btn-sm btn-outline-secondary">
+    <i class="bi bi-printer me-1"></i> Print Quick-Start Guide
+  </a>
+</div>

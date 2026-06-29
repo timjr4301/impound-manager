@@ -346,6 +346,7 @@ def create_app():
     from blueprints.payments import bp as payments_bp
     from blueprints.admin import bp as admin_bp
     from blueprints.damage_docs import bp as damage_bp
+    from blueprints.help import bp as help_bp
     from towbook_import import bp as towbook_bp
 
     app.register_blueprint(auth_bp)
@@ -356,6 +357,7 @@ def create_app():
     app.register_blueprint(payments_bp)
     app.register_blueprint(admin_bp)
     app.register_blueprint(damage_bp)
+    app.register_blueprint(help_bp)
     app.register_blueprint(towbook_bp)
 
     # Chat + Invoice Camera registered only when their files exist
@@ -1186,6 +1188,13 @@ def create_app():
             already_confirmed=already_confirmed,
             not_delivered=not_delivered,
         )
+
+    # ── Hub (unified navigation for Jim, Lawrence, Tim's dad) ─────────────────
+
+    @app.route('/hub')
+    @login_required
+    def hub():
+        return render_template('hub.html', today=date.today())
 
     return app
 

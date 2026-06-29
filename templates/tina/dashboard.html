@@ -356,4 +356,79 @@
 </div>
 {% endif %}
 
+{# ── Damage Reports from Drivers ── #}
+{% if damage_reports %}
+<div class="card shadow-sm mb-4 border-warning">
+  <div class="card-header bg-warning fw-semibold">
+    <i class="bi bi-camera-fill me-2"></i>Driver Damage Reports ({{ damage_reports|length }})
+    <small class="fw-normal ms-2">Submitted by drivers — needs your review</small>
+  </div>
+  <div class="card-body p-0">
+    <table class="table table-sm table-hover mb-0">
+      <thead><tr>
+        <th>Vehicle / Call #</th><th>Driver</th><th>Type</th><th>Submitted</th>
+        <th>AI Severity</th><th>Dispute</th><th></th>
+      </tr></thead>
+      <tbody>
+      {% for r in damage_reports %}
+      <tr class="{% if r.is_dispute %}table-danger{% endif %}">
+        <td>
+          {% if r.vehicle %}
+          <a href="{{ url_for('vehicles_detail', vehicle_id=r.vehicle.id) }}" class="row-link fw-semibold">
+            {{ r.vehicle.display_name }}
+          </a>
+          {% else %}
+          <span class="text-muted font-monospace small">{{ r.call_number or '—' }}</span>
+          {% endif %}
+        </td>
+        <td class="small">{{ r.driver_name or '—' }}</td>
+        <td>
+          <span class="badge {% if r.damage_type == 'pre_existing' %}bg-secondary{% else %}bg-danger{% endif %}">
+            {{ r.damage_type.replace('_', ' ').title() if r.damage_type else '—' }}
+          </span>
+        </td>
+        <td class="small text-muted">{{ r.created_at.strftime('%m/%d %I:%M %p') if r.created_at else '—' }}</td>
+        <td>
+          {% if r.ai_severity %}
+          <span class="badge
+            {% if r.ai_severity == 'MINOR' %}bg-success
+            {% elif r.ai_severity == 'MODERATE' %}bg-warning text-dark
+            {% elif r.ai_severity == 'SEVERE' %}bg-danger
+            {% elif r.ai_severity == 'TOTAL_LOSS' %}bg-dark
+            {% else %}bg-secondary{% endif %}">
+            {{ r.ai_severity }}
+          </span>
+          {% if r.ai_repair_cost_low %}
+          <small class="text-muted ms-1">${{ '{:,.0f}'.format(r.ai_repair_cost_low) }}–${{ '{:,.0f}'.format(r.ai_repair_cost_high or 0) }}</small>
+          {% endif %}
+          {% else %}
+          <span class="text-muted small">Pending</span>
+          {% endif %}
+        </td>
+        <td>
+          {% if r.is_dispute %}
+          <span class="badge bg-danger">DISPUTE</span>
+          {% else %}—{% endif %}
+        </td>
+        <td class="text-end">
+          <a href="{{ url_for('damage_docs.damage_view', report_id=r.id) }}"
+             class="btn btn-sm btn-outline-primary py-0">View</a>
+          <form method="POST" action="{{ url_for('tina.lock_damage_report', report_id=r.id) }}" class="d-inline">
+            <button type="submit" class="btn btn-sm btn-outline-success py-0" title="Mark reviewed">
+              <i class="bi bi-check-lg"></i> Done
+            </button>
+          </form>
+        </td>
+      </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% else %}
+<div class="alert alert-light border small text-muted mb-4">
+  <i class="bi bi-check-circle me-1"></i>No unreviewed driver damage reports.
+</div>
+{% endif %}
+
 {% endblock %}

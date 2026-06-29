@@ -776,6 +776,54 @@
     </div>
     {% endif %}
 
+    {# ── Damage Reports from Drivers ── #}
+    {% if vehicle.damage_reports %}
+    <div class="card shadow-sm mb-3">
+      <div class="card-header fw-semibold bg-warning">
+        <i class="bi bi-camera-fill me-1"></i> Driver Damage Reports
+        <span class="badge bg-dark ms-1">{{ vehicle.damage_reports|length }}</span>
+      </div>
+      <div class="card-body p-0">
+        {% for r in vehicle.damage_reports %}
+        <div class="d-flex align-items-start gap-3 border-bottom px-3 py-2">
+          <div class="flex-grow-1">
+            <div class="d-flex gap-2 align-items-center mb-1">
+              <span class="badge {% if r.damage_type == 'pre_existing' %}bg-secondary{% else %}bg-danger{% endif %}">
+                {{ r.damage_type.replace('_', ' ').title() if r.damage_type else '?' }}
+              </span>
+              {% if r.ai_severity %}
+              <span class="badge
+                {% if r.ai_severity == 'MINOR' %}bg-success
+                {% elif r.ai_severity == 'MODERATE' %}bg-warning text-dark
+                {% elif r.ai_severity == 'SEVERE' %}bg-danger
+                {% elif r.ai_severity == 'TOTAL_LOSS' %}bg-dark{% else %}bg-secondary{% endif %}">
+                {{ r.ai_severity }}
+              </span>
+              {% endif %}
+              {% if r.is_dispute %}<span class="badge bg-danger">DISPUTE</span>{% endif %}
+              {% if r.is_locked %}<span class="badge bg-secondary">Reviewed</span>{% endif %}
+              <span class="text-muted small ms-auto">
+                {{ r.driver_name or 'Driver' }} &bull;
+                {{ r.created_at.strftime('%m/%d/%y %I:%M %p') if r.created_at else '—' }}
+              </span>
+            </div>
+            {% if r.description %}
+            <div class="small text-muted">{{ r.description[:200] }}</div>
+            {% endif %}
+            {% if r.ai_repair_cost_low %}
+            <div class="small text-muted">
+              Estimated repair: ${{ '{:,.0f}'.format(r.ai_repair_cost_low) }} – ${{ '{:,.0f}'.format(r.ai_repair_cost_high or 0) }}
+            </div>
+            {% endif %}
+          </div>
+          <a href="{{ url_for('damage_docs.damage_view', report_id=r.id) }}"
+             class="btn btn-sm btn-outline-primary py-0 flex-shrink-0">View</a>
+        </div>
+        {% endfor %}
+      </div>
+    </div>
+    {% endif %}
+
     {# ── Notes / Activity Log ── #}
     <div class="card shadow-sm">
       <div class="card-header fw-semibold">
