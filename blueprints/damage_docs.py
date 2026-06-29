@@ -31,7 +31,7 @@ def _generate_pdf(report: DamageReport) -> bytes:
         from reportlab.lib.enums import TA_CENTER, TA_LEFT, TA_RIGHT
     except ImportError:
         # reportlab not installed — return a minimal placeholder
-        return b'%PDF-1.4 placeholder — install reportlab'
+        return b'%PDF-1.4 placeholder - install reportlab'
 
     buf = io.BytesIO()
     doc = SimpleDocTemplate(
