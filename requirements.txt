@@ -13,6 +13,7 @@ APScheduler==3.10.4
 pytz==2024.1
 psycopg2-binary==2.9.10
 flask-socketio==5.3.6
-eventlet==0.36.1
+gevent==24.2.1
+gevent-websocket==0.10.1
 reportlab==4.2.2
 pywebpush==2.0.0

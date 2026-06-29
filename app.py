@@ -332,7 +332,7 @@ def create_app():
         return db.session.get(User, int(user_id))
 
     # ── SocketIO ────────────────────────────────────────────────────────────────
-    socketio.init_app(app, async_mode='eventlet', cors_allowed_origins='*',
+    socketio.init_app(app, async_mode='gevent', cors_allowed_origins='*',
                       logger=False, engineio_logger=False)
 
     # ── Blueprints ─────────────────────────────────────────────────────────────
