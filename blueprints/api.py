@@ -6,7 +6,13 @@ import os
 from datetime import date, datetime
 from functools import wraps
 from flask import Blueprint, request, jsonify
-from flask_cors import cross_origin
+try:
+    from flask_cors import cross_origin
+except ImportError:
+    def cross_origin(*args, **kwargs):
+        def decorator(f):
+            return f
+        return decorator
 from models import db, Vehicle, CertifiedLetter, TitleFiling, VehicleNote
 
 bp = Blueprint('api', __name__, url_prefix='/api/v1')
@@ -435,8 +441,8 @@ def _post_pipeline_alert(vehicle, old_stage, new_stage, stage_label):
         # Determine who to alert based on the new stage
         alert_roles = {
             'TITLE_COMPLETE': {'tina'},
-            'SERVICE_EVAL': {'tim', 'lawrence'},
-            'AUCTION_CAND': {'tim', 'lawrence'},
+            'SERVICE_EVAL': {'tim', 'lawrence', 'lori'},
+            'AUCTION_CAND': {'tim', 'lawrence', 'lori'},
             'KEY_INSPECT': {'tim', 'dispatcher'},
             'ROUTED_LIVE': {'tina', 'tim'},
             'ROUTED_ONLINE': {'tina', 'tim'},
@@ -451,7 +457,7 @@ def _post_pipeline_alert(vehicle, old_stage, new_stage, stage_label):
             thread = ChatThread(title='Wally Alerts', is_group=True)
             db.session.add(thread)
             db.session.flush()
-            for u in _User.query.filter(_User.role.in_({'tim', 'lawrence', 'tina'})).all():
+            for u in _User.query.filter(_User.role.in_({'tim', 'lawrence', 'lori', 'tina'})).all():
                 db.session.add(ChatThreadMember(thread_id=thread.id, user_id=u.id))
 
         alert_messages = {
