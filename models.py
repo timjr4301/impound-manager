@@ -149,6 +149,12 @@ class Vehicle(db.Model):
     heather_complete = db.Column(db.Boolean, default=False)
     heather_complete_date = db.Column(db.Date)
 
+    # File completeness checklist (Heather confirms before Tina handoff)
+    lka_document_confirmed   = db.Column(db.Boolean, default=False, nullable=False)
+    title_search_confirmed   = db.Column(db.Boolean, default=False, nullable=False)
+    ups_delivery_confirmed   = db.Column(db.Boolean, default=False, nullable=False)
+    return_receipt_filed     = db.Column(db.Boolean, default=False, nullable=False)
+
     # Disposition / Tina's workflow
     disposition = db.Column(db.String(10))  # SELL, JUNK, HOLD
     disposition_set_date = db.Column(db.Date)
@@ -368,6 +374,23 @@ class Vehicle(db.Model):
                     return 'yellow'
                 return 'green'
         return 'green'
+
+    @property
+    def file_complete_for_tina(self):
+        """
+        All four items must be physically present before handoff to Tina.
+        tracking_number lives on certified_letters — check at least one letter has one.
+        ups_delivery_confirmed and return_receipt_filed are separate requirements
+        (Heather: "RIGHT NOW THAT HAS TO BE 2 SEPARATE DOCS").
+        """
+        has_tracking = any(l.tracking_number for l in self.letters)
+        return (
+            self.lka_document_confirmed and
+            self.title_search_confirmed and
+            has_tracking and
+            self.ups_delivery_confirmed and
+            self.return_receipt_filed
+        )
 
     @property
     def total_owed(self):

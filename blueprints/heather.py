@@ -216,10 +216,44 @@ def resolve_urgent(vehicle_id):
     return redirect(request.referrer or url_for('dashboard'))
 
 
+@bp.route('/file-checklist/<int:vehicle_id>', methods=['POST'])
+@_heather_required
+def update_file_checklist(vehicle_id):
+    vehicle = db.get_or_404(Vehicle, vehicle_id)
+    vehicle.lka_document_confirmed = 'lka_document_confirmed' in request.form
+    vehicle.title_search_confirmed = 'title_search_confirmed' in request.form
+    vehicle.ups_delivery_confirmed = 'ups_delivery_confirmed' in request.form
+    vehicle.return_receipt_filed   = 'return_receipt_filed' in request.form
+    vehicle.updated_at = datetime.utcnow()
+    db.session.commit()
+    flash('File checklist updated.', 'success')
+    return redirect(request.referrer or url_for('heather.dashboard'))
+
+
 @bp.route('/bmv-complete/<int:vehicle_id>', methods=['POST'])
 @_heather_required
 def bmv_complete(vehicle_id):
     vehicle = db.get_or_404(Vehicle, vehicle_id)
+
+    if not vehicle.file_complete_for_tina:
+        missing = []
+        if not vehicle.lka_document_confirmed:
+            missing.append('LKA document (BMV 2433)')
+        if not vehicle.title_search_confirmed:
+            missing.append('Title search (BMV 1148)')
+        if not any(l.tracking_number for l in vehicle.letters):
+            missing.append('UPS tracking number')
+        if not vehicle.ups_delivery_confirmed:
+            missing.append('UPS delivery confirmation')
+        if not vehicle.return_receipt_filed:
+            missing.append('Return receipt filed')
+        flash(
+            f'Cannot hand off to Tina — file incomplete. Missing: '
+            f'{", ".join(missing)}',
+            'danger'
+        )
+        return redirect(request.referrer or url_for('heather.dashboard'))
+
     vehicle.bmv_stage = 'COMPLETE'
     vehicle.bmv_searched_date = date.today()
     vehicle.bmv_search_notes = request.form.get('notes', '').strip() or None

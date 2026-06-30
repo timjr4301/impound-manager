@@ -197,6 +197,63 @@
   </div>
 </div>
 
+{# ── File Checklist (Heather confirms before Tina handoff) ── #}
+{% if vehicle.status == 'ACTIVE' and not t1_done and vehicle.bmv_stage != 'NO_RECORD' %}
+<div class="card mb-3 border-{% if vehicle.file_complete_for_tina %}success{% else %}warning{% endif %}">
+  <div class="card-header py-2 fw-semibold small bg-{% if vehicle.file_complete_for_tina %}success bg-opacity-10 text-success{% else %}warning bg-opacity-10{% endif %}">
+    <i class="bi bi-{% if vehicle.file_complete_for_tina %}check-circle-fill{% else %}exclamation-triangle{% endif %} me-1"></i>
+    File Checklist — required before handing off to Tina
+  </div>
+  <div class="card-body py-2">
+    <form method="POST" action="{{ url_for('heather.update_file_checklist', vehicle_id=vehicle.id) }}">
+      <div class="row g-2 mb-2">
+        <div class="col-md-6">
+          <div class="form-check">
+            <input class="form-check-input" type="checkbox" name="lka_document_confirmed" id="lka_{{ vehicle.id }}"
+                   {% if vehicle.lka_document_confirmed %}checked{% endif %}>
+            <label class="form-check-label small" for="lka_{{ vehicle.id }}">
+              LKA document (BMV 2433) uploaded &amp; confirmed
+            </label>
+          </div>
+          <div class="form-check mt-1">
+            <input class="form-check-input" type="checkbox" name="title_search_confirmed" id="ts_{{ vehicle.id }}"
+                   {% if vehicle.title_search_confirmed %}checked{% endif %}>
+            <label class="form-check-label small" for="ts_{{ vehicle.id }}">
+              Title search (BMV 1148) uploaded &amp; confirmed
+            </label>
+          </div>
+        </div>
+        <div class="col-md-6">
+          <div class="form-check">
+            <input class="form-check-input" type="checkbox" name="ups_delivery_confirmed" id="upsd_{{ vehicle.id }}"
+                   {% if vehicle.ups_delivery_confirmed %}checked{% endif %}>
+            <label class="form-check-label small" for="upsd_{{ vehicle.id }}">
+              UPS delivery confirmation (proof of delivery)
+            </label>
+          </div>
+          <div class="form-check mt-1">
+            <input class="form-check-input" type="checkbox" name="return_receipt_filed" id="rrf_{{ vehicle.id }}"
+                   {% if vehicle.return_receipt_filed %}checked{% endif %}>
+            <label class="form-check-label small" for="rrf_{{ vehicle.id }}">
+              Return receipt — physical envelope filed in cabinet
+            </label>
+          </div>
+        </div>
+      </div>
+      {% if not vehicle.file_complete_for_tina %}
+      <div class="alert alert-warning py-1 small mb-2">
+        <strong>All four items required</strong> before "Mark BMV Complete" will be accepted.
+        {% if not any(l.tracking_number for l in vehicle.letters) %}
+        <br>UPS tracking number must also be attached to a certified letter for this vehicle.
+        {% endif %}
+      </div>
+      {% endif %}
+      <button type="submit" class="btn btn-outline-secondary btn-sm">Save Checklist</button>
+    </form>
+  </div>
+</div>
+{% endif %}
+
 {# Task 1 modals on vehicle detail page #}
 {% if vehicle.status == 'ACTIVE' and not t1_done and vehicle.bmv_stage != 'NO_RECORD' %}
 <div class="modal fade" id="bmvModal{{ vehicle.id }}" tabindex="-1">
