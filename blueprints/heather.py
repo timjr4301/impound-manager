@@ -545,7 +545,7 @@ def send_notice(vehicle_id):
                 alert_thread = ChatThread(title='Wally Alerts', is_group=True)
                 db.session.add(alert_thread)
                 db.session.flush()
-                for u in _User.query.filter(_User.role.in_(['tim', 'lawrence'])).all():
+                for u in _User.query.filter(_User.role.in_(['tim', 'lawrence', 'lori'])).all():
                     db.session.add(ChatThreadMember(thread_id=alert_thread.id, user_id=u.id))
             db.session.add(ChatMessage(
                 thread_id=alert_thread.id,

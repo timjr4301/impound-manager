@@ -164,6 +164,46 @@ _HELP = {
         ],
     },
 
+    'lori': {
+        'title': "Lori's Quick Reference",
+        'color': '#6f42c1',
+        'sections': [
+            {
+                'heading': 'Invoice Camera',
+                'items': [
+                    'Click "Invoice Cam" in the top nav.',
+                    'Click the big camera button and hold up an invoice or check.',
+                    'Claude reads it automatically — review the extracted info.',
+                    'Search for the vehicle by name, plate, or stock number.',
+                    'Confirm the payment — it logs against the vehicle record instantly.',
+                ],
+            },
+            {
+                'heading': 'Vehicle Lookup',
+                'items': [
+                    'Use the search bar (top of every page) to find any vehicle by plate, VIN, or owner name.',
+                    'The Vehicles list shows all active impounds — filter by status if needed.',
+                    'Every vehicle shows: days in storage, balance due, letters sent, current status.',
+                ],
+            },
+            {
+                'heading': 'Accepting Payments',
+                'items': [
+                    'From a vehicle\'s detail page, click "Collect Payment".',
+                    'Or use Invoice Camera for walk-in invoice payments.',
+                    'Cash, check, and card payments all log with timestamp and your name.',
+                ],
+            },
+            {
+                'heading': 'If You Have Questions',
+                'items': [
+                    'Text Tim or check with Heather for anything about a specific vehicle.',
+                    'The system logs every action — nothing is lost.',
+                ],
+            },
+        ],
+    },
+
     'jim': {
         'title': "Jim's Quick Reference",
         'color': '#842029',

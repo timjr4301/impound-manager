@@ -14,7 +14,7 @@ PPI_TITLE_FROM_LETTER2 = 30 # Must be 30 days since Letter 2
 POLICE_LETTER1_DAYS = 10    # Notification required within 10 days (ORC 4513.61)
 POLICE_TITLE_FROM_LETTER1 = 30
 
-ROLES = ['tim', 'heather', 'tina', 'dispatcher', 'lawrence', 'brady', 'jim']
+ROLES = ['tim', 'heather', 'tina', 'dispatcher', 'lawrence', 'lori', 'brady', 'jim']
 
 
 class User(UserMixin, db.Model):
@@ -43,29 +43,29 @@ class User(UserMixin, db.Model):
 
     @property
     def is_heather(self):
-        """Tim, Jim, Lawrence, Brady, and Heather can perform Heather-role actions."""
-        return self.role in ('heather', 'tim', 'jim', 'lawrence', 'brady')
+        """Tim, Jim, Lawrence, Lori, Brady, Heather, and Tina can perform Heather-role actions."""
+        return self.role in ('heather', 'tina', 'tim', 'jim', 'lawrence', 'lori', 'brady')
 
     @property
     def is_tina(self):
-        """Tim, Jim, Lawrence, Brady, and Tina can perform Tina-role actions."""
-        return self.role in ('tina', 'tim', 'jim', 'lawrence', 'brady')
+        """Tim, Jim, Lawrence, Lori, Brady, and Tina can perform Tina-role actions."""
+        return self.role in ('tina', 'tim', 'jim', 'lawrence', 'lori', 'brady')
 
     @property
     def is_dispatcher(self):
-        return self.role in ('dispatcher', 'tim', 'jim', 'lawrence', 'brady')
+        return self.role in ('dispatcher', 'tim', 'jim', 'lawrence', 'lori', 'brady')
 
     @property
     def can_edit_vehicles(self):
-        return self.role in ('tim', 'tina', 'jim', 'lawrence', 'brady')
+        return self.role in ('tim', 'tina', 'jim', 'lawrence', 'lori', 'brady')
 
     @property
     def can_see_heather_dashboard(self):
-        return self.role in ('tim', 'heather', 'tina', 'jim', 'lawrence', 'brady')
+        return self.role in ('tim', 'heather', 'tina', 'jim', 'lawrence', 'lori', 'brady')
 
     @property
     def can_see_tina_dashboard(self):
-        return self.role in ('tim', 'tina', 'jim', 'lawrence', 'brady')
+        return self.role in ('tim', 'tina', 'jim', 'lawrence', 'lori', 'brady')
 
     @property
     def can_see_drivers(self):
@@ -74,11 +74,11 @@ class User(UserMixin, db.Model):
 
     @property
     def can_see_dispatch(self):
-        return self.role in ('tim', 'dispatcher', 'jim', 'lawrence', 'brady')
+        return self.role in ('tim', 'dispatcher', 'jim', 'lawrence', 'lori', 'brady')
 
     @property
     def can_collect_payments(self):
-        return self.role in ('tim', 'tina', 'dispatcher', 'jim', 'lawrence', 'brady')
+        return self.role in ('tim', 'tina', 'dispatcher', 'jim', 'lawrence', 'lori', 'brady')
 
     @property
     def is_owner(self):
@@ -121,6 +121,13 @@ class Vehicle(db.Model):
     # Owner info
     owner_name = db.Column(db.String(100))
     owner_address = db.Column(db.Text)
+    owner_city = db.Column(db.String(100))
+    owner_state = db.Column(db.String(10))
+    owner_zip = db.Column(db.String(15))
+    po_box_flag = db.Column(db.Boolean, default=False)
+
+    # Title / BMV
+    title_number = db.Column(db.String(50))
 
     # Lienholder
     lienholder_name = db.Column(db.String(100))
@@ -183,6 +190,11 @@ class Vehicle(db.Model):
     current_task_num  = db.Column(db.Integer)       # 1, 2, 3, 4
     current_task_label = db.Column(db.String(100))
     current_task_due  = db.Column(db.Date)
+
+    # UPS letter tracking stage — set by ups_tracking_attach.py
+    letter_stage       = db.Column(db.String(50))   # needs_1st | in_transit | awaiting_2nd | returned_rts | address_issue | confirmed_both
+    letter_flag        = db.Column(db.String(50))   # returned_rts | address_issue | NULL
+    letter_flag_detail = db.Column(db.Text)
 
     status = db.Column(db.String(20), nullable=False, default='ACTIVE')
     notes = db.Column(db.Text)
@@ -384,9 +396,12 @@ class CertifiedLetter(db.Model):
     sent_date = db.Column(db.Date)
     tracking_number = db.Column(db.String(50))
     delivery_confirmed_date = db.Column(db.Date)
+    scheduled_delivery = db.Column(db.Date)
+    ups_status = db.Column(db.String(50))
     return_to_sender = db.Column(db.Boolean, default=False)
     notes = db.Column(db.Text)
     created_at = db.Column(db.DateTime)
+    updated_at = db.Column(db.DateTime)
 
     vehicle = db.relationship('Vehicle', back_populates='letters')
 
@@ -447,6 +462,21 @@ class VehicleNote(db.Model):
     created_at = db.Column(db.DateTime)
 
     vehicle = db.relationship('Vehicle', back_populates='note_entries')
+
+
+class BMVScanHistory(db.Model):
+    __tablename__ = 'bmv_scan_history'
+
+    id = db.Column(db.Integer, primary_key=True)
+    vehicle_id = db.Column(db.Integer, db.ForeignKey('vehicles.id'), nullable=False)
+    scan_type = db.Column(db.String(50))
+    lka_data = db.Column(db.Text)
+    title_data = db.Column(db.Text)
+    comparison_flags = db.Column(db.Text)
+    scanned_by = db.Column(db.String(100))
+    scanned_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+    vehicle = db.relationship('Vehicle', backref=db.backref('bmv_scans', lazy='dynamic'))
 
 
 class DamageItem(db.Model):

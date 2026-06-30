@@ -145,8 +145,8 @@ PIPELINE_STAGES = [
 
 PIPELINE_ALERT_TARGETS = {
     'TITLE_COMPLETE': {'tina'},
-    'SERVICE_EVAL':   {'tim', 'lawrence'},
-    'AUCTION_CAND':   {'tim', 'lawrence'},
+    'SERVICE_EVAL':   {'tim', 'lawrence', 'lori'},
+    'AUCTION_CAND':   {'tim', 'lawrence', 'lori'},
     'KEY_INSPECT':    {'tim', 'dispatcher'},
     'ROUTED_LIVE':    {'tina', 'tim'},
     'ROUTED_ONLINE':  {'tina', 'tim'},
@@ -217,7 +217,7 @@ def pipeline_move(vehicle_id):
                 thread = ChatThread(title='Wally Alerts', is_group=True)
                 db.session.add(thread)
                 db.session.flush()
-                for u in _User.query.filter(_User.role.in_({'tim', 'lawrence', 'tina'})).all():
+                for u in _User.query.filter(_User.role.in_({'tim', 'lawrence', 'lori', 'tina'})).all():
                     db.session.add(ChatThreadMember(thread_id=thread.id, user_id=u.id))
             body = PIPELINE_ALERT_MSGS.get(new_stage, '{name} moved to ' + stage_label).format(
                 name=vehicle.display_name
