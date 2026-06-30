@@ -15,7 +15,11 @@ from models import db, Vehicle, VehicleNote
 
 log = logging.getLogger(__name__)
 
-_BASE44_URL = os.environ.get('BASE44_URL', '').rstrip('/')
+_BASE44_APP_ID = os.environ.get('BASE44_APP_ID', '')
+_BASE44_URL = (
+    os.environ.get('BASE44_URL', '').rstrip('/')
+    or (f'https://api.base44.com/api/apps/{_BASE44_APP_ID}' if _BASE44_APP_ID else '')
+)
 _BASE44_API_KEY = os.environ.get('BASE44_API_KEY', '')
 
 
