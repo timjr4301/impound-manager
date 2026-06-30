@@ -357,6 +357,7 @@ def create_app():
     from blueprints.admin import bp as admin_bp
     from blueprints.damage_docs import bp as damage_bp
     from blueprints.help import bp as help_bp
+    from blueprints.bmv_document_scanner import bp as bmv_scanner_bp
     from towbook_import import bp as towbook_bp
 
     app.register_blueprint(auth_bp)
@@ -369,6 +370,7 @@ def create_app():
     app.register_blueprint(damage_bp)
     app.register_blueprint(help_bp)
     app.register_blueprint(towbook_bp)
+    app.register_blueprint(bmv_scanner_bp)
 
     # Chat + Invoice Camera registered only when their files exist
     try:
