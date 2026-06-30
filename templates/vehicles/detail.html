@@ -241,9 +241,13 @@
         </div>
       </div>
       {% if not vehicle.file_complete_for_tina %}
+      {% set has_tracking = namespace(found=false) %}
+      {% for l in vehicle.letters %}
+        {% if l.tracking_number %}{% set has_tracking.found = true %}{% endif %}
+      {% endfor %}
       <div class="alert alert-warning py-1 small mb-2">
         <strong>All four items required</strong> before "Mark BMV Complete" will be accepted.
-        {% if not any(l.tracking_number for l in vehicle.letters) %}
+        {% if not has_tracking.found %}
         <br>UPS tracking number must also be attached to a certified letter for this vehicle.
         {% endif %}
       </div>
