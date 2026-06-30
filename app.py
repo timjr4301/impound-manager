@@ -5,13 +5,21 @@ from datetime import date, datetime, timedelta
 from flask import (Flask, render_template, request, redirect, url_for,
                    flash, send_file, jsonify, g)
 from flask_login import LoginManager, login_required, current_user
-from flask_cors import CORS
-from flask_socketio import SocketIO
 from models import (db, User, Vehicle, CertifiedLetter, TitleFiling,
                     VehicleNote, DamageItem, SyncLog,
                     PPI_LETTER1_DAYS, PPI_LETTER2_DAYS, POLICE_LETTER1_DAYS)
 
-socketio = SocketIO()
+try:
+    from flask_cors import CORS as _CORS
+except ImportError:
+    _CORS = None
+
+try:
+    from flask_socketio import SocketIO
+    socketio = SocketIO()
+except ImportError:
+    SocketIO = None
+    socketio = None
 
 try:
     from apscheduler.schedulers.background import BackgroundScheduler
@@ -309,8 +317,9 @@ def create_app():
     )
     app.config['TITLE_PACKET_TEMPLATE'] = default_template
 
-    # CORS for Base44 apps
-    CORS(app, resources={r'/api/*': {'origins': '*'}})
+    # CORS for Base44 apps (optional — only if flask-cors is installed)
+    if _CORS:
+        _CORS(app, resources={r'/api/*': {'origins': '*'}})
 
     db.init_app(app)
 
@@ -333,9 +342,10 @@ def create_app():
     def load_user(user_id):
         return db.session.get(User, int(user_id))
 
-    # ── SocketIO ────────────────────────────────────────────────────────────────
-    socketio.init_app(app, async_mode='gevent', cors_allowed_origins='*',
-                      logger=False, engineio_logger=False)
+    # ── SocketIO (optional — only if flask-socketio is installed) ──────────────
+    if socketio is not None:
+        socketio.init_app(app, async_mode='threading', cors_allowed_origins='*',
+                          logger=False, engineio_logger=False)
 
     # ── Blueprints ─────────────────────────────────────────────────────────────
     from blueprints.auth import bp as auth_bp
@@ -364,8 +374,9 @@ def create_app():
     try:
         from blueprints.chat import bp as chat_bp, register_socket_events
         app.register_blueprint(chat_bp)
-        register_socket_events(socketio)
-    except ImportError:
+        if socketio is not None:
+            register_socket_events(socketio)
+    except (ImportError, Exception):
         pass
     try:
         from blueprints.invoice_camera import bp as invoice_bp

@@ -1,19 +1,42 @@
+# Broad & James Impound Manager — Render.com deployment
+# Last updated: 2026-06-29
+# httpx + anthropic pinned together: anthropic>=0.40 is compatible with httpx>=0.28
+
 Flask==3.0.3
 Flask-SQLAlchemy==3.1.1
 Flask-Login==0.6.3
-Flask-CORS==4.0.0
-Werkzeug==3.0.3
+Flask-WTF==1.2.1
+WTForms==3.1.2
+SQLAlchemy==2.0.36
+psycopg2-binary==2.9.9
 gunicorn==22.0.0
-pypdf==4.3.1
-anthropic>=0.49.0
-twilio==9.2.3
-Pillow==10.4.0
+Werkzeug==3.0.6
+
+# Anthropic — must be >=0.40 for httpx 0.28 compat
+anthropic>=0.40.0
+
+# httpx — 0.28+ removed deprecated 'proxies' kwarg; anthropic>=0.40 handles this
+httpx>=0.28.0,<1.0.0
+httpcore>=1.0.5
+
+# Requests (UPS API, fallback valuations, Base44)
 requests==2.32.3
-APScheduler==3.10.4
-pytz==2024.1
-psycopg2-binary==2.9.10
-flask-socketio==5.3.6
-gevent==24.2.1
-gevent-websocket==0.10.1
+urllib3==2.2.3
+certifi>=2024.2.2
+
+# PDF handling (TitleBot compatibility / packet generation)
+pypdf==4.3.1
 reportlab==4.2.2
-pywebpush==2.0.0
+
+# UPS Quantum View CSV processing
+pandas==2.2.2
+python-dateutil==2.9.0
+
+# Image handling (envelope scanner, damage photos)
+Pillow==10.4.0
+
+# Environment / config
+python-dotenv==1.0.1
+
+# Date/time utilities
+pytz==2024.1
