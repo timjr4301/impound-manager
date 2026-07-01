@@ -149,7 +149,7 @@ def generate_title_packet(vehicle, template_path, filing_date=None):
     f['totaldv'] = f'{total_damage:.2f}'
 
     # ── Financial summary ─────────────────────────────────────────────────
-    nada          = vehicle.nada_value or 3499.0
+    nada          = vehicle.effective_nada_value or 3499.0
     tow_fee       = vehicle.tow_fee or 0.0
     vehicle_value = max(0.0, nada - total_damage)
     owner_payout  = max(0.0, vehicle_value - tow_fee - total_storage_amt)

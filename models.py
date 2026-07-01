@@ -140,7 +140,19 @@ class Vehicle(db.Model):
     tow_fee = db.Column(db.Float)
     daily_storage_rate = db.Column(db.Float)
     nada_value = db.Column(db.Float)
+    nada_value_is_default = db.Column(db.Boolean, default=False)
+    nada_value_override = db.Column(db.Float)
     mileage = db.Column(db.Integer)
+
+    @property
+    def effective_nada_value(self):
+        """The value to use in financial calcs: manual override wins over the API/fallback value."""
+        return self.nada_value_override if self.nada_value_override is not None else self.nada_value
+
+    @property
+    def nada_needs_verification(self):
+        """True when we're relying on the $3,499 fallback and nobody has confirmed a real value yet."""
+        return self.nada_value_override is None and bool(self.nada_value_is_default)
 
     # Workflow: Heather's stage
     bmv_stage = db.Column(db.String(20), default='PENDING')  # PENDING, QUEUED, SEARCHED, COMPLETE

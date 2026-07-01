@@ -129,7 +129,10 @@
         <td><a href="{{ url_for('vehicles_detail', vehicle_id=v.id) }}" class="row-link fw-semibold">{{ v.display_name }}</a></td>
         <td>{{ v.impound_date|mdY }}</td>
         <td class="text-success fw-semibold">{{ v.title_eligible_date|mdY if v.title_eligible_date else '—' }}</td>
-        <td>{{ v.nada_value|currency if v.nada_value else '—' }}</td>
+        <td>
+          {{ v.effective_nada_value|currency if v.effective_nada_value else '—' }}
+          {% if v.nada_needs_verification %}<span class="badge bg-warning text-dark" title="Using fallback value — please verify">⚠ verify</span>{% endif %}
+        </td>
         <td>
           {% if v.disposition %}
             <span class="badge {% if v.disposition == 'SELL' %}bg-success{% elif v.disposition == 'JUNK' %}bg-warning text-dark{% else %}bg-secondary{% endif %}">
@@ -157,8 +160,11 @@
             <form method="POST" action="{{ url_for('tina.set_disposition', vehicle_id=v.id) }}">
               <div class="modal-body">
                 <div class="mb-3">
-                  {% if v.nada_value %}
-                  <div class="alert alert-info small py-2">NADA Value: <strong>{{ v.nada_value|currency }}</strong></div>
+                  {% if v.effective_nada_value %}
+                  <div class="alert alert-info small py-2">
+                    NADA Value: <strong>{{ v.effective_nada_value|currency }}</strong>
+                    {% if v.nada_needs_verification %}<span class="badge bg-warning text-dark">Using fallback value — please verify</span>{% endif %}
+                  </div>
                   {% endif %}
                   <label class="form-label fw-semibold">Disposition</label>
                   <select name="disposition" class="form-select" required>

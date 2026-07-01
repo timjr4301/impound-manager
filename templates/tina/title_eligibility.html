@@ -59,7 +59,10 @@
         <td><span class="badge bg-secondary">{{ v.impound_type }}</span></td>
         <td>{{ v.impound_date|mdY }}</td>
         <td class="text-success fw-semibold">{{ v.title_eligible_date|mdY }}</td>
-        <td>{{ v.nada_value|currency if v.nada_value else '—' }}</td>
+        <td>
+          {{ v.effective_nada_value|currency if v.effective_nada_value else '—' }}
+          {% if v.nada_needs_verification %}<span class="badge bg-warning text-dark" title="Using fallback value — please verify">⚠ verify</span>{% endif %}
+        </td>
         <td class="text-end">
           <a href="{{ url_for('file_title', vehicle_id=v.id) }}" class="btn btn-sm btn-success py-0">File Title</a>
         </td>

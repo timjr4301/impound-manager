@@ -121,6 +121,14 @@ _HELP = {
                     'Print the invoice from the print button — it has all the legal details.',
                 ],
             },
+            {
+                'heading': 'NADA Value & Fallback Badge',
+                'items': [
+                    'A yellow "please verify" badge means the system couldn\'t get a real value and is using the $3,499 fallback.',
+                    'On the vehicle detail page, type the correct value into the "Manual value" box under NADA Wholesale Value and click Save — this overrides the fallback everywhere (reports, invoices, title packets) until you clear it.',
+                    'Clear the box and click Save to go back to the looked-up/fallback value.',
+                ],
+            },
         ],
     },
 
@@ -282,6 +290,7 @@ _HELP = {
                     'Admin → Users: manage staff passwords and roles.',
                     'All users have role-specific views — they only see what they need.',
                     'NADA lookup uses VinAudit API — set VINAUDIT_API_KEY in Render env vars.',
+                    'If VinAudit isn\'t set up or returns no data, the vehicle shows a $3,499 fallback with a yellow "please verify" badge — enter the real value in the Manual value field on the vehicle detail page to clear it.',
                 ],
             },
         ],

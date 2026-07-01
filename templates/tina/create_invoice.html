@@ -113,9 +113,12 @@
             <td class="text-end">{{ ((vehicle.tow_fee or 0) + storage_total)|currency }}</td>
           </tr>
         </table>
-        {% if vehicle.nada_value %}
+        {% if vehicle.effective_nada_value %}
         <hr>
-        <div class="small text-muted">NADA Value: {{ vehicle.nada_value|currency }}</div>
+        <div class="small text-muted">
+          NADA Value: {{ vehicle.effective_nada_value|currency }}
+          {% if vehicle.nada_needs_verification %}<span class="badge bg-warning text-dark">Using fallback value — please verify</span>{% endif %}
+        </div>
         {% endif %}
         <div class="alert alert-light mt-3 small py-2" id="netSummary">
           Net proceeds will appear here.

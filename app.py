@@ -48,6 +48,8 @@ def run_migrations(app):
                     ('tow_fee',                 'FLOAT'),
                     ('daily_storage_rate',      'FLOAT'),
                     ('nada_value',              'FLOAT'),
+                    ('nada_value_is_default',   'BOOLEAN'),
+                    ('nada_value_override',     'FLOAT'),
                     ('mileage',                 'INTEGER'),
                     ('bmv_stage',               'VARCHAR(20)'),
                     ('bmv_searched_date',       'DATE'),
@@ -832,7 +834,7 @@ def create_app():
         )
         total_owed = (vehicle.tow_fee or 0) + storage_total
         total_dmg = sum(d.amount for d in vehicle.damage_items)
-        vehicle_val = max(0, (vehicle.nada_value or 0) - total_dmg)
+        vehicle_val = max(0, (vehicle.effective_nada_value or 0) - total_dmg)
         net = vehicle_val - total_owed
         return render_template('reports/valuation.html',
             vehicle=vehicle,
@@ -1061,7 +1063,7 @@ def create_app():
         vehicle = db.get_or_404(Vehicle, vehicle_id)
         from titlebot.damages import auto_fill_fallbacks
         from titlebot.storage import calculate_storage
-        nada = vehicle.nada_value or 3499.0
+        nada = vehicle.effective_nada_value or 3499.0
         tow  = vehicle.tow_fee or 0.0
         _, total_storage, _ = calculate_storage(vehicle.impound_date, date.today(), vehicle.daily_storage_rate or 0)
         to_add = auto_fill_fallbacks(vehicle.damage_items, nada, tow, total_storage)
@@ -1103,6 +1105,7 @@ def create_app():
             api_key=os.environ.get('ANTHROPIC_API_KEY'),
         )
         vehicle.nada_value = result['value']
+        vehicle.nada_value_is_default = result['used_default']
         vehicle.updated_at = datetime.utcnow()
         db.session.commit()
         if result['used_default']:
@@ -1117,6 +1120,28 @@ def create_app():
                 f'{result["confidence"]} confidence via {result["source"]}).',
                 'success'
             )
+        return redirect(url_for('vehicles_detail', vehicle_id=vehicle_id) + '#title-packet')
+
+    @app.route('/vehicles/<int:vehicle_id>/nada-override', methods=['POST'])
+    @login_required
+    def nada_override(vehicle_id):
+        vehicle = db.get_or_404(Vehicle, vehicle_id)
+        if not current_user.is_heather:
+            flash('Permission denied.', 'danger')
+            return redirect(url_for('vehicles_detail', vehicle_id=vehicle_id))
+        override_str = request.form.get('nada_value_override', '').strip()
+        if override_str:
+            try:
+                vehicle.nada_value_override = float(override_str)
+                flash(f'Manual NADA value set to ${vehicle.nada_value_override:,.2f}.', 'success')
+            except ValueError:
+                flash('Enter a valid dollar amount.', 'danger')
+                return redirect(url_for('vehicles_detail', vehicle_id=vehicle_id) + '#title-packet')
+        else:
+            vehicle.nada_value_override = None
+            flash('Manual override cleared — using the looked-up/fallback value again.', 'info')
+        vehicle.updated_at = datetime.utcnow()
+        db.session.commit()
         return redirect(url_for('vehicles_detail', vehicle_id=vehicle_id) + '#title-packet')
 
     # ── Title Packet PDF ───────────────────────────────────────────────────────

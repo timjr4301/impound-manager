@@ -126,7 +126,7 @@
           {% if l1_sent %}
           <div class="text-success" style="font-size:.75rem;">Sent {{ l1.sent_date|mdY }}</div>
           {% elif vehicle.days_in_storage >= 5 %}
-          <div class="text-danger fw-semibold" style="font-size:.75rem;">OVERDUE — due {{ (vehicle.impound_date + (5|timedelta)) if vehicle.impound_date else '—' }}</div>
+          <div class="text-danger fw-semibold" style="font-size:.75rem;">OVERDUE — due {{ (vehicle.impound_date + timedelta(days=5)) if vehicle.impound_date else '—' }}</div>
           {% elif not t1_done %}
           <div class="text-muted" style="font-size:.75rem;">Locked — complete Task 1 first</div>
           {% else %}
@@ -410,10 +410,16 @@
           <dd class="col-sm-6">{{ '{:,}'.format(vehicle.mileage) if vehicle.mileage else '—' }}</dd>
           <dt class="col-sm-6 text-muted">NADA Wholesale Value</dt>
           <dd class="col-sm-6">
-            {{ '$%.2f'|format(vehicle.nada_value) if vehicle.nada_value else '—' }}
-            {% if not vehicle.nada_value %}<small class="text-warning"><i class="bi bi-exclamation-triangle"></i></small>{% endif %}
+            {{ '$%.2f'|format(vehicle.effective_nada_value) if vehicle.effective_nada_value else '—' }}
+            {% if not vehicle.effective_nada_value %}<small class="text-warning"><i class="bi bi-exclamation-triangle"></i></small>{% endif %}
+            {% if vehicle.nada_value_override is not none %}<small class="text-muted">(manual override)</small>{% endif %}
           </dd>
         </dl>
+        {% if vehicle.nada_needs_verification %}
+        <div class="alert alert-warning py-2 px-3 small mb-2">
+          <i class="bi bi-exclamation-triangle"></i> Using fallback value — please verify
+        </div>
+        {% endif %}
         {% if vehicle.vin %}
         <form method="POST" action="{{ url_for('nada_lookup', vehicle_id=vehicle.id) }}" class="mt-2">
           <button type="submit" class="btn btn-sm btn-outline-secondary w-100"
@@ -421,6 +427,15 @@
             <i class="bi bi-search"></i> Look Up NADA Value (Edmunds)
           </button>
         </form>
+        {% endif %}
+        {% if current_user.is_heather %}
+        <form method="POST" action="{{ url_for('nada_override', vehicle_id=vehicle.id) }}" class="mt-2 d-flex gap-1">
+          <input type="number" step="0.01" name="nada_value_override" class="form-control form-control-sm"
+                 placeholder="Manual value ($)"
+                 value="{{ '%.2f'|format(vehicle.nada_value_override) if vehicle.nada_value_override is not none else '' }}">
+          <button type="submit" class="btn btn-sm btn-outline-primary text-nowrap">Save</button>
+        </form>
+        <div class="form-text">Leave blank and Save to clear the override and use the looked-up/fallback value again.</div>
         {% endif %}
       </div>
     </div>
@@ -691,12 +706,12 @@
         {% endif %}
 
         {# Financial summary if we have what we need #}
-        {% if vehicle.nada_value and vehicle.tow_fee and vehicle.daily_storage_rate %}
+        {% if vehicle.effective_nada_value and vehicle.tow_fee and vehicle.daily_storage_rate %}
           {% set total_dmg = vehicle.damage_items | sum(attribute='amount') %}
-          {% set vehicle_val = [0, vehicle.nada_value - total_dmg] | max %}
+          {% set vehicle_val = [0, vehicle.effective_nada_value - total_dmg] | max %}
           {% set owner_pay = [0, vehicle_val - vehicle.tow_fee - storage_total] | max %}
           <div class="rounded p-2 bg-light small mb-3">
-            <div class="d-flex justify-content-between"><span class="text-muted">NADA wholesale</span><span>${{ '%.2f'|format(vehicle.nada_value) }}</span></div>
+            <div class="d-flex justify-content-between"><span class="text-muted">NADA wholesale</span><span>${{ '%.2f'|format(vehicle.effective_nada_value) }}{% if vehicle.nada_needs_verification %} <span class="badge bg-warning text-dark" style="font-size:.6rem;">verify</span>{% endif %}</span></div>
             <div class="d-flex justify-content-between"><span class="text-muted">− Damage total</span><span>−${{ '%.2f'|format(total_dmg) }}</span></div>
             <div class="d-flex justify-content-between"><span class="text-muted">= Vehicle value</span><span class="fw-semibold">${{ '%.2f'|format(vehicle_val) }}</span></div>
             <hr class="my-1">
@@ -770,7 +785,7 @@
         </form>
 
         {# Auto-fill damages button #}
-        {% if vehicle.nada_value and vehicle.tow_fee and vehicle.daily_storage_rate %}
+        {% if vehicle.effective_nada_value and vehicle.tow_fee and vehicle.daily_storage_rate %}
         <form method="POST" action="{{ url_for('damages_auto_fill', vehicle_id=vehicle.id) }}" class="mt-1">
           <button type="submit" class="btn btn-sm btn-outline-warning w-100"
                   onclick="return confirm('Auto-add fallback damage items to cover the NADA gap? Review each item after.')">

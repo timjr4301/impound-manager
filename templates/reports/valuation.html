@@ -100,8 +100,9 @@
 <div class="amounts">
   <div class="amount-box">
     <div class="label">NADA Wholesale Value</div>
-    <div class="value" style="color:#1a1a2e;">${{ '%.2f'|format(vehicle.nada_value or 0) }}</div>
-    {% if not vehicle.nada_value %}<div style="color:#dc3545;font-size:9pt;">⚠ Not set</div>{% endif %}
+    <div class="value" style="color:#1a1a2e;">${{ '%.2f'|format(vehicle.effective_nada_value or 0) }}</div>
+    {% if not vehicle.effective_nada_value %}<div style="color:#dc3545;font-size:9pt;">⚠ Not set</div>{% endif %}
+    {% if vehicle.nada_needs_verification %}<div style="color:#b8860b;font-size:9pt;">⚠ Using fallback value — please verify</div>{% endif %}
   </div>
   <div class="amount-box">
     <div class="label">Total Amount Owed</div>
@@ -138,13 +139,13 @@
 </section>
 
 {# NADA vs Damages #}
-{% if vehicle.nada_value %}
+{% if vehicle.effective_nada_value %}
 <section>
   <h3>Value Analysis</h3>
   <table>
     <thead><tr><th>Item</th><th style="text-align:right;">Amount</th></tr></thead>
     <tbody>
-    <tr><td>NADA Wholesale Value</td><td style="text-align:right;">${{ '%.2f'|format(vehicle.nada_value) }}</td></tr>
+    <tr><td>NADA Wholesale Value</td><td style="text-align:right;">${{ '%.2f'|format(vehicle.effective_nada_value) }}</td></tr>
     {% if vehicle.damage_items %}
     {% for item in vehicle.damage_items %}
     <tr style="font-size:10pt;">
