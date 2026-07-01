@@ -187,9 +187,9 @@
 const ownerData = {
   name: {{ (vehicle.owner_name or '')|tojson }},
   address: {{ (vehicle.owner_address or '')|tojson }},
-  city: '',
-  state: 'OH',
-  zip: '',
+  city: {{ (vehicle.owner_city or '')|tojson }},
+  state: {{ (vehicle.owner_state or 'OH')|tojson }},
+  zip: {{ (vehicle.owner_zip or '')|tojson }},
 };
 const lienholderData = {
   name: {{ (vehicle.lienholder_name or '')|tojson }},
