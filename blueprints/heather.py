@@ -1069,7 +1069,9 @@ def envelope_scan_match_save():
 BULK_ENVELOPE_PROMPT = (
     "Read this UPS certified mail envelope. Extract:\n"
     "1. Reference #1 (our invoice number, 6 digits) — this is labeled "
-    "'Reference #1' or 'Ref 1' on the UPS label\n"
+    "'Reference', 'Reference #1', or 'Ref 1' on the UPS label. Do NOT use "
+    "UPS sort/route codes such as '141-FDR' or similar dash-separated codes "
+    "— these are NOT the invoice number.\n"
     "2. UPS Tracking number (starts with 1Z)\n"
     "3. Delivery status: was this returned to sender? Look for 'NIS', 'RTS', "
     "'RETURN TO SHIPPER', or similar markings. If no return markings, status "
