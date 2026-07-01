@@ -11,7 +11,7 @@ from flask import (Blueprint, render_template, request, redirect,
 from flask_login import login_required, current_user
 from markupsafe import escape
 from models import db, Vehicle, CertifiedLetter, EnvelopeScan, VehicleNote
-from sqlalchemy import or_
+from sqlalchemy import or_, func
 from models import PPI_LETTER1_DAYS, PPI_LETTER2_DAYS, POLICE_LETTER1_DAYS
 from permissions import require_permission
 
@@ -873,7 +873,6 @@ def envelope_scan_camera():
     """Process image from IPEVO camera via Claude vision."""
     data = request.get_json()
     image_b64 = data.get('image')
-    vehicle_id = data.get('vehicle_id')
 
     if not image_b64:
         return jsonify({'error': 'No image provided'}), 400
@@ -931,27 +930,88 @@ def envelope_scan_camera():
             m = re.search(r'\{.*\}', raw, re.DOTALL)
             result = json.loads(m.group()) if m else {}
 
-        if vehicle_id:
-            vehicle = Vehicle.query.get(vehicle_id)
-            if vehicle:
-                scan = EnvelopeScan(
-                    vehicle_id=vehicle.id,
-                    tracking_number=result.get('tracking_number'),
-                    scan_date=datetime.utcnow(),
-                    scan_notes=result.get('notes'),
-                    is_return_to_sender=result.get('is_return_to_sender', False),
-                    is_delivered=result.get('is_delivered', False),
-                    claude_raw_response=raw,
-                )
-                if result.get('delivery_date'):
-                    try:
-                        scan.delivery_date = date.fromisoformat(result['delivery_date'])
-                    except ValueError:
-                        pass
-                db.session.add(scan)
-                db.session.commit()
+        # Auto-match: look up certified_letters by the tracking number the AI
+        # just read, so the front end can auto-select the vehicle instead of
+        # making Heather find it in the dropdown herself.
+        matched_vehicle = None
+        raw_tracking = result.get('tracking_number')
+        if raw_tracking:
+            import re
+            normalized = re.sub(r'[\s-]', '', raw_tracking).upper()
+            matched_letter = (
+                CertifiedLetter.query
+                .filter(CertifiedLetter.tracking_number.isnot(None))
+                .filter(func.upper(func.replace(
+                    func.replace(CertifiedLetter.tracking_number, ' ', ''), '-', ''
+                )) == normalized)
+                .first()
+            )
+            if matched_letter:
+                matched_vehicle = matched_letter.vehicle
 
-        return jsonify({'ok': True, 'result': result})
+        return jsonify({
+            'ok': True,
+            'result': result,
+            'raw': raw,
+            'matched_vehicle': {
+                'id': matched_vehicle.id,
+                'display_name': matched_vehicle.display_name,
+            } if matched_vehicle else None,
+        })
 
     except Exception as exc:
         return jsonify({'error': str(exc)}), 500
+
+
+@bp.route('/envelope-scan/match-save', methods=['POST'])
+@_heather_required
+def envelope_scan_match_save():
+    """AJAX: one-click save of an AI-read envelope scan to the matched (or manually picked) vehicle."""
+    data = request.get_json() or {}
+    vehicle_id = data.get('vehicle_id')
+    tracking = (data.get('tracking_number') or '').strip()
+
+    if not vehicle_id or not tracking:
+        return jsonify({'error': 'Vehicle and tracking number are required.'}), 400
+
+    vehicle = Vehicle.query.get(vehicle_id)
+    if not vehicle:
+        return jsonify({'error': 'Vehicle not found.'}), 404
+
+    is_rts = bool(data.get('is_return_to_sender'))
+    is_delivered = bool(data.get('is_delivered'))
+    tracking_clean = tracking.replace(' ', '').upper()
+
+    delivery_date = None
+    if is_delivered:
+        raw_date = data.get('delivery_date')
+        try:
+            delivery_date = date.fromisoformat(raw_date) if raw_date else date.today()
+        except (ValueError, TypeError):
+            delivery_date = date.today()
+
+    scan = EnvelopeScan(
+        vehicle_id=vehicle.id,
+        tracking_number=tracking_clean,
+        scan_date=datetime.utcnow(),
+        scan_notes=data.get('notes') or None,
+        is_return_to_sender=is_rts,
+        is_delivered=is_delivered,
+        delivery_date=delivery_date,
+        claude_raw_response=data.get('raw'),
+    )
+    db.session.add(scan)
+
+    # Update the matching letter if we can find one, same as manual entry does
+    letters = CertifiedLetter.query.filter_by(vehicle_id=vehicle.id).all()
+    for ltr in letters:
+        if not ltr.tracking_number:
+            ltr.tracking_number = tracking_clean
+            if is_rts:
+                ltr.return_to_sender = True
+            if is_delivered and not ltr.delivery_confirmed_date:
+                ltr.delivery_confirmed_date = delivery_date
+            break
+
+    db.session.commit()
+    return jsonify({'ok': True, 'vehicle': vehicle.display_name})
