@@ -17,6 +17,11 @@ from permissions import require_permission
 
 bp = Blueprint('heather', __name__, url_prefix='/heather')
 
+# Vehicles impounded before this date are excluded from Heather's daily
+# queues (BMV Search Queue, Overdue/Urgent, Due Soon, On Track) until the
+# historical review screen is built. They remain in the database untouched.
+HEATHER_QUEUE_CUTOFF = date(2024, 1, 1)
+
 
 def _heather_required(f):
     """Tim + Heather can perform Heather actions."""
@@ -52,16 +57,19 @@ def dashboard():
     red = (Vehicle.query
            .filter(Vehicle.status.in_(['ACTIVE', 'TITLE_FILED']))
            .filter(Vehicle.letter_urgency == 'RED')
+           .filter(Vehicle.impound_date >= HEATHER_QUEUE_CUTOFF)
            .order_by(Vehicle.impound_date.asc())
            .all())
     yellow = (Vehicle.query
               .filter(Vehicle.status.in_(['ACTIVE', 'TITLE_FILED']))
               .filter(Vehicle.letter_urgency == 'YELLOW')
+              .filter(Vehicle.impound_date >= HEATHER_QUEUE_CUTOFF)
               .order_by(Vehicle.impound_date.asc())
               .all())
     green = (Vehicle.query
              .filter(Vehicle.status.in_(['ACTIVE', 'TITLE_FILED']))
              .filter(Vehicle.letter_urgency == 'GREEN')
+             .filter(Vehicle.impound_date >= HEATHER_QUEUE_CUTOFF)
              .order_by(Vehicle.impound_date.desc())
              .all())
 
@@ -78,16 +86,19 @@ def dashboard():
                 red = (Vehicle.query
                        .filter(Vehicle.status.in_(['ACTIVE', 'TITLE_FILED']))
                        .filter(Vehicle.letter_urgency == 'RED')
+                       .filter(Vehicle.impound_date >= HEATHER_QUEUE_CUTOFF)
                        .order_by(Vehicle.impound_date.asc())
                        .all())
                 yellow = (Vehicle.query
                           .filter(Vehicle.status.in_(['ACTIVE', 'TITLE_FILED']))
                           .filter(Vehicle.letter_urgency == 'YELLOW')
+                          .filter(Vehicle.impound_date >= HEATHER_QUEUE_CUTOFF)
                           .order_by(Vehicle.impound_date.asc())
                           .all())
                 green = (Vehicle.query
                          .filter(Vehicle.status.in_(['ACTIVE', 'TITLE_FILED']))
                          .filter(Vehicle.letter_urgency == 'GREEN')
+                         .filter(Vehicle.impound_date >= HEATHER_QUEUE_CUTOFF)
                          .order_by(Vehicle.impound_date.desc())
                          .all())
         except Exception as exc:
@@ -124,6 +135,7 @@ def dashboard():
                  .filter(db.or_(Vehicle.heather_complete == False,
                                 Vehicle.heather_complete.is_(None)))
                  .filter(db.or_(Vehicle.bmv_stage.in_([None, 'PENDING', 'QUEUED'])))
+                 .filter(Vehicle.impound_date >= HEATHER_QUEUE_CUTOFF)
                  .order_by(Vehicle.impound_date.asc())
                  .limit(100)
                  .all())
