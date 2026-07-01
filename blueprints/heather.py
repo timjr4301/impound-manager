@@ -9,6 +9,7 @@ from datetime import date, datetime, timedelta
 from flask import (Blueprint, render_template, request, redirect,
                    url_for, flash, current_app, jsonify)
 from flask_login import login_required, current_user
+from markupsafe import escape
 from models import db, Vehicle, CertifiedLetter, EnvelopeScan, VehicleNote
 from sqlalchemy import or_
 from models import PPI_LETTER1_DAYS, PPI_LETTER2_DAYS, POLICE_LETTER1_DAYS
@@ -505,6 +506,45 @@ def notices_search():
                            q=q, results=results, recent_notices=recent_notices)
 
 
+@bp.route('/notices/send-prefill')
+@_heather_required
+def send_prefill():
+    invoice = request.args.get('invoice', '').strip()
+    recipient_type = request.args.get('type', '').strip()
+
+    vehicle = Vehicle.query.filter_by(invoice_number=invoice).first()
+    if not vehicle:
+        return f'Vehicle not found for invoice {escape(invoice)}. Check the invoice number and try again.'
+
+    if recipient_type == 'owner':
+        name = vehicle.owner_name
+        address = vehicle.owner_address
+        city = vehicle.owner_city
+        state = vehicle.owner_state
+        zip_code = vehicle.owner_zip
+    elif recipient_type == 'lienholder':
+        if not vehicle.lienholder_name or not vehicle.lienholder_name.strip():
+            return f'No lienholder on record for invoice {escape(invoice)}.'
+        name = vehicle.lienholder_name
+        address = vehicle.lienholder_address
+        city = vehicle.lienholder_city
+        state = vehicle.lienholder_state
+        zip_code = vehicle.lienholder_zip
+    else:
+        return 'Invalid type. Use owner or lienholder.'
+
+    return redirect(url_for(
+        'heather.notices',
+        vehicle_id=vehicle.id,
+        prefill_name=name or '',
+        prefill_address=address or '',
+        prefill_city=city or '',
+        prefill_state=state or '',
+        prefill_zip=zip_code or '',
+        prefill_type=recipient_type,
+    ))
+
+
 @bp.route('/notices/<int:vehicle_id>')
 @_heather_required
 def notices(vehicle_id):
@@ -521,12 +561,23 @@ def notices(vehicle_id):
         os.environ.get('UPS_CLIENT_ID') and os.environ.get('UPS_CLIENT_SECRET')
     )
     label_b64 = request.args.get('label')
+    prefill = None
+    if request.args.get('prefill_type'):
+        prefill = {
+            'name': request.args.get('prefill_name', ''),
+            'address': request.args.get('prefill_address', ''),
+            'city': request.args.get('prefill_city', ''),
+            'state': request.args.get('prefill_state', ''),
+            'zip': request.args.get('prefill_zip', ''),
+            'type': request.args.get('prefill_type', ''),
+        }
     return render_template('heather/notices.html',
                            vehicle=vehicle,
                            notices=notices,
                            next_notice_number=next_notice_number,
                            ups_configured=ups_configured,
-                           label_b64=label_b64)
+                           label_b64=label_b64,
+                           prefill=prefill)
 
 
 @bp.route('/notices/<int:vehicle_id>/send', methods=['POST'])

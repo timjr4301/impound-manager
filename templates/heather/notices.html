@@ -225,5 +225,11 @@ document.getElementById('label-preview').style.display = 'block';
 document.getElementById('label-img-container').innerHTML =
   `<img src="data:image/gif;base64,${window._lastLabel}" class="img-fluid border">`;
 {% endif %}
+
+// Pre-fill recipient from send-prefill redirect
+{% if prefill %}
+document.getElementById('recipient-select').value = {{ prefill.type|tojson }};
+fillRecipient();
+{% endif %}
 </script>
 {% endblock %}
