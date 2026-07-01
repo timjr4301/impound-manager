@@ -304,6 +304,19 @@ class Vehicle(db.Model):
         return elig is not None and date.today() >= elig
 
     @property
+    def title_blocked_reason(self):
+        """Why title_eligible_date is None — what Tina is waiting on before a date can even be projected."""
+        if self.impound_type == 'PPI':
+            l2 = self.letter2
+            if not l2 or not l2.sent_date:
+                return 'Waiting on Letter 2 to be sent'
+        elif self.impound_type == 'POLICE':
+            l1 = self.letter1
+            if not l1 or not l1.sent_date:
+                return 'Waiting on Letter 1 to be sent'
+        return None
+
+    @property
     def days_in_storage(self):
         return (date.today() - self.impound_date).days
 

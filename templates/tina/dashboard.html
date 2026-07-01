@@ -114,8 +114,9 @@
 {# ── Title Eligible — Ready to File ── #}
 {% if title_eligible %}
 <div class="card shadow-sm mb-4 border-success">
-  <div class="card-header bg-success text-white fw-semibold">
-    <i class="bi bi-file-earmark-arrow-up me-2"></i>Ready to File for Title ({{ title_eligible|length }})
+  <div class="card-header bg-success text-white fw-semibold d-flex align-items-center">
+    <span><i class="bi bi-file-earmark-arrow-up me-2"></i>Ready to File for Title ({{ title_eligible|length }})</span>
+    <a href="{{ url_for('tina.title_eligibility') }}" class="btn btn-sm btn-light py-0 ms-auto">Full Pipeline <i class="bi bi-arrow-right"></i></a>
   </div>
   <div class="card-body p-0">
     <table class="table table-sm table-hover mb-0">

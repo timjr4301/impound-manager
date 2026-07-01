@@ -98,6 +98,50 @@ def dashboard():
     )
 
 
+@bp.route('/title-eligibility')
+@_tina_required
+def title_eligibility():
+    """Full title-filing pipeline view: ready to file, upcoming (with countdown),
+    blocked on letters, and recently filed — so Tina can see what's coming, not
+    just what's ready today."""
+    active = (
+        Vehicle.query
+        .filter_by(status='ACTIVE')
+        .order_by(Vehicle.impound_date.asc())
+        .all()
+    )
+
+    ready = sorted(
+        (v for v in active if v.is_title_eligible and v.title_filing is None),
+        key=lambda v: v.title_eligible_date
+    )
+    upcoming = sorted(
+        (v for v in active
+         if not v.is_title_eligible and v.title_eligible_date and v.title_filing is None),
+        key=lambda v: v.title_eligible_date
+    )
+    blocked = sorted(
+        (v for v in active if not v.title_eligible_date and v.title_filing is None),
+        key=lambda v: v.impound_date
+    )
+
+    recently_filed = (
+        Vehicle.query
+        .filter_by(status='TITLE_FILED')
+        .order_by(Vehicle.updated_at.desc())
+        .limit(25)
+        .all()
+    )
+
+    return render_template('tina/title_eligibility.html',
+        today=date.today(),
+        ready=ready,
+        upcoming=upcoming,
+        blocked=blocked,
+        recently_filed=recently_filed,
+    )
+
+
 @bp.route('/set-stage/<int:vehicle_id>', methods=['POST'])
 @_tina_required
 def set_stage(vehicle_id):

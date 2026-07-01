@@ -1,0 +1,164 @@
+{% extends 'base.html' %}
+{% block title %}Title Eligibility — Impound Manager{% endblock %}
+
+{% block content %}
+<div class="d-flex align-items-center mb-4 gap-3">
+  <div>
+    <h2 class="h4 mb-0 fw-bold"><i class="bi bi-file-earmark-arrow-up me-2"></i>Title Eligibility Pipeline</h2>
+    <small class="text-muted">Every active vehicle's path to title filing — ready, upcoming, and blocked.</small>
+  </div>
+  <div class="ms-auto">
+    <a href="{{ url_for('tina.dashboard') }}" class="btn btn-outline-secondary btn-sm">
+      <i class="bi bi-arrow-left"></i> Back to Dashboard
+    </a>
+  </div>
+</div>
+
+<div class="row g-3 mb-4">
+  <div class="col-6 col-md-3">
+    <div class="card shadow-sm text-center py-3 border-0 bg-success text-white">
+      <div class="h2 fw-bold mb-0">{{ ready|length }}</div>
+      <div class="small fw-semibold">READY TO FILE</div>
+    </div>
+  </div>
+  <div class="col-6 col-md-3">
+    <div class="card shadow-sm text-center py-3 border-0 bg-info text-white">
+      <div class="h2 fw-bold mb-0">{{ upcoming|length }}</div>
+      <div class="small fw-semibold">UPCOMING</div>
+    </div>
+  </div>
+  <div class="col-6 col-md-3">
+    <div class="card shadow-sm text-center py-3 border-0 bg-warning">
+      <div class="h2 fw-bold mb-0">{{ blocked|length }}</div>
+      <div class="small fw-semibold">BLOCKED ON LETTERS</div>
+    </div>
+  </div>
+  <div class="col-6 col-md-3">
+    <div class="card shadow-sm text-center py-3 border-0 bg-secondary text-white">
+      <div class="h2 fw-bold mb-0">{{ recently_filed|length }}</div>
+      <div class="small fw-semibold">RECENTLY FILED</div>
+    </div>
+  </div>
+</div>
+
+{# ── Ready to File ── #}
+<div class="card shadow-sm mb-4 border-success">
+  <div class="card-header bg-success text-white fw-semibold">
+    <i class="bi bi-check-circle me-2"></i>Ready to File ({{ ready|length }})
+  </div>
+  <div class="card-body p-0">
+    {% if ready %}
+    <table class="table table-sm table-hover mb-0">
+      <thead><tr>
+        <th>Vehicle</th><th>Type</th><th>Impound Date</th><th>Eligible Since</th><th>NADA</th><th></th>
+      </tr></thead>
+      <tbody>
+      {% for v in ready %}
+      <tr>
+        <td><a href="{{ url_for('vehicles_detail', vehicle_id=v.id) }}" class="row-link fw-semibold">{{ v.display_name }}</a></td>
+        <td><span class="badge bg-secondary">{{ v.impound_type }}</span></td>
+        <td>{{ v.impound_date|mdY }}</td>
+        <td class="text-success fw-semibold">{{ v.title_eligible_date|mdY }}</td>
+        <td>{{ v.nada_value|currency if v.nada_value else '—' }}</td>
+        <td class="text-end">
+          <a href="{{ url_for('file_title', vehicle_id=v.id) }}" class="btn btn-sm btn-success py-0">File Title</a>
+        </td>
+      </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+    {% else %}
+    <div class="p-3 text-muted small">Nothing ready to file right now.</div>
+    {% endif %}
+  </div>
+</div>
+
+{# ── Upcoming ── #}
+<div class="card shadow-sm mb-4 border-info">
+  <div class="card-header bg-info text-white fw-semibold">
+    <i class="bi bi-hourglass-split me-2"></i>Upcoming ({{ upcoming|length }})
+  </div>
+  <div class="card-body p-0">
+    {% if upcoming %}
+    <table class="table table-sm table-hover mb-0">
+      <thead><tr>
+        <th>Vehicle</th><th>Type</th><th>Impound Date</th><th>Eligible On</th><th>Days Left</th>
+      </tr></thead>
+      <tbody>
+      {% for v in upcoming %}
+      <tr>
+        <td><a href="{{ url_for('vehicles_detail', vehicle_id=v.id) }}" class="row-link fw-semibold">{{ v.display_name }}</a></td>
+        <td><span class="badge bg-secondary">{{ v.impound_type }}</span></td>
+        <td>{{ v.impound_date|mdY }}</td>
+        <td>{{ v.title_eligible_date|mdY }}</td>
+        <td><span class="badge bg-info text-dark">{{ (v.title_eligible_date - today).days }} days</span></td>
+      </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+    {% else %}
+    <div class="p-3 text-muted small">Nothing in the pipeline right now.</div>
+    {% endif %}
+  </div>
+</div>
+
+{# ── Blocked on Letters ── #}
+<div class="card shadow-sm mb-4 border-warning">
+  <div class="card-header bg-warning fw-semibold">
+    <i class="bi bi-exclamation-triangle me-2"></i>Blocked on Letters ({{ blocked|length }})
+  </div>
+  <div class="card-body p-0">
+    {% if blocked %}
+    <table class="table table-sm table-hover mb-0">
+      <thead><tr>
+        <th>Vehicle</th><th>Type</th><th>Impound Date</th><th>Days in Storage</th><th>Blocked Because</th><th></th>
+      </tr></thead>
+      <tbody>
+      {% for v in blocked %}
+      <tr>
+        <td><a href="{{ url_for('vehicles_detail', vehicle_id=v.id) }}" class="row-link fw-semibold">{{ v.display_name }}</a></td>
+        <td><span class="badge bg-secondary">{{ v.impound_type }}</span></td>
+        <td>{{ v.impound_date|mdY }}</td>
+        <td>{{ v.days_in_storage }}</td>
+        <td class="text-warning-emphasis">{{ v.title_blocked_reason or 'Unknown' }}</td>
+        <td class="text-end">
+          <a href="{{ url_for('heather.letters') }}" class="btn btn-sm btn-outline-warning py-0">Letters Queue</a>
+        </td>
+      </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+    {% else %}
+    <div class="p-3 text-muted small">Nothing blocked — all active vehicles have letters moving.</div>
+    {% endif %}
+  </div>
+</div>
+
+{# ── Recently Filed ── #}
+<div class="card shadow-sm mb-4">
+  <div class="card-header fw-semibold">
+    <i class="bi bi-archive me-2"></i>Recently Filed ({{ recently_filed|length }})
+  </div>
+  <div class="card-body p-0">
+    {% if recently_filed %}
+    <table class="table table-sm table-hover mb-0">
+      <thead><tr>
+        <th>Vehicle</th><th>Impound Date</th><th>Filed</th><th>BMV Receipt #</th>
+      </tr></thead>
+      <tbody>
+      {% for v in recently_filed %}
+      <tr>
+        <td><a href="{{ url_for('vehicles_detail', vehicle_id=v.id) }}" class="row-link fw-semibold">{{ v.display_name }}</a></td>
+        <td>{{ v.impound_date|mdY }}</td>
+        <td>{{ v.title_filing.filed_date|mdY if v.title_filing else '—' }}</td>
+        <td>{{ v.title_filing.bmv_receipt_number if v.title_filing else '—' }}</td>
+      </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+    {% else %}
+    <div class="p-3 text-muted small">No filings yet.</div>
+    {% endif %}
+  </div>
+</div>
+{% endblock %}
