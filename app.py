@@ -82,6 +82,10 @@ def run_migrations(app):
                     ('current_task_num',        'INTEGER'),
                     ('current_task_label',      'VARCHAR(100)'),
                     ('current_task_due',        'DATE'),
+                    ('is_anomaly',              'BOOLEAN'),
+                    ('anomaly_reason',          'TEXT'),
+                    ('anomaly_flagged_by',      'VARCHAR(50)'),
+                    ('anomaly_flagged_at',      'TIMESTAMP'),
                 ]
                 for col_name, col_type in new_cols:
                     if col_name not in cols:
@@ -305,6 +309,13 @@ def create_app():
     app.config['SQLALCHEMY_DATABASE_URI'] = db_url
     app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
     app.config['SECRET_KEY'] = os.environ.get('SECRET_KEY', 'change-me-in-production')
+
+    from datetime import timedelta
+    app.config['SESSION_COOKIE_SECURE'] = False
+    app.config['SESSION_COOKIE_HTTPONLY'] = True
+    app.config['SESSION_COOKIE_SAMESITE'] = 'Lax'
+    app.config['PERMANENT_SESSION_LIFETIME'] = timedelta(days=7)
+    app.config['SESSION_COOKIE_NAME'] = 'bj_session'
 
     app.config['COMPANY_NAME'] = os.environ.get('COMPANY_NAME', 'Broad & James Towing')
     app.config['COMPANY_ADDRESS'] = os.environ.get('COMPANY_ADDRESS', '3201 E Broad St, Columbus, OH 43213')

@@ -1062,3 +1062,177 @@ def envelope_scan_match_save():
 
     db.session.commit()
     return jsonify({'ok': True, 'vehicle': vehicle.display_name})
+
+
+# ── Bulk Envelope Upload ─────────────────────────────────────────────────────
+
+BULK_ENVELOPE_PROMPT = (
+    "Read this UPS certified mail envelope. Extract:\n"
+    "1. Reference #1 (our invoice number, 6 digits) — this is labeled "
+    "'Reference #1' or 'Ref 1' on the UPS label\n"
+    "2. UPS Tracking number (starts with 1Z)\n"
+    "3. Delivery status: was this returned to sender? Look for 'NIS', 'RTS', "
+    "'RETURN TO SHIPPER', or similar markings. If no return markings, status "
+    "is 'Delivered'.\n"
+    "4. Owner name on the envelope\n"
+    "Return JSON only: {invoice, tracking, status, owner_name}"
+)
+
+_RETURN_STATUS_KEYWORDS = ('nis', 'rts', 'return')
+
+
+@bp.route('/bulk-envelope-scan')
+@_heather_required
+def bulk_envelope_scan():
+    """Bulk envelope upload — select 50+ scanned envelopes at once for AI processing."""
+    return render_template('heather/bulk_envelope_scan.html')
+
+
+@bp.route('/bulk-envelope-scan/process', methods=['POST'])
+@_heather_required
+def bulk_envelope_scan_process():
+    """AJAX: process a single envelope image (called once per file by the front end)."""
+    data = request.get_json() or {}
+    image_b64 = data.get('image', '')
+    filename = data.get('filename', 'unknown')
+
+    if not image_b64:
+        return jsonify({'error': 'No image provided'}), 400
+
+    api_key = os.environ.get('ANTHROPIC_API_KEY')
+    if not api_key:
+        return jsonify({'error': 'ANTHROPIC_API_KEY not configured'}), 500
+
+    media_type = 'image/jpeg'
+    if ',' in image_b64:
+        header, image_b64 = image_b64.split(',', 1)
+        if 'image/png' in header:
+            media_type = 'image/png'
+
+    try:
+        import re
+        import anthropic
+        client = anthropic.Anthropic(api_key=api_key)
+
+        message = client.messages.create(
+            model='claude-opus-4-8',
+            max_tokens=1024,
+            messages=[{
+                'role': 'user',
+                'content': [
+                    {
+                        'type': 'image',
+                        'source': {
+                            'type': 'base64',
+                            'media_type': media_type,
+                            'data': image_b64,
+                        },
+                    },
+                    {'type': 'text', 'text': BULK_ENVELOPE_PROMPT},
+                ],
+            }],
+        )
+
+        raw = message.content[0].text.strip()
+        try:
+            result = json.loads(raw)
+        except json.JSONDecodeError:
+            m = re.search(r'\{.*\}', raw, re.DOTALL)
+            result = json.loads(m.group()) if m else {}
+
+        invoice = (result.get('invoice') or '').strip()
+        tracking = (result.get('tracking') or '').strip()
+        status = (result.get('status') or '').strip()
+        owner_name = (result.get('owner_name') or '').strip()
+
+        if not invoice:
+            return jsonify({
+                'ok': True,
+                'filename': filename,
+                'unreadable': True,
+                'matched': False,
+                'result': result,
+            })
+
+        normalized_invoice = re.sub(r'[\s-]', '', invoice).upper()
+        vehicle = (
+            Vehicle.query
+            .filter(Vehicle.invoice_number.isnot(None))
+            .filter(func.upper(func.replace(
+                func.replace(Vehicle.invoice_number, ' ', ''), '-', ''
+            )) == normalized_invoice)
+            .first()
+        )
+
+        if not vehicle:
+            return jsonify({
+                'ok': True,
+                'filename': filename,
+                'unreadable': False,
+                'matched': False,
+                'invoice': invoice,
+                'tracking': tracking,
+                'status': status,
+                'owner_name': owner_name,
+            })
+
+        status_lower = status.lower()
+        is_rts = any(kw in status_lower for kw in _RETURN_STATUS_KEYWORDS)
+        is_delivered = bool(status_lower) and not is_rts
+        tracking_clean = tracking.replace(' ', '').upper() if tracking else None
+
+        notes = f'Bulk envelope scan ({filename}). Status: {status or "unknown"}.'
+        if owner_name:
+            notes += f' Owner on envelope: {owner_name}.'
+
+        scan = EnvelopeScan(
+            vehicle_id=vehicle.id,
+            tracking_number=tracking_clean,
+            scan_date=datetime.utcnow(),
+            scan_notes=notes,
+            is_return_to_sender=is_rts,
+            is_delivered=is_delivered,
+            delivery_date=date.today() if is_delivered else None,
+            claude_raw_response=raw,
+        )
+        db.session.add(scan)
+
+        letters = CertifiedLetter.query.filter_by(vehicle_id=vehicle.id).all()
+        for ltr in letters:
+            if not ltr.tracking_number and tracking_clean:
+                ltr.tracking_number = tracking_clean
+            if is_rts:
+                ltr.return_to_sender = True
+            if is_delivered and not ltr.delivery_confirmed_date:
+                ltr.delivery_confirmed_date = date.today()
+
+        if is_rts:
+            vehicle.letter_urgency = 'RED'
+            db.session.add(VehicleNote(
+                vehicle_id=vehicle.id,
+                body=(
+                    f'ALERT: Envelope returned/undeliverable (bulk scan, {filename}). '
+                    f'Status: {status}. Heather must verify address and resend.'
+                ),
+                author='Bulk Envelope Scanner',
+                created_at=datetime.utcnow(),
+            ))
+
+        vehicle.updated_at = datetime.utcnow()
+        db.session.commit()
+
+        return jsonify({
+            'ok': True,
+            'filename': filename,
+            'unreadable': False,
+            'matched': True,
+            'invoice': invoice,
+            'tracking': tracking,
+            'status': status,
+            'owner_name': owner_name,
+            'vehicle': {'id': vehicle.id, 'display_name': vehicle.display_name},
+        })
+
+    except Exception as exc:
+        db.session.rollback()
+        return jsonify({'error': str(exc), 'filename': filename}), 500

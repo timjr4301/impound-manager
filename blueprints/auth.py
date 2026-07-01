@@ -15,7 +15,9 @@ def login():
         password = request.form.get('password', '').strip()
         user = User.query.filter_by(username=username).first()
         if user and user.check_password(password) and user.is_active:
-            login_user(user, remember=True)
+            login_user(user, remember=False)
+            if not current_user.is_authenticated:
+                return "Login failed - user not authenticated after login_user()", 500
             next_page = request.args.get('next')
             if next_page:
                 return redirect(next_page)

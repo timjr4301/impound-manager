@@ -1,0 +1,231 @@
+{% extends 'base.html' %}
+{% block title %}Bulk Envelope Upload — Impound Manager{% endblock %}
+
+{% block content %}
+<div class="d-flex align-items-center mb-4 gap-3">
+  <a href="{{ url_for('heather.dashboard') }}" class="btn btn-outline-secondary btn-sm">
+    <i class="bi bi-arrow-left"></i>
+  </a>
+  <h2 class="h4 mb-0 fw-bold"><i class="bi bi-images me-2"></i>Bulk Envelope Upload</h2>
+</div>
+
+<div class="card shadow-sm mb-4">
+  <div class="card-header fw-semibold">
+    <i class="bi bi-upload me-2"></i>Select Scanned Envelope Images
+  </div>
+  <div class="card-body">
+    <p class="text-muted small mb-3">
+      Select all your scanned UPS envelope images at once (50+ is fine). Each image is sent to
+      Claude Vision to read the reference/invoice number, tracking number, and delivery status,
+      then automatically matched and saved to the corresponding vehicle.
+    </p>
+    <div class="mb-3">
+      <input type="file" id="fileInput" class="form-control" accept="image/jpeg,image/png" multiple>
+    </div>
+    <div class="d-flex gap-2 align-items-center flex-wrap">
+      <button id="btnStart" class="btn btn-primary" onclick="startBatch()" disabled>
+        <i class="bi bi-play-fill"></i> Process Batch
+      </button>
+      <span id="fileCount" class="text-muted small"></span>
+    </div>
+  </div>
+</div>
+
+<div class="card shadow-sm mb-4" id="progressCard" style="display:none;">
+  <div class="card-header fw-semibold">
+    <i class="bi bi-hourglass-split me-2"></i>Progress
+  </div>
+  <div class="card-body">
+    <div class="progress mb-2" style="height:22px;">
+      <div id="progressBar" class="progress-bar progress-bar-striped progress-bar-animated"
+           role="progressbar" style="width:0%">0%</div>
+    </div>
+    <div id="progressLabel" class="small text-muted mb-3">Waiting to start...</div>
+    <div id="liveLog" class="border rounded p-2" style="max-height:320px; overflow-y:auto; font-size:0.85rem;"></div>
+  </div>
+</div>
+
+<div class="card shadow-sm mb-4" id="summaryCard" style="display:none;">
+  <div class="card-header fw-semibold">
+    <i class="bi bi-clipboard-check me-2"></i>Batch Summary
+  </div>
+  <div class="card-body">
+    <div class="row g-3 mb-3 text-center">
+      <div class="col-4">
+        <div class="border rounded p-2 bg-success bg-opacity-10">
+          <div class="h4 mb-0" id="countMatched">0</div>
+          <div class="small text-muted">Matched</div>
+        </div>
+      </div>
+      <div class="col-4">
+        <div class="border rounded p-2 bg-warning bg-opacity-10">
+          <div class="h4 mb-0" id="countNotMatched">0</div>
+          <div class="small text-muted">Not Matched</div>
+        </div>
+      </div>
+      <div class="col-4">
+        <div class="border rounded p-2 bg-secondary bg-opacity-10">
+          <div class="h4 mb-0" id="countUnreadable">0</div>
+          <div class="small text-muted">Unreadable</div>
+        </div>
+      </div>
+    </div>
+
+    <h6 class="fw-semibold">Matched — Vehicle &amp; Status Saved</h6>
+    <div class="table-responsive mb-3">
+      <table class="table table-sm">
+        <thead><tr><th>File</th><th>Vehicle</th><th>Invoice</th><th>Status</th><th>Owner</th></tr></thead>
+        <tbody id="matchedRows"><tr><td colspan="5" class="text-muted">None</td></tr></tbody>
+      </table>
+    </div>
+
+    <h6 class="fw-semibold">Not Matched — Invoice Not Found in Database</h6>
+    <div class="table-responsive mb-3">
+      <table class="table table-sm">
+        <thead><tr><th>File</th><th>Invoice</th><th>Status</th><th>Owner</th></tr></thead>
+        <tbody id="notMatchedRows"><tr><td colspan="4" class="text-muted">None</td></tr></tbody>
+      </table>
+    </div>
+
+    <h6 class="fw-semibold">Unreadable — AI Could Not Extract Invoice Number</h6>
+    <div class="table-responsive">
+      <table class="table table-sm">
+        <thead><tr><th>File</th></tr></thead>
+        <tbody id="unreadableRows"><tr><td class="text-muted">None</td></tr></tbody>
+      </table>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+let selectedFiles = [];
+
+document.getElementById('fileInput').addEventListener('change', (e) => {
+  selectedFiles = Array.from(e.target.files);
+  document.getElementById('fileCount').textContent =
+    selectedFiles.length ? `${selectedFiles.length} image(s) selected` : '';
+  document.getElementById('btnStart').disabled = selectedFiles.length === 0;
+});
+
+function readAsDataURL(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result);
+    reader.onerror = reject;
+    reader.readAsDataURL(file);
+  });
+}
+
+function logLine(html) {
+  const log = document.getElementById('liveLog');
+  const line = document.createElement('div');
+  line.innerHTML = html;
+  log.appendChild(line);
+  log.scrollTop = log.scrollHeight;
+}
+
+function escapeHtml(s) {
+  const d = document.createElement('div');
+  d.textContent = s == null ? '' : String(s);
+  return d.innerHTML;
+}
+
+async function startBatch() {
+  if (!selectedFiles.length) return;
+
+  document.getElementById('btnStart').disabled = true;
+  document.getElementById('fileInput').disabled = true;
+  document.getElementById('progressCard').style.display = 'block';
+  document.getElementById('summaryCard').style.display = 'none';
+  document.getElementById('liveLog').innerHTML = '';
+
+  const matched = [];
+  const notMatched = [];
+  const unreadable = [];
+  const total = selectedFiles.length;
+
+  for (let i = 0; i < total; i++) {
+    const file = selectedFiles[i];
+    const pct = Math.round(((i) / total) * 100);
+    document.getElementById('progressBar').style.width = pct + '%';
+    document.getElementById('progressBar').textContent = pct + '%';
+    document.getElementById('progressLabel').textContent =
+      `Processing ${i + 1}/${total}: ${file.name}...`;
+
+    try {
+      const dataUrl = await readAsDataURL(file);
+      const resp = await fetch('{{ url_for("heather.bulk_envelope_scan_process") }}', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ image: dataUrl, filename: file.name }),
+      });
+      const data = await resp.json();
+
+      if (!resp.ok || data.error) {
+        unreadable.push({ filename: file.name });
+        logLine(`❌ <b>${escapeHtml(file.name)}</b> — error: ${escapeHtml(data.error || 'unknown error')}`);
+      } else if (data.unreadable) {
+        unreadable.push({ filename: file.name });
+        logLine(`⚠️ <b>${escapeHtml(file.name)}</b> — could not read invoice number`);
+      } else if (!data.matched) {
+        notMatched.push(data);
+        logLine(`🔍 <b>${escapeHtml(file.name)}</b> — invoice #${escapeHtml(data.invoice)} not found in database`);
+      } else {
+        matched.push(data);
+        logLine(`✅ <b>${escapeHtml(file.name)}</b> — matched ${escapeHtml(data.vehicle.display_name)} (${escapeHtml(data.status)})`);
+      }
+    } catch (err) {
+      unreadable.push({ filename: file.name });
+      logLine(`❌ <b>${escapeHtml(file.name)}</b> — ${escapeHtml(err.message)}`);
+    }
+  }
+
+  document.getElementById('progressBar').style.width = '100%';
+  document.getElementById('progressBar').textContent = '100%';
+  document.getElementById('progressLabel').textContent = `Done — processed ${total} image(s).`;
+
+  renderSummary(matched, notMatched, unreadable);
+
+  document.getElementById('btnStart').disabled = false;
+  document.getElementById('fileInput').disabled = false;
+}
+
+function renderSummary(matched, notMatched, unreadable) {
+  document.getElementById('summaryCard').style.display = 'block';
+  document.getElementById('countMatched').textContent = matched.length;
+  document.getElementById('countNotMatched').textContent = notMatched.length;
+  document.getElementById('countUnreadable').textContent = unreadable.length;
+
+  const matchedRows = document.getElementById('matchedRows');
+  matchedRows.innerHTML = matched.length ? '' : '<tr><td colspan="5" class="text-muted">None</td></tr>';
+  matched.forEach((m) => {
+    matchedRows.innerHTML += `<tr>
+      <td>${escapeHtml(m.filename)}</td>
+      <td>${escapeHtml(m.vehicle.display_name)}</td>
+      <td>${escapeHtml(m.invoice)}</td>
+      <td>${escapeHtml(m.status)}</td>
+      <td>${escapeHtml(m.owner_name)}</td>
+    </tr>`;
+  });
+
+  const notMatchedRows = document.getElementById('notMatchedRows');
+  notMatchedRows.innerHTML = notMatched.length ? '' : '<tr><td colspan="4" class="text-muted">None</td></tr>';
+  notMatched.forEach((m) => {
+    notMatchedRows.innerHTML += `<tr>
+      <td>${escapeHtml(m.filename)}</td>
+      <td>${escapeHtml(m.invoice)}</td>
+      <td>${escapeHtml(m.status)}</td>
+      <td>${escapeHtml(m.owner_name)}</td>
+    </tr>`;
+  });
+
+  const unreadableRows = document.getElementById('unreadableRows');
+  unreadableRows.innerHTML = unreadable.length ? '' : '<tr><td class="text-muted">None</td></tr>';
+  unreadable.forEach((u) => {
+    unreadableRows.innerHTML += `<tr><td>${escapeHtml(u.filename)}</td></tr>`;
+  });
+}
+</script>
+{% endblock %}

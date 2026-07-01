@@ -191,6 +191,13 @@ class Vehicle(db.Model):
     task4_triggered = db.Column(db.Boolean, default=False)
     task4_triggered_date = db.Column(db.Date)
 
+    # Anomaly flag — hides vehicle from Heather/Tina queues until Tim/Jim/Admin
+    # reviews it. Anyone can flag it (with a reason); only all_access roles can clear it.
+    is_anomaly = db.Column(db.Boolean, default=False)
+    anomaly_reason = db.Column(db.Text)
+    anomaly_flagged_by = db.Column(db.String(50))
+    anomaly_flagged_at = db.Column(db.DateTime)
+
     # Pre-computed by task_engine.recalculate_all — enables fast DB queries
     letter_urgency    = db.Column(db.String(10))    # RED | YELLOW | GREEN | NA
     current_task_num  = db.Column(db.Integer)       # 1, 2, 3, 4
@@ -254,6 +261,11 @@ class Vehicle(db.Model):
 
     def __repr__(self):
         return f'<Vehicle {self.id}: {self.display_name}>'
+
+    @classmethod
+    def not_anomaly_filter(cls):
+        """Filter expression excluding anomaly-flagged vehicles from staff queues."""
+        return db.or_(cls.is_anomaly.is_(False), cls.is_anomaly.is_(None))
 
     @property
     def display_name(self):
