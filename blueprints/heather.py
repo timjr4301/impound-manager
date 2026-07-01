@@ -917,6 +917,7 @@ def envelope_scan_camera():
                             'Extract the following and respond ONLY with valid JSON:\n'
                             '{\n'
                             '  "tracking_number": "the full tracking number if visible, null if not",\n'
+                            '  "reference_number": "any invoice/reference number written or printed on the envelope (e.g. handwritten in a corner), null if not visible",\n'
                             '  "is_return_to_sender": true/false,\n'
                             '  "is_delivered": true/false,\n'
                             '  "delivery_date": "YYYY-MM-DD if visible, null if not",\n'
@@ -937,24 +938,43 @@ def envelope_scan_camera():
             m = re.search(r'\{.*\}', raw, re.DOTALL)
             result = json.loads(m.group()) if m else {}
 
-        # Auto-match: look up certified_letters by the tracking number the AI
-        # just read, so the front end can auto-select the vehicle instead of
-        # making Heather find it in the dropdown herself.
+        # Auto-match, in priority order, so the front end can auto-select the
+        # vehicle instead of making Heather find it in the dropdown herself:
+        #   1. reference/invoice number written on the envelope -> Vehicle.invoice_number
+        #   2. tracking number -> certified_letters.tracking_number
+        #   3. no match -> front end falls back to manual dropdown selection
+        import re
         matched_vehicle = None
+        matched_by = None
+
+        raw_reference = result.get('reference_number')
+        if raw_reference:
+            normalized_ref = re.sub(r'[\s-]', '', raw_reference).upper()
+            matched_vehicle = (
+                Vehicle.query
+                .filter(Vehicle.invoice_number.isnot(None))
+                .filter(func.upper(func.replace(
+                    func.replace(Vehicle.invoice_number, ' ', ''), '-', ''
+                )) == normalized_ref)
+                .first()
+            )
+            if matched_vehicle:
+                matched_by = 'reference_number'
+
         raw_tracking = result.get('tracking_number')
-        if raw_tracking:
-            import re
-            normalized = re.sub(r'[\s-]', '', raw_tracking).upper()
+        if not matched_vehicle and raw_tracking:
+            normalized_tracking = re.sub(r'[\s-]', '', raw_tracking).upper()
             matched_letter = (
                 CertifiedLetter.query
                 .filter(CertifiedLetter.tracking_number.isnot(None))
                 .filter(func.upper(func.replace(
                     func.replace(CertifiedLetter.tracking_number, ' ', ''), '-', ''
-                )) == normalized)
+                )) == normalized_tracking)
                 .first()
             )
             if matched_letter:
                 matched_vehicle = matched_letter.vehicle
+                matched_by = 'tracking_number'
 
         return jsonify({
             'ok': True,
@@ -963,6 +983,7 @@ def envelope_scan_camera():
             'matched_vehicle': {
                 'id': matched_vehicle.id,
                 'display_name': matched_vehicle.display_name,
+                'matched_by': matched_by,
             } if matched_vehicle else None,
         })
 
@@ -977,9 +998,10 @@ def envelope_scan_match_save():
     data = request.get_json() or {}
     vehicle_id = data.get('vehicle_id')
     tracking = (data.get('tracking_number') or '').strip()
+    reference = (data.get('reference_number') or '').strip()
 
-    if not vehicle_id or not tracking:
-        return jsonify({'error': 'Vehicle and tracking number are required.'}), 400
+    if not vehicle_id or not (tracking or reference):
+        return jsonify({'error': 'Vehicle and a tracking or reference number are required.'}), 400
 
     vehicle = Vehicle.query.get(vehicle_id)
     if not vehicle:
@@ -987,7 +1009,7 @@ def envelope_scan_match_save():
 
     is_rts = bool(data.get('is_return_to_sender'))
     is_delivered = bool(data.get('is_delivered'))
-    tracking_clean = tracking.replace(' ', '').upper()
+    tracking_clean = tracking.replace(' ', '').upper() if tracking else None
 
     delivery_date = None
     if is_delivered:
@@ -997,11 +1019,15 @@ def envelope_scan_match_save():
         except (ValueError, TypeError):
             delivery_date = date.today()
 
+    notes = data.get('notes') or ''
+    if reference and not tracking_clean:
+        notes = f'Matched by reference #{reference}. {notes}'.strip()
+
     scan = EnvelopeScan(
         vehicle_id=vehicle.id,
         tracking_number=tracking_clean,
         scan_date=datetime.utcnow(),
-        scan_notes=data.get('notes') or None,
+        scan_notes=notes or None,
         is_return_to_sender=is_rts,
         is_delivered=is_delivered,
         delivery_date=delivery_date,
@@ -1010,15 +1036,16 @@ def envelope_scan_match_save():
     db.session.add(scan)
 
     # Update the matching letter if we can find one, same as manual entry does
-    letters = CertifiedLetter.query.filter_by(vehicle_id=vehicle.id).all()
-    for ltr in letters:
-        if not ltr.tracking_number:
-            ltr.tracking_number = tracking_clean
-            if is_rts:
-                ltr.return_to_sender = True
-            if is_delivered and not ltr.delivery_confirmed_date:
-                ltr.delivery_confirmed_date = delivery_date
-            break
+    if tracking_clean:
+        letters = CertifiedLetter.query.filter_by(vehicle_id=vehicle.id).all()
+        for ltr in letters:
+            if not ltr.tracking_number:
+                ltr.tracking_number = tracking_clean
+                if is_rts:
+                    ltr.return_to_sender = True
+                if is_delivered and not ltr.delivery_confirmed_date:
+                    ltr.delivery_confirmed_date = delivery_date
+                break
 
     db.session.commit()
     return jsonify({'ok': True, 'vehicle': vehicle.display_name})

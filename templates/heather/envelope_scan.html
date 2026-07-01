@@ -97,7 +97,7 @@
             <input type="text" name="notes" class="form-control" placeholder="e.g. Delivered per USPS, RTS — bad address">
           </div>
           <button type="submit" class="btn btn-primary w-100">
-            <i class="bi bi-save"></i> Save Scan Record
+            <i class="bi bi-save"></i> Match &amp; Save
           </button>
         </form>
       </div>
@@ -187,6 +187,7 @@ async function processImage() {
 
       const r = data.result;
       let html = '<strong>AI Read Results:</strong><br>';
+      if (r.reference_number) html += `<b>Reference #:</b> ${r.reference_number}<br>`;
       if (r.tracking_number) {
         html += `<b>Tracking #:</b> ${r.tracking_number}<br>`;
         document.getElementById('manualTracking').value = r.tracking_number;
@@ -196,17 +197,20 @@ async function processImage() {
       if (r.delivery_date) html += `📅 Delivery date: ${r.delivery_date}<br>`;
       if (r.notes) html += `Notes: ${r.notes}<br>`;
 
+      const hasIdentifier = !!(r.tracking_number || r.reference_number);
+
       if (data.matched_vehicle) {
         document.getElementById('cameraVehicleId').value = data.matched_vehicle.id;
-        html += `<br>🎯 <b>Matched vehicle:</b> ${data.matched_vehicle.display_name}`;
-      } else if (r.tracking_number) {
-        html += '<br>⚠️ No vehicle match found for this tracking number — select one manually below, then click Match &amp; Save.';
+        const via = data.matched_vehicle.matched_by === 'reference_number' ? 'reference #' : 'tracking #';
+        html += `<br>🎯 <b>Matched vehicle (by ${via}):</b> ${data.matched_vehicle.display_name} — confirm and click Match &amp; Save.`;
+      } else if (hasIdentifier) {
+        html += '<br>⚠️ No vehicle match found — select one manually below, then click Match &amp; Save.';
       }
 
       content.innerHTML = html;
       content.className = 'alert alert-success py-2 small';
 
-      if (r.tracking_number) matchSaveBtn.style.display = 'inline-block';
+      if (hasIdentifier) matchSaveBtn.style.display = 'inline-block';
     } else {
       content.innerHTML = `Error: ${data.error}`;
       content.className = 'alert alert-danger py-2 small';
@@ -222,7 +226,10 @@ async function processImage() {
 async function matchAndSave() {
   const vehicleId = document.getElementById('cameraVehicleId').value;
   if (!vehicleId) { alert('Select a vehicle first — no automatic match was found.'); return; }
-  if (!lastAiResult || !lastAiResult.tracking_number) { alert('No tracking number to save.'); return; }
+  if (!lastAiResult || (!lastAiResult.tracking_number && !lastAiResult.reference_number)) {
+    alert('No tracking number or reference number to save.');
+    return;
+  }
 
   const btn = document.getElementById('btnMatchSave');
   btn.disabled = true;
@@ -234,7 +241,8 @@ async function matchAndSave() {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         vehicle_id: vehicleId,
-        tracking_number: lastAiResult.tracking_number,
+        tracking_number: lastAiResult.tracking_number || null,
+        reference_number: lastAiResult.reference_number || null,
         is_delivered: !!lastAiResult.is_delivered,
         is_return_to_sender: !!lastAiResult.is_return_to_sender,
         delivery_date: lastAiResult.delivery_date || null,
