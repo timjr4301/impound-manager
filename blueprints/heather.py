@@ -11,7 +11,7 @@ from flask import (Blueprint, render_template, request, redirect,
 from flask_login import login_required, current_user
 from markupsafe import escape
 from models import db, Vehicle, CertifiedLetter, EnvelopeScan, VehicleNote
-from sqlalchemy import or_, func
+from sqlalchemy import or_, func, cast, Date
 from models import PPI_LETTER1_DAYS, PPI_LETTER2_DAYS, POLICE_LETTER1_DAYS
 from permissions import require_permission
 
@@ -21,6 +21,19 @@ bp = Blueprint('heather', __name__, url_prefix='/heather')
 # queues (BMV Search Queue, Overdue/Urgent, Due Soon, On Track) until the
 # historical review screen is built. They remain in the database untouched.
 HEATHER_QUEUE_CUTOFF = date(2024, 1, 1)
+
+
+def _after_cutoff():
+    """impound_date >= HEATHER_QUEUE_CUTOFF, with an explicit CAST to DATE.
+
+    The model declares impound_date as db.Date, but if the live column's
+    actual Postgres type doesn't match that (e.g. it was created/altered
+    outside the ORM as TEXT/VARCHAR), comparing it against a bound DATE
+    parameter raises 'operator does not exist'. Casting the column
+    explicitly makes the comparison work regardless of the column's real
+    stored type, at the cost of a no-op cast if it's already DATE.
+    """
+    return cast(Vehicle.impound_date, Date) >= HEATHER_QUEUE_CUTOFF
 
 
 def _heather_required(f):
@@ -57,19 +70,19 @@ def dashboard():
     red = (Vehicle.query
            .filter(Vehicle.status.in_(['ACTIVE', 'TITLE_FILED']))
            .filter(Vehicle.letter_urgency == 'RED')
-           .filter(Vehicle.impound_date >= HEATHER_QUEUE_CUTOFF)
+           .filter(_after_cutoff())
            .order_by(Vehicle.impound_date.asc())
            .all())
     yellow = (Vehicle.query
               .filter(Vehicle.status.in_(['ACTIVE', 'TITLE_FILED']))
               .filter(Vehicle.letter_urgency == 'YELLOW')
-              .filter(Vehicle.impound_date >= HEATHER_QUEUE_CUTOFF)
+              .filter(_after_cutoff())
               .order_by(Vehicle.impound_date.asc())
               .all())
     green = (Vehicle.query
              .filter(Vehicle.status.in_(['ACTIVE', 'TITLE_FILED']))
              .filter(Vehicle.letter_urgency == 'GREEN')
-             .filter(Vehicle.impound_date >= HEATHER_QUEUE_CUTOFF)
+             .filter(_after_cutoff())
              .order_by(Vehicle.impound_date.desc())
              .all())
 
@@ -86,19 +99,19 @@ def dashboard():
                 red = (Vehicle.query
                        .filter(Vehicle.status.in_(['ACTIVE', 'TITLE_FILED']))
                        .filter(Vehicle.letter_urgency == 'RED')
-                       .filter(Vehicle.impound_date >= HEATHER_QUEUE_CUTOFF)
+                       .filter(_after_cutoff())
                        .order_by(Vehicle.impound_date.asc())
                        .all())
                 yellow = (Vehicle.query
                           .filter(Vehicle.status.in_(['ACTIVE', 'TITLE_FILED']))
                           .filter(Vehicle.letter_urgency == 'YELLOW')
-                          .filter(Vehicle.impound_date >= HEATHER_QUEUE_CUTOFF)
+                          .filter(_after_cutoff())
                           .order_by(Vehicle.impound_date.asc())
                           .all())
                 green = (Vehicle.query
                          .filter(Vehicle.status.in_(['ACTIVE', 'TITLE_FILED']))
                          .filter(Vehicle.letter_urgency == 'GREEN')
-                         .filter(Vehicle.impound_date >= HEATHER_QUEUE_CUTOFF)
+                         .filter(_after_cutoff())
                          .order_by(Vehicle.impound_date.desc())
                          .all())
         except Exception as exc:
@@ -111,7 +124,7 @@ def dashboard():
                        .filter(Vehicle.task_no_record == True)
                        .filter(db.or_(Vehicle.task_no_record_resolved == False,
                                       Vehicle.task_no_record_resolved.is_(None)))
-                       .filter(Vehicle.impound_date >= HEATHER_QUEUE_CUTOFF)
+                       .filter(_after_cutoff())
                        .order_by(Vehicle.impound_date.asc())
                        .all())
 
@@ -120,7 +133,7 @@ def dashboard():
         .join(Vehicle)
         .filter(Vehicle.status == 'ACTIVE')
         .filter(CertifiedLetter.sent_date.is_(None))
-        .filter(Vehicle.impound_date >= HEATHER_QUEUE_CUTOFF)
+        .filter(_after_cutoff())
         .all()
     )
 
@@ -137,7 +150,7 @@ def dashboard():
                  .filter(db.or_(Vehicle.heather_complete == False,
                                 Vehicle.heather_complete.is_(None)))
                  .filter(db.or_(Vehicle.bmv_stage.in_([None, 'PENDING', 'QUEUED'])))
-                 .filter(Vehicle.impound_date >= HEATHER_QUEUE_CUTOFF)
+                 .filter(_after_cutoff())
                  .order_by(Vehicle.impound_date.asc())
                  .limit(100)
                  .all())
@@ -149,7 +162,7 @@ def dashboard():
         .filter(Vehicle.status == 'ACTIVE')
         .filter(CertifiedLetter.sent_date.isnot(None))
         .filter(CertifiedLetter.delivery_confirmed_date.is_(None))
-        .filter(Vehicle.impound_date >= HEATHER_QUEUE_CUTOFF)
+        .filter(_after_cutoff())
         .order_by(CertifiedLetter.sent_date.asc())
         .all()
     )
@@ -690,7 +703,7 @@ def letters():
         .join(Vehicle)
         .filter(Vehicle.status == 'ACTIVE')
         .filter(CertifiedLetter.sent_date.is_(None))
-        .filter(Vehicle.impound_date >= HEATHER_QUEUE_CUTOFF)
+        .filter(_after_cutoff())
         .order_by(CertifiedLetter.due_date.asc())
         .all()
     )
@@ -702,7 +715,7 @@ def letters():
         .filter(Vehicle.status == 'ACTIVE')
         .filter(CertifiedLetter.sent_date.isnot(None))
         .filter(CertifiedLetter.delivery_confirmed_date.is_(None))
-        .filter(Vehicle.impound_date >= HEATHER_QUEUE_CUTOFF)
+        .filter(_after_cutoff())
         .order_by(CertifiedLetter.sent_date.asc())
         .all()
     )
@@ -713,7 +726,7 @@ def letters():
         .join(Vehicle)
         .filter(CertifiedLetter.return_to_sender == True)
         .filter(Vehicle.status == 'ACTIVE')
-        .filter(Vehicle.impound_date >= HEATHER_QUEUE_CUTOFF)
+        .filter(_after_cutoff())
         .order_by(CertifiedLetter.sent_date.desc())
         .all()
     )
@@ -724,7 +737,7 @@ def letters():
         .join(Vehicle)
         .filter(CertifiedLetter.delivery_confirmed_date.isnot(None))
         .filter(CertifiedLetter.delivery_confirmed_date >= today - timedelta(days=30))
-        .filter(Vehicle.impound_date >= HEATHER_QUEUE_CUTOFF)
+        .filter(_after_cutoff())
         .order_by(CertifiedLetter.delivery_confirmed_date.desc())
         .limit(50)
         .all()
@@ -913,11 +926,11 @@ def envelope_scan_camera():
                     {
                         'type': 'text',
                         'text': (
-                            'This is a certified mail envelope or USPS label scanned for an impound lot. '
+                            'This is a certified mail envelope or UPS/USPS label scanned for an impound lot. '
                             'Extract the following and respond ONLY with valid JSON:\n'
                             '{\n'
-                            '  "tracking_number": "the full tracking number if visible, null if not",\n'
-                            '  "reference_number": "any invoice/reference number written or printed on the envelope (e.g. handwritten in a corner), null if not visible",\n'
+                            '  "tracking_number": "the full UPS tracking number, which starts with 1Z, or the full USPS tracking number if this is USPS. Null if not visible.",\n'
+                            '  "reference_number": "the 6-digit number next to the field labeled \'Reference\', \'Reference #1\', or \'Ref 1\' on a UPS label — this is our internal invoice number (e.g. 726603). Do NOT use Reference #2 (that is a date, not our invoice number). Do NOT use UPS sort/route codes such as \'141-FDR\' or similar dash-separated codes — those are not the reference number. Null if no Reference #1 field is visible.",\n'
                             '  "is_return_to_sender": true/false,\n'
                             '  "is_delivered": true/false,\n'
                             '  "delivery_date": "YYYY-MM-DD if visible, null if not",\n'
