@@ -110,6 +110,12 @@ def extract_towbook_data(text):
         csz_parts = [p for p in [owner_city, f'{owner_state} {owner_zip}'.strip()] if p]
         addr_parts = [owner_addr] + (csz_parts if csz_parts else [])
         result['owner_address'] = '\n'.join(addr_parts)
+    if owner_city:
+        result['owner_city'] = owner_city
+    if owner_state:
+        result['owner_state'] = owner_state
+    if owner_zip:
+        result['owner_zip'] = owner_zip
 
     # ── Lienholder ────────────────────────────────────────────────────────
     lien_name = _find(text, r'^LIENHOLDER NAME[ \t]+(.+)$')

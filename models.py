@@ -392,15 +392,14 @@ class Vehicle(db.Model):
     def file_complete_for_tina(self):
         """
         All four items must be physically present before handoff to Tina.
-        tracking_number lives on certified_letters — check at least one letter has one.
         ups_delivery_confirmed and return_receipt_filed are separate requirements
         (Heather: "RIGHT NOW THAT HAS TO BE 2 SEPARATE DOCS").
+        has_tracking removed - CertifiedLetter tracking is not the send path;
+        VehicleNotice handles UPS labels and those numbers live there, not here.
         """
-        has_tracking = any(l.tracking_number for l in self.letters)
         return (
             self.lka_document_confirmed and
             self.title_search_confirmed and
-            has_tracking and
             self.ups_delivery_confirmed and
             self.return_receipt_filed
         )
