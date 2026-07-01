@@ -66,28 +66,32 @@ def dashboard():
 
     # Fallback: if all urgencies are null (first run, not yet backfilled), recalculate now
     if not red and not yellow and not green:
-        uncalculated = Vehicle.query.filter(
-            Vehicle.status.in_(['ACTIVE', 'TITLE_FILED']),
-            Vehicle.letter_urgency.is_(None)
-        ).count()
-        if uncalculated > 0:
-            from task_engine import recalculate_all
-            recalculate_all()
-            red = (Vehicle.query
-                   .filter(Vehicle.status.in_(['ACTIVE', 'TITLE_FILED']))
-                   .filter(Vehicle.letter_urgency == 'RED')
-                   .order_by(Vehicle.impound_date.asc())
-                   .all())
-            yellow = (Vehicle.query
-                      .filter(Vehicle.status.in_(['ACTIVE', 'TITLE_FILED']))
-                      .filter(Vehicle.letter_urgency == 'YELLOW')
-                      .order_by(Vehicle.impound_date.asc())
-                      .all())
-            green = (Vehicle.query
-                     .filter(Vehicle.status.in_(['ACTIVE', 'TITLE_FILED']))
-                     .filter(Vehicle.letter_urgency == 'GREEN')
-                     .order_by(Vehicle.impound_date.desc())
-                     .all())
+        try:
+            uncalculated = Vehicle.query.filter(
+                Vehicle.status.in_(['ACTIVE', 'TITLE_FILED']),
+                Vehicle.letter_urgency.is_(None)
+            ).count()
+            if uncalculated > 0:
+                from task_engine import recalculate_all
+                recalculate_all()
+                red = (Vehicle.query
+                       .filter(Vehicle.status.in_(['ACTIVE', 'TITLE_FILED']))
+                       .filter(Vehicle.letter_urgency == 'RED')
+                       .order_by(Vehicle.impound_date.asc())
+                       .all())
+                yellow = (Vehicle.query
+                          .filter(Vehicle.status.in_(['ACTIVE', 'TITLE_FILED']))
+                          .filter(Vehicle.letter_urgency == 'YELLOW')
+                          .order_by(Vehicle.impound_date.asc())
+                          .all())
+                green = (Vehicle.query
+                         .filter(Vehicle.status.in_(['ACTIVE', 'TITLE_FILED']))
+                         .filter(Vehicle.letter_urgency == 'GREEN')
+                         .order_by(Vehicle.impound_date.desc())
+                         .all())
+        except Exception as exc:
+            db.session.rollback()
+            print(f'[heather.dashboard] urgency backfill error: {exc}')
 
     # Task 5 URGENT — No Record Found vehicles (unresolved)
     urgent_vehicles = (Vehicle.query
