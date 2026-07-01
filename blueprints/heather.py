@@ -60,6 +60,40 @@ def _heather_view(f):
     return login_required(decorated)
 
 
+_DAILY_INTAKE_ROLES = ('tim', 'heather', 'lori', 'brady', 'jim')
+
+
+def _daily_intake_required(f):
+    """Daily Intake is scoped to exactly tim, heather, lori, brady — not the
+    broader is_heather/can_see_heather_dashboard sets used elsewhere, since
+    tina/jim/lawrence/dispatcher are explicitly excluded from this page."""
+    from functools import wraps
+    @wraps(f)
+    def decorated(*args, **kwargs):
+        if not current_user.is_authenticated or current_user.role not in _DAILY_INTAKE_ROLES:
+            flash('Access restricted.', 'danger')
+            return redirect(url_for('dashboard'))
+        return f(*args, **kwargs)
+    return login_required(decorated)
+
+
+def _bmv_scanner_available():
+    """Defensive check: has bmv_migration.sql actually been run on this DB yet?
+    Lets Daily Intake stub out the BMV zone gracefully instead of erroring."""
+    from models import BMVScanHistory
+    try:
+        BMVScanHistory.query.limit(1).all()
+        Vehicle.query.with_entities(
+            Vehicle.po_box_flag, Vehicle.title_number,
+            Vehicle.lienholder_name, Vehicle.lienholder_address,
+            Vehicle.owner_city, Vehicle.owner_state, Vehicle.owner_zip,
+        ).first()
+        return True
+    except Exception:
+        db.session.rollback()
+        return False
+
+
 @bp.route('/')
 @_heather_view
 def dashboard():
@@ -378,6 +412,25 @@ def envelope_scan():
 
     active_vehicles = Vehicle.query.filter_by(status='ACTIVE').order_by(Vehicle.impound_date.desc()).all()
     return render_template('heather/envelope_scan.html', vehicles=active_vehicles)
+
+
+@bp.route('/daily-intake')
+@_daily_intake_required
+def daily_intake():
+    """One page for the morning drop: Towbook CSV + a batch of BMV PDFs."""
+    active_vehicles = Vehicle.query.filter_by(status='ACTIVE').all()
+    vehicle_lookup = {
+        v.id: {
+            'invoice_number': v.invoice_number,
+            'stock_number': v.stock_number,
+            'display_name': v.display_name,
+        }
+        for v in active_vehicles
+    }
+    return render_template('heather/daily_intake.html',
+        bmv_available=_bmv_scanner_available(),
+        vehicle_lookup=vehicle_lookup,
+    )
 
 
 # ── UPS Notices ────────────────────────────────────────────────────────────────

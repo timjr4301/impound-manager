@@ -1,0 +1,323 @@
+{% extends 'base.html' %}
+{% block title %}Daily Intake — Impound Manager{% endblock %}
+
+{% block content %}
+<div class="d-flex align-items-center mb-4 gap-3">
+  <a href="{{ url_for('heather.dashboard') }}" class="btn btn-outline-secondary btn-sm">
+    <i class="bi bi-arrow-left"></i>
+  </a>
+  <h2 class="h4 mb-0 fw-bold"><i class="bi bi-inboxes me-2"></i>Daily Intake</h2>
+</div>
+
+<style>
+  .intake-dropzone {
+    border: 2px dashed #adb5bd;
+    border-radius: 10px;
+    padding: 2.5rem 1rem;
+    text-align: center;
+    cursor: pointer;
+    transition: background-color .15s, border-color .15s;
+  }
+  .intake-dropzone:hover, .intake-dropzone.dragover {
+    background-color: #eef4ff;
+    border-color: #0d6efd;
+  }
+  .intake-dropzone i { font-size: 2rem; color: #6c757d; }
+</style>
+
+<div class="row g-4">
+
+  {# ── Left: Towbook CSV ── #}
+  <div class="col-md-6">
+    <div class="card shadow-sm h-100">
+      <div class="card-header fw-semibold">
+        <i class="bi bi-file-earmark-spreadsheet me-2"></i>Towbook CSV
+      </div>
+      <div class="card-body">
+        <div id="csvDropZone" class="intake-dropzone">
+          <i class="bi bi-cloud-arrow-up d-block mb-2"></i>
+          <p class="mb-1 fw-semibold">Drop the Towbook export here</p>
+          <p class="text-muted small mb-0">or click to browse</p>
+          <input type="file" id="csvFileInput" accept=".csv" style="display:none;">
+        </div>
+        <div id="csvResult" class="mt-3"></div>
+      </div>
+    </div>
+  </div>
+
+  {# ── Right: BMV Documents ── #}
+  <div class="col-md-6">
+    <div class="card shadow-sm h-100">
+      <div class="card-header fw-semibold">
+        <i class="bi bi-file-earmark-medical me-2"></i>BMV Documents
+      </div>
+      <div class="card-body">
+        {% if bmv_available %}
+        <div id="bmvDropZone" class="intake-dropzone">
+          <i class="bi bi-cloud-arrow-up d-block mb-2"></i>
+          <p class="mb-1 fw-semibold">Drop LKA + Title Abstract PDFs here</p>
+          <p class="text-muted small mb-0">or click to browse — filenames must contain "LKA" or "Abstract"/"Title"</p>
+          <input type="file" id="bmvFileInput" accept="application/pdf" multiple style="display:none;">
+        </div>
+        <div id="bmvProgress" class="small text-muted mt-2"></div>
+        <div id="bmvResults" class="mt-3"></div>
+        {% else %}
+        <p class="text-muted text-center py-5 mb-0">
+          <i class="bi bi-hourglass-split me-1"></i>BMV scanner coming soon
+        </p>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+
+</div>
+{% endblock %}
+
+{% block scripts %}
+{% if bmv_available %}
+<script src="https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.min.js"></script>
+{% endif %}
+<script>
+function escapeHtml(s) {
+  const d = document.createElement('div');
+  d.textContent = s == null ? '' : String(s);
+  return d.innerHTML;
+}
+
+// ── Towbook CSV zone ────────────────────────────────────────────────────────
+(function () {
+  const zone = document.getElementById('csvDropZone');
+  const input = document.getElementById('csvFileInput');
+  const result = document.getElementById('csvResult');
+
+  zone.addEventListener('click', () => input.click());
+  zone.addEventListener('dragover', (e) => { e.preventDefault(); zone.classList.add('dragover'); });
+  zone.addEventListener('dragleave', () => zone.classList.remove('dragover'));
+  zone.addEventListener('drop', (e) => {
+    e.preventDefault();
+    zone.classList.remove('dragover');
+    if (e.dataTransfer.files.length) handleCsvFile(e.dataTransfer.files[0]);
+  });
+  input.addEventListener('change', () => {
+    if (input.files.length) handleCsvFile(input.files[0]);
+  });
+
+  async function handleCsvFile(file) {
+    result.innerHTML = '<div class="text-muted small"><span class="spinner-border spinner-border-sm me-1"></span>Importing…</div>';
+    const fd = new FormData();
+    fd.append('file', file);
+    try {
+      const resp = await fetch('{{ url_for("towbook_import.import_csv") }}', { method: 'POST', body: fd });
+      const data = await resp.json();
+      if (data.error) {
+        result.innerHTML = `<div class="alert alert-danger mb-0 py-2 small">${escapeHtml(data.error)}</div>`;
+        return;
+      }
+      const errHtml = data.errors && data.errors.length
+        ? `<details class="mt-2"><summary class="text-danger small">${data.errors.length} row error(s)</summary>
+           <pre class="small text-danger mb-0">${escapeHtml(JSON.stringify(data.errors, null, 2))}</pre></details>`
+        : '';
+      result.innerHTML = `
+        <div class="alert alert-success mb-0 py-2 small">
+          <i class="bi bi-check-circle-fill me-1"></i>
+          <strong>${data.inserted} new, ${data.updated} updated</strong> (${data.skipped} skipped)
+        </div>${errHtml}`;
+    } catch (err) {
+      result.innerHTML = `<div class="alert alert-danger mb-0 py-2 small">Network error: ${escapeHtml(err.message)}</div>`;
+    }
+  }
+})();
+
+// ── BMV Documents zone ──────────────────────────────────────────────────────
+{% if bmv_available %}
+(function () {
+  const vehicleLookup = {{ vehicle_lookup|tojson }};
+  const zone = document.getElementById('bmvDropZone');
+  const input = document.getElementById('bmvFileInput');
+  const progress = document.getElementById('bmvProgress');
+  const results = document.getElementById('bmvResults');
+
+  if (window.pdfjsLib) {
+    pdfjsLib.GlobalWorkerOptions.workerSrc =
+      'https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.worker.min.js';
+  }
+
+  zone.addEventListener('click', () => input.click());
+  zone.addEventListener('dragover', (e) => { e.preventDefault(); zone.classList.add('dragover'); });
+  zone.addEventListener('dragleave', () => zone.classList.remove('dragover'));
+  zone.addEventListener('drop', (e) => {
+    e.preventDefault();
+    zone.classList.remove('dragover');
+    if (e.dataTransfer.files.length) processBatch(Array.from(e.dataTransfer.files));
+  });
+  input.addEventListener('change', () => {
+    if (input.files.length) processBatch(Array.from(input.files));
+  });
+
+  function classifyFilename(name) {
+    const lower = name.toLowerCase();
+    if (lower.includes('lka')) return 'LKA';
+    if (lower.includes('abstract') || lower.includes('title')) return 'TITLE_ABSTRACT';
+    return null;
+  }
+
+  async function pdfPagesToImages(file, maxPages) {
+    const buf = await file.arrayBuffer();
+    const pdf = await pdfjsLib.getDocument({ data: buf }).promise;
+    const images = [];
+    const pageCount = Math.min(pdf.numPages, maxPages);
+    for (let i = 1; i <= pageCount; i++) {
+      const page = await pdf.getPage(i);
+      const viewport = page.getViewport({ scale: 2.0 });
+      const canvas = document.createElement('canvas');
+      canvas.width = viewport.width;
+      canvas.height = viewport.height;
+      await page.render({ canvasContext: canvas.getContext('2d'), viewport }).promise;
+      images.push(canvas.toDataURL('image/jpeg', 0.92));
+    }
+    return images;
+  }
+
+  function addRow(html, borderClass) {
+    const row = document.createElement('div');
+    row.className = `border rounded p-2 mb-2${borderClass ? ' ' + borderClass : ''}`;
+    row.innerHTML = html;
+    results.appendChild(row);
+  }
+
+  function renderUnclassifiedRow(filename) {
+    addRow(`<strong>${escapeHtml(filename)}</strong>
+      <div class="text-warning-emphasis small">⚠️ Could not classify — rename to include
+      "LKA" or "Abstract" and re-upload.</div>`, 'border-warning');
+  }
+
+  function renderErrorRow(filename, error) {
+    addRow(`<strong>${escapeHtml(filename)}</strong>
+      <div class="text-danger small">${escapeHtml(error)}</div>`, 'border-danger');
+  }
+
+  function renderNoMatchRow(filename, parsed) {
+    const vin = parsed && parsed.vin ? ` VIN: ${escapeHtml(parsed.vin)}` : '';
+    addRow(`<strong>${escapeHtml(filename)}</strong>
+      <div class="text-muted small">No VIN found — check manually.${vin}</div>`);
+  }
+
+  function renderGroupRow(g, comparison, note, isWaiting) {
+    const info = (g.vehicleId && vehicleLookup[g.vehicleId]) || null;
+    const parsedName = (g.lka && g.lka.owner_name) ||
+      (g.title && `${g.title.owner_first_name || ''} ${g.title.owner_last_name || ''}`.trim()) || null;
+    const title = info ? info.display_name : (parsedName || 'Unknown');
+    const invoice = info
+      ? (info.invoice_number || info.stock_number || '—')
+      : (g.vin ? `VIN ${g.vin} — no vehicle match` : '—');
+
+    let flagsHtml = '';
+    if (comparison && comparison.flags && comparison.flags.length) {
+      flagsHtml = comparison.flags.map((f) => {
+        const red = f.severity === 'high' || f.severity === 'critical';
+        return `<div class="${red ? 'text-danger fw-semibold' : 'text-muted'} small">${red ? '⚠️ ' : ''}${escapeHtml(f.message)}</div>`;
+      }).join('');
+    } else if (comparison) {
+      flagsHtml = '<div class="text-success small">No discrepancies found.</div>';
+    } else if (note) {
+      flagsHtml = `<div class="${isWaiting ? 'text-muted' : 'text-danger'} small">${escapeHtml(note)}</div>`;
+    }
+
+    addRow(`
+      <div class="d-flex justify-content-between flex-wrap gap-2">
+        <strong>${escapeHtml(title)}</strong>
+        <span class="text-muted small">${escapeHtml(invoice)}</span>
+      </div>
+      ${flagsHtml}`);
+  }
+
+  async function finalizeGroup(g) {
+    if (g.lka && g.title) {
+      let comparison = null;
+      try {
+        const resp = await fetch('{{ url_for("bmv_scanner.compare") }}', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ lka: g.lka, title: g.title }),
+        });
+        comparison = await resp.json();
+      } catch (err) {
+        renderGroupRow(g, null, `Compare failed: ${err.message}`);
+        return;
+      }
+
+      if (g.vehicleId) {
+        try {
+          await fetch('{{ url_for("bmv_scanner.save") }}', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ vehicle_id: g.vehicleId, lka: g.lka, title: g.title, comparison }),
+          });
+        } catch (err) { /* comparison is still shown even if the save call fails */ }
+      }
+      renderGroupRow(g, comparison, null);
+    } else {
+      const missing = g.lka ? 'Title Abstract' : 'LKA';
+      renderGroupRow(g, null, `Only ${g.lka ? 'LKA' : 'Title Abstract'} received — waiting for ${missing}.`, true);
+    }
+  }
+
+  async function processBatch(files) {
+    results.innerHTML = '';
+    const groups = {};
+
+    function keyFor(vehicleMatch, vin) {
+      if (vehicleMatch && vehicleMatch.id) return 'v' + vehicleMatch.id;
+      if (vin) return 'vin' + vin;
+      return null;
+    }
+    function ensureGroup(key) {
+      if (!groups[key]) groups[key] = { lka: null, title: null, vehicleId: null, vin: null };
+      return groups[key];
+    }
+
+    for (const file of files) {
+      const kind = classifyFilename(file.name);
+      progress.textContent = `Processing ${file.name}...`;
+
+      if (!kind) {
+        renderUnclassifiedRow(file.name);
+        continue;
+      }
+
+      try {
+        const maxPages = kind === 'LKA' ? 1 : 2;
+        const images = await pdfPagesToImages(file, maxPages);
+        const endpoint = kind === 'LKA'
+          ? '{{ url_for("bmv_scanner.scan_lka") }}'
+          : '{{ url_for("bmv_scanner.scan_title") }}';
+        const body = kind === 'LKA' ? { image: images[0] } : { images };
+
+        const resp = await fetch(endpoint, {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(body),
+        });
+        const data = await resp.json();
+        if (data.error) { renderErrorRow(file.name, data.error); continue; }
+
+        const vin = data.parsed && data.parsed.vin;
+        const key = keyFor(data.vehicle_match, vin);
+        if (!key) { renderNoMatchRow(file.name, data.parsed); continue; }
+
+        const g = ensureGroup(key);
+        if (kind === 'LKA') { g.lka = data.parsed; } else { g.title = data.parsed; }
+        if (data.vehicle_match) g.vehicleId = data.vehicle_match.id;
+        g.vin = vin || g.vin;
+      } catch (err) {
+        renderErrorRow(file.name, err.message);
+      }
+    }
+
+    progress.textContent = `Done — ${files.length} file(s) processed.`;
+
+    for (const key of Object.keys(groups)) {
+      await finalizeGroup(groups[key]);
+    }
+  }
+})();
+{% endif %}
+</script>
+{% endblock %}

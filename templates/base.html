@@ -152,6 +152,13 @@
         </a>
       {% endif %}
 
+      {# ── Daily Intake (tim, heather, lori, brady only) ── #}
+      {% if current_user.role in ('tim', 'heather', 'lori', 'brady', 'jim') %}
+        <a href="{{ url_for('heather.daily_intake') }}" class="nav-link text-white px-2">
+          <i class="bi bi-inboxes"></i> Daily Intake
+        </a>
+      {% endif %}
+
       {# ── Chat (all authenticated users) ── #}
       <a href="{{ url_for('chat.index') }}" class="nav-link text-white px-2">
         <i class="bi bi-chat-dots"></i> Chat
@@ -223,10 +230,9 @@
           <i class="bi bi-cloud-arrow-down me-1"></i>API Pull
         </button>
         {% endif %}
-        <button type="button" class="btn btn-sm btn-outline-dark py-0"
-                data-bs-toggle="collapse" data-bs-target="#towbook-import-panel">
+        <a href="{{ url_for('heather.daily_intake') }}" class="btn btn-sm btn-outline-dark py-0">
           <i class="bi bi-upload me-1"></i>Upload CSV
-        </button>
+        </a>
         <button type="button" class="btn-close py-0" data-bs-dismiss="alert"></button>
       </div>
     </div>
