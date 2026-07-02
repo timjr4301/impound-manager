@@ -41,8 +41,8 @@ def _calc_urgency(v, today: date) -> str:
         except Exception:
             l1 = l2 = None
 
-        l1_due = v.impound_date + timedelta(days=deadline_days)
-        days_held = (today - v.impound_date).days
+        l1_due = v.letter_clock_start + timedelta(days=deadline_days)
+        days_held = (today - v.letter_clock_start).days
 
         # ── Letter 1 not yet sent ─────────────────────────────────────
         if not l1 or not l1.sent_date:

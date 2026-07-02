@@ -148,24 +148,25 @@
       </div>
 
       {# Task 2 #}
-      <div class="card flex-fill border {% if l1_sent %}border-success bg-success bg-opacity-10{% elif vehicle.days_in_storage >= 5 %}border-danger bg-danger bg-opacity-10{% elif vehicle.days_in_storage >= 3 %}border-warning bg-warning bg-opacity-10{% else %}border-secondary bg-light{% endif %}" style="min-width:140px;max-width:220px;">
+      {% set l1_clock_days = vehicle.days_since_letter_clock_start %}
+      <div class="card flex-fill border {% if l1_sent %}border-success bg-success bg-opacity-10{% elif l1_clock_days >= 5 %}border-danger bg-danger bg-opacity-10{% elif l1_clock_days >= 3 %}border-warning bg-warning bg-opacity-10{% else %}border-secondary bg-light{% endif %}" style="min-width:140px;max-width:220px;">
         <div class="card-body py-2 px-3">
-          <div class="small fw-semibold {% if l1_sent %}text-success{% elif vehicle.days_in_storage >= 5 %}text-danger{% endif %}">
+          <div class="small fw-semibold {% if l1_sent %}text-success{% elif l1_clock_days >= 5 %}text-danger{% endif %}">
             {% if l1_sent %}<i class="bi bi-check-circle-fill me-1"></i>{% else %}<i class="bi bi-circle me-1"></i>{% endif %}
             Task 2 — 1st Notice Letter
           </div>
           {% if l1_sent %}
           <div class="text-success" style="font-size:.75rem;">Sent {{ l1.sent_date|mdY }}</div>
-          {% elif vehicle.days_in_storage >= 5 %}
-          <div class="text-danger fw-semibold" style="font-size:.75rem;">OVERDUE — due {{ (vehicle.impound_date + timedelta(days=5)) if vehicle.impound_date else '—' }}</div>
+          {% elif l1_clock_days >= 5 %}
+          <div class="text-danger fw-semibold" style="font-size:.75rem;">OVERDUE — due {{ (vehicle.letter_clock_start + timedelta(days=5)) if vehicle.letter_clock_start else '—' }}</div>
           {% elif not t1_done %}
           <div class="text-muted" style="font-size:.75rem;">Locked — complete Task 1 first</div>
           {% else %}
-          <div class="text-muted" style="font-size:.75rem;">Opens day 5 ({{ (5 - vehicle.days_in_storage) }}d)</div>
+          <div class="text-muted" style="font-size:.75rem;">Opens day 5 ({{ (5 - l1_clock_days) }}d){% if vehicle.restart_date %} <span class="text-info">(from restart)</span>{% endif %}</div>
           {% endif %}
-          {% if l1 and not l1_sent and vehicle.days_in_storage >= 5 and vehicle.status == 'ACTIVE' and not vehicle.possible_release %}
+          {% if l1 and not l1_sent and l1_clock_days >= 5 and vehicle.status == 'ACTIVE' and not vehicle.possible_release %}
           <a href="{{ url_for('letters_mark_sent', letter_id=l1.id) }}" class="btn btn-danger btn-sm py-0 mt-1 w-100">Send Now</a>
-          {% elif l1 and not l1_sent and vehicle.days_in_storage >= 5 and vehicle.possible_release %}
+          {% elif l1 and not l1_sent and l1_clock_days >= 5 and vehicle.possible_release %}
           <span class="badge bg-secondary d-block mt-1">Blocked — verify Possible Release</span>
           {% endif %}
         </div>
@@ -366,7 +367,15 @@
           <dd class="col-sm-7"><span class="badge bg-secondary">{{ vehicle.impound_type }}</span></dd>
 
           <dt class="col-sm-5 text-muted">Impound Date</dt>
-          <dd class="col-sm-7">{{ vehicle.impound_date|mdY }}</dd>
+          <dd class="col-sm-7">{{ vehicle.impound_date|mdY }} <i class="bi bi-lock-fill text-muted ms-1" title="Locked — never changes. The 60-day title-eligibility clock always runs from this date."></i></dd>
+
+          {% if vehicle.restart_date %}
+          <dt class="col-sm-5 text-muted">Letter Clock Restarted</dt>
+          <dd class="col-sm-7 text-info">
+            {{ vehicle.restart_date|mdY }}
+            <div class="text-muted" style="font-size:.75rem;">by {{ vehicle.restart_set_by or '—' }}{% if vehicle.restart_reason %}: {{ vehicle.restart_reason }}{% endif %}</div>
+          </dd>
+          {% endif %}
 
           <dt class="col-sm-5 text-muted">Storage Location</dt>
           <dd class="col-sm-7">{{ vehicle.storage_location or '—' }}</dd>
@@ -542,9 +551,14 @@
   {# ── Right Column: Letter Timeline + Notes ── #}
   <div class="col-md-7">
 
-    <div class="card shadow-sm mb-4">
-      <div class="card-header fw-semibold">
-        <i class="bi bi-envelope me-1"></i> Certified Letter Timeline
+    <div class="card shadow-sm mb-4" id="letters">
+      <div class="card-header fw-semibold d-flex justify-content-between align-items-center">
+        <span><i class="bi bi-envelope me-1"></i> Certified Letter Timeline</span>
+        {% if vehicle.status == 'ACTIVE' and current_user.is_heather %}
+        <button type="button" class="btn btn-outline-warning btn-sm" data-bs-toggle="modal" data-bs-target="#restartLettersModal">
+          <i class="bi bi-arrow-repeat"></i> Restart Letter Clock
+        </button>
+        {% endif %}
       </div>
       <div class="card-body">
 
@@ -674,6 +688,45 @@
           {% else %}
           <p class="text-muted small ms-1">Will be created when Letter 1 is marked sent.</p>
           {% endif %}
+        </div>
+        {% endif %}
+
+        {# ── Restart Letter Clock Modal ── #}
+        {% if vehicle.status == 'ACTIVE' and current_user.is_heather %}
+        {% set restart_target = vehicle.letter2 or vehicle.letter1 %}
+        <div class="modal fade" id="restartLettersModal" tabindex="-1">
+          <div class="modal-dialog">
+            <div class="modal-content">
+              <div class="modal-header bg-warning">
+                <h5 class="modal-title"><i class="bi bi-arrow-repeat me-2"></i>Restart Letter Clock</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+              </div>
+              <form method="POST" action="{{ url_for('vehicles_restart_letters', vehicle_id=vehicle.id) }}">
+                <div class="modal-body">
+                  <div class="alert alert-warning py-2 small">
+                    Re-anchors {{ restart_target.label if restart_target else 'the next letter' }}'s
+                    due date to a new date — use this after fixing a bad address post-RTS/undeliverable.
+                    If that letter was already sent, it's reset to unsent so it re-enters the Need to Send queue.
+                    <strong>The 60-day title-eligibility clock always stays on the original impound date
+                    ({{ vehicle.impound_date|mdY }})</strong> — this never changes that.
+                  </div>
+                  <div class="mb-3">
+                    <label class="form-label fw-semibold">Restart date</label>
+                    <input type="date" name="restart_date" class="form-control" value="{{ today.isoformat() }}" required>
+                  </div>
+                  <div class="mb-3">
+                    <label class="form-label fw-semibold">Reason <span class="text-danger">*</span></label>
+                    <textarea name="reason" class="form-control" rows="2" required
+                      placeholder="e.g. RTS — bad address, corrected to 123 Main St and resending"></textarea>
+                  </div>
+                </div>
+                <div class="modal-footer">
+                  <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                  <button type="submit" class="btn btn-warning">Restart Clock</button>
+                </div>
+              </form>
+            </div>
+          </div>
         </div>
         {% endif %}
 

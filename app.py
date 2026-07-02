@@ -88,6 +88,10 @@ def run_migrations(app):
                     ('anomaly_reason',          'TEXT'),
                     ('anomaly_flagged_by',      'VARCHAR(50)'),
                     ('anomaly_flagged_at',      'TIMESTAMP'),
+                    ('restart_date',            'DATE'),
+                    ('restart_reason',          'TEXT'),
+                    ('restart_set_by',          'VARCHAR(50)'),
+                    ('restart_set_at',          'TIMESTAMP'),
                 ]
                 for col_name, col_type in new_cols:
                     if col_name not in cols:
@@ -1198,6 +1202,87 @@ def create_app():
         vehicle.updated_at = datetime.utcnow()
         db.session.commit()
         return redirect(url_for('vehicles_detail', vehicle_id=vehicle_id) + '#title-packet')
+
+    # ── Letter Clock Restart ──────────────────────────────────────────────────
+    # impound_date is locked forever and the 60-day title-eligibility clock
+    # (Vehicle.title_eligible_date) always reads it directly — restart_date never
+    # touches that. This only re-anchors the due date of whichever letter is
+    # currently pending (Letter 2 if it exists, otherwise Letter 1/Notification),
+    # and — if that letter was already sent and came back RTS/address-issue —
+    # resets it to unsent so it re-enters the Need to Send queue for a resend.
+    @app.route('/vehicles/<int:vehicle_id>/restart-letters', methods=['POST'])
+    @login_required
+    def vehicles_restart_letters(vehicle_id):
+        vehicle = db.get_or_404(Vehicle, vehicle_id)
+        if not current_user.is_heather:
+            flash('Permission denied.', 'danger')
+            return redirect(url_for('vehicles_detail', vehicle_id=vehicle_id))
+
+        if vehicle.possible_release:
+            flash(
+                f'{vehicle.display_name} is flagged Possible Release — verify it\'s '
+                'still on the lot before restarting the letter clock.',
+                'danger',
+            )
+            return redirect(url_for('vehicles_detail', vehicle_id=vehicle_id) + '#letters')
+
+        reason = request.form.get('reason', '').strip()
+        if not reason:
+            flash('A reason is required to restart the letter clock.', 'danger')
+            return redirect(url_for('vehicles_detail', vehicle_id=vehicle_id) + '#letters')
+
+        restart_str = request.form.get('restart_date', '').strip()
+        new_restart_date = date.fromisoformat(restart_str) if restart_str else date.today()
+
+        actor = current_user.display_name or current_user.username
+        vehicle.restart_date = new_restart_date
+        vehicle.restart_reason = reason
+        vehicle.restart_set_by = actor
+        vehicle.restart_set_at = datetime.utcnow()
+
+        target = vehicle.letter2 or vehicle.letter1
+        if target is None:
+            target = CertifiedLetter(vehicle_id=vehicle.id, letter_number=1, created_at=datetime.utcnow())
+            db.session.add(target)
+
+        if target.letter_number == 1:
+            days_offset = PPI_LETTER1_DAYS if vehicle.impound_type == 'PPI' else POLICE_LETTER1_DAYS
+        else:
+            days_offset = PPI_LETTER2_DAYS
+
+        target.due_date = new_restart_date + timedelta(days=days_offset)
+        target.sent_date = None
+        target.tracking_number = None
+        target.delivery_confirmed_date = None
+        target.scheduled_delivery = None
+        target.ups_status = None
+        target.return_to_sender = False
+        target.updated_at = datetime.utcnow()
+
+        vehicle.letter_flag = None
+        vehicle.letter_flag_detail = None
+        vehicle.letter_stage = 'needs_1st' if target.letter_number == 1 else 'awaiting_2nd'
+        vehicle.updated_at = datetime.utcnow()
+
+        db.session.add(VehicleNote(
+            vehicle_id=vehicle.id,
+            body=f'{target.label} clock restarted to {new_restart_date.strftime("%m/%d/%Y")} '
+                 f'by {actor}. Reason: {reason}',
+            author=actor,
+            created_at=datetime.utcnow(),
+        ))
+        db.session.commit()
+
+        from task_engine import recalculate_vehicle
+        recalculate_vehicle(vehicle)
+        db.session.commit()
+
+        flash(
+            f'Letter clock restarted. {target.label} now due by '
+            f'{target.due_date.strftime("%m/%d/%Y")}.',
+            'success',
+        )
+        return redirect(url_for('vehicles_detail', vehicle_id=vehicle_id) + '#letters')
 
     # ── Title Packet PDF ───────────────────────────────────────────────────────
 

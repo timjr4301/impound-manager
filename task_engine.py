@@ -78,14 +78,20 @@ def compute_task(v, today: date) -> dict:
     except Exception:
         l1 = l2 = None
 
-    days_held = (today - v.impound_date).days
+    # days_held gates both Task 1 (BMV Search) and Task 2 (Letter 1) below, and
+    # follows letter_clock_start — impound_date unless Heather has restarted the
+    # letter clock (e.g. address fixed post-RTS, resending Letter 1). Restarting
+    # resets task1_done's own completion flag untouched, so a restart never
+    # reopens a BMV search that's already done — it only re-gates when the
+    # (re)sent letter becomes due.
+    days_held = (today - v.letter_clock_start).days
 
     # ── Derived flags ─────────────────────────────────────────────────────────
     task1_done = bool(v.heather_complete or (v.bmv_stage == 'COMPLETE'))
     letter1_sent = bool(l1 and l1.sent_date)
     letter2_sent = bool(l2 and l2.sent_date)
     delivery_date = _letter_delivery_date(l1)
-    l1_due = v.impound_date + timedelta(days=TASK2_OPEN_DAYS)
+    l1_due = v.letter_clock_start + timedelta(days=TASK2_OPEN_DAYS)
 
     # ── TASK 4: Ready to File ─────────────────────────────────────────────────
     if letter2_sent:

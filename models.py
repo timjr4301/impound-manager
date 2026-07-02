@@ -234,6 +234,15 @@ class Vehicle(db.Model):
     possible_release = db.Column(db.Boolean, default=False)   # flagged missing from latest CSV
     base44_id = db.Column(db.String(100))                     # ID after push to Base44 Tina Tracker
 
+    # Letter clock restart — impound_date is locked forever (never edited after
+    # intake) and the 60-day title-eligibility clock always reads impound_date.
+    # restart_date only re-anchors the LETTER deadline, e.g. Heather corrects a
+    # bad address after an RTS/undeliverable and needs to resend the next letter.
+    restart_date    = db.Column(db.Date)
+    restart_reason  = db.Column(db.Text)
+    restart_set_by  = db.Column(db.String(50))
+    restart_set_at  = db.Column(db.DateTime)
+
     letters = db.relationship(
         'CertifiedLetter', back_populates='vehicle',
         order_by='CertifiedLetter.letter_number',
@@ -349,6 +358,18 @@ class Vehicle(db.Model):
         return (date.today() - self.impound_date).days
 
     @property
+    def letter_clock_start(self):
+        """Anchor date for the next LETTER's due-date math (Letter 1/Notification,
+        or Letter 2 once it's the pending one). Defaults to impound_date; overridden
+        by restart_date after Heather restarts the clock (e.g. address corrected
+        post-RTS). title_eligible_date always uses impound_date directly — never this."""
+        return self.restart_date or self.impound_date
+
+    @property
+    def days_since_letter_clock_start(self):
+        return (date.today() - self.letter_clock_start).days
+
+    @property
     def next_action_label(self):
         if self.status != 'ACTIVE':
             return None
@@ -358,7 +379,7 @@ class Vehicle(db.Model):
 
         if self.impound_type == 'PPI':
             if not l1 or not l1.sent_date:
-                due = self.impound_date + timedelta(days=PPI_LETTER1_DAYS)
+                due = self.letter_clock_start + timedelta(days=PPI_LETTER1_DAYS)
                 prefix = 'OVERDUE: ' if today > due else ''
                 return f'{prefix}Send Letter 1 by {due.strftime("%m/%d/%Y")}'
             if not l2 or not l2.sent_date:
@@ -374,7 +395,7 @@ class Vehicle(db.Model):
 
         elif self.impound_type == 'POLICE':
             if not l1 or not l1.sent_date:
-                due = self.impound_date + timedelta(days=POLICE_LETTER1_DAYS)
+                due = self.letter_clock_start + timedelta(days=POLICE_LETTER1_DAYS)
                 prefix = 'OVERDUE: ' if today > due else ''
                 return f'{prefix}Send Notification Letter by {due.strftime("%m/%d/%Y")}'
             elig = self.title_eligible_date
@@ -394,7 +415,7 @@ class Vehicle(db.Model):
 
         if self.impound_type == 'PPI':
             if not l1 or not l1.sent_date:
-                due = self.impound_date + timedelta(days=PPI_LETTER1_DAYS)
+                due = self.letter_clock_start + timedelta(days=PPI_LETTER1_DAYS)
                 if today > due:
                     return 'red'
                 elif (due - today).days <= 2:
@@ -408,7 +429,7 @@ class Vehicle(db.Model):
                 return 'green'
         elif self.impound_type == 'POLICE':
             if not l1 or not l1.sent_date:
-                due = self.impound_date + timedelta(days=POLICE_LETTER1_DAYS)
+                due = self.letter_clock_start + timedelta(days=POLICE_LETTER1_DAYS)
                 if today > due:
                     return 'red'
                 elif (due - today).days <= 3:
