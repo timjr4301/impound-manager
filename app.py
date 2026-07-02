@@ -188,19 +188,31 @@ def parse_quantum_view_csv(content: str):
     return results, tracking_col, headers
 
 
+# Canonical staff/demo accounts — single source of truth also used by
+# reset_users.py for the manual post-deploy password reset. Lori runs on the
+# 'lawrence' role (not a separate 'lori' role) and Wally runs on 'tim', per Tim.
+STAFF_USER_DEFAULTS = [
+    # (username, password, role, display_name)
+    ('tim',      'BandJ2024!', 'tim',      'Tim'),
+    ('heather',  'BandJ2024!', 'heather',  'Heather'),
+    ('tina',     'BandJ2024!', 'tina',     'Tina'),
+    ('lawrence', 'BandJ2024!', 'lawrence', 'Lawrence'),
+    ('lori',     'BandJ2024!', 'lawrence', 'Lori'),
+    ('brady',    'BandJ2024!', 'brady',    'Brady'),
+    ('jim',      'BandJ2024!', 'jim',      'Jim'),
+    ('wally',    'BandJ2024!', 'tim',      'Wally'),
+    ('test',     'BandJDemo!', 'demo',     'Demo'),
+]
+
+
 def seed_default_users(app):
-    """Create default user accounts if they don't exist."""
+    """Create default user accounts if they don't exist. Runs on every boot —
+    only ever CREATES missing accounts, never resets an existing account's
+    password (that would silently undo a password someone set via /admin/users).
+    For an actual password reset, run reset_users.py in the Render Shell."""
     with app.app_context():
-        staff_defaults = [
-            ('tim',        'bjt-tim-2024!',        'tim',        'Tim'),
-            ('heather',    'bjt-heather-2024!',    'heather',    'Heather'),
-            ('tina',       'bjt-tina-2024!',       'tina',       'Tina'),
-            ('dispatcher', 'bjt-dispatch-2024!',   'dispatcher', 'Dispatch'),
-            ('lawrence',   'BJ2026!',              'lawrence',   'Lawrence'),
-            ('lori',       'bjt-lori-2024!',       'lori',       'Lori'),
-            ('brady',      'BJ2026!',              'brady',      'Brady'),
-            ('jim',        'BJ2026!',              'jim',        'Jim'),
-            ('test',       'BandJDemo!',           'demo',       'Demo'),
+        staff_defaults = STAFF_USER_DEFAULTS + [
+            ('dispatcher', 'bjt-dispatch-2024!', 'dispatcher', 'Dispatch'),
         ]
         for username, password, role, display in staff_defaults:
             if not User.query.filter_by(username=username).first():
