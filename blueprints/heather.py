@@ -412,6 +412,27 @@ def resolve_urgent(vehicle_id):
     return redirect(request.referrer or url_for('dashboard'))
 
 
+@bp.route('/vin-check/<int:vehicle_id>/resolve', methods=['POST'])
+@require_permission('all_access')
+def resolve_vin_mismatch(vehicle_id):
+    """Admin-only: clear a VIN mismatch flag so certified letters can go out again."""
+    vehicle = db.get_or_404(Vehicle, vehicle_id)
+    vehicle.vin_mismatch_resolved = True
+    vehicle.vin_mismatch_resolved_by = current_user.display_name or 'Tim'
+    vehicle.vin_mismatch_resolved_date = date.today()
+    vehicle.updated_at = datetime.utcnow()
+    db.session.add(VehicleNote(
+        vehicle_id=vehicle.id,
+        body=f'VIN mismatch resolved by {current_user.display_name or "Tim"}. '
+             f'{request.form.get("resolution_notes", "").strip()}',
+        author=current_user.display_name or 'Tim',
+        created_at=datetime.utcnow(),
+    ))
+    db.session.commit()
+    flash(f'VIN mismatch cleared for {vehicle.display_name}.', 'success')
+    return redirect(request.referrer or url_for('vehicles_detail', vehicle_id=vehicle.id))
+
+
 @bp.route('/possible-release/<int:vehicle_id>/flag', methods=['POST'])
 @_heather_required
 def flag_possible_release(vehicle_id):
@@ -845,6 +866,14 @@ def send_notice(vehicle_id):
         flash(
             f'{vehicle.display_name} is flagged Possible Release — verify it\'s still on the '
             'lot before sending any notice.',
+            'danger',
+        )
+        return redirect(url_for('vehicles_detail', vehicle_id=vehicle.id))
+
+    if vehicle.vin_check_blocked:
+        flash(
+            f'{vehicle.display_name} has a VIN mismatch from field photo verification — '
+            'resolve it before sending any notice.',
             'danger',
         )
         return redirect(url_for('vehicles_detail', vehicle_id=vehicle.id))

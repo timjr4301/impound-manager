@@ -11,7 +11,7 @@ from datetime import datetime
 from flask import (Blueprint, render_template, request, redirect, url_for,
                    flash, jsonify, send_file, current_app)
 from flask_login import login_required, current_user
-from models import db, Vehicle, DamageReport, DamagePhoto, DamageDot
+from models import db, Vehicle, DamageReport, DamagePhoto, DamageDot, VehicleNote
 from permissions import require_permission
 
 bp = Blueprint('damage_docs', __name__, url_prefix='/damage')
@@ -80,6 +80,103 @@ def _analyze_damage_with_claude(report, photos_b64):
 
     except Exception as exc:
         current_app.logger.warning(f'Claude damage analysis failed: {exc}')
+
+
+# ── VIN photo verification (door jamb vs dash) ─────────────────────────────────
+
+def _verify_vin_photos(vehicle, door_jamb_b64, dash_b64):
+    """
+    Read the VIN off the door jamb sticker photo and the dash plate photo via
+    Claude Opus (vision), compare them to each other and to Vehicle.vin.
+
+    Sets vehicle.vin_verified / vin_mismatch. A mismatch HARD BLOCKS certified
+    letters (see Vehicle.vin_check_blocked and the possible_release-style gates
+    in letters_mark_sent / send_notice / vehicles_restart_letters) until someone
+    resolves it — unlike is_afo/is_anomaly, this isn't just informational.
+    """
+    api_key = os.environ.get('ANTHROPIC_API_KEY')
+    if not api_key or not door_jamb_b64 or not dash_b64:
+        return
+
+    def _strip_prefix(b64):
+        return b64.split(',', 1)[1] if ',' in b64 else b64
+
+    content = [
+        {'type': 'text', 'text': 'Photo 1 — door jamb VIN sticker:'},
+        {'type': 'image', 'source': {'type': 'base64', 'media_type': 'image/jpeg', 'data': _strip_prefix(door_jamb_b64)}},
+        {'type': 'text', 'text': 'Photo 2 — dash VIN plate (visible through the windshield):'},
+        {'type': 'image', 'source': {'type': 'base64', 'media_type': 'image/jpeg', 'data': _strip_prefix(dash_b64)}},
+        {'type': 'text', 'text': (
+            'These are two photos of the same vehicle\'s VIN, taken by a tow driver at time of '
+            'impound: the door jamb sticker (usually on the driver-side door frame) and the dash '
+            'plate (visible through the windshield, driver side). Read the full 17-character VIN '
+            'from each photo. Respond ONLY with valid JSON, no other text:\n'
+            '{\n'
+            '  "door_jamb_vin": "17-char VIN exactly as printed, or null if unreadable",\n'
+            '  "dash_vin": "17-char VIN exactly as printed, or null if unreadable",\n'
+            '  "notes": "anything unusual — e.g. sticker damaged, glare, VIN partially obscured"\n'
+            '}'
+        )},
+    ]
+
+    try:
+        import anthropic
+        client = anthropic.Anthropic(api_key=api_key)
+        response = client.messages.create(
+            model='claude-opus-4-8',
+            max_tokens=500,
+            messages=[{'role': 'user', 'content': content}],
+        )
+        raw = response.content[0].text.strip()
+        import re
+        m = re.search(r'\{.*\}', raw, re.DOTALL)
+        result = json.loads(m.group()) if m else {}
+
+        door_jamb_vin = (result.get('door_jamb_vin') or '').strip().upper() or None
+        dash_vin = (result.get('dash_vin') or '').strip().upper() or None
+        system_vin = (vehicle.vin or '').strip().upper() or None
+
+        vehicle.vin_door_jamb_photo = door_jamb_b64
+        vehicle.vin_dash_photo = dash_b64
+        vehicle.vin_door_jamb_read = door_jamb_vin
+        vehicle.vin_dash_read = dash_vin
+        vehicle.vin_verified_at = datetime.utcnow()
+
+        present = {k: v for k, v in
+                   (('door_jamb', door_jamb_vin), ('dash', dash_vin), ('system', system_vin))
+                   if v}
+        was_mismatch = bool(vehicle.vin_mismatch)
+
+        if len(present) < 2:
+            # Not enough readable VINs to compare — inconclusive, not a block.
+            vehicle.vin_verified = False
+            vehicle.vin_mismatch = False
+        elif len(set(present.values())) == 1:
+            vehicle.vin_verified = True
+            vehicle.vin_mismatch = False
+        else:
+            vehicle.vin_verified = False
+            vehicle.vin_mismatch = True
+
+        vehicle.vin_verification_notes = (
+            f"Door jamb: {door_jamb_vin or 'unreadable'} | Dash: {dash_vin or 'unreadable'} | "
+            f"System: {system_vin or '—'}. {result.get('notes') or ''}"
+        ).strip()
+
+        if vehicle.vin_mismatch and not was_mismatch:
+            vehicle.vin_mismatch_resolved = False
+            vehicle.vin_mismatch_resolved_by = None
+            vehicle.vin_mismatch_resolved_date = None
+            db.session.add(VehicleNote(
+                vehicle_id=vehicle.id,
+                body=f'VIN MISMATCH detected from field photos — {vehicle.vin_verification_notes} '
+                     'Certified letters are blocked until this is resolved.',
+                author='VIN Verification',
+                created_at=datetime.utcnow(),
+            ))
+
+    except Exception as exc:
+        current_app.logger.warning(f'Claude VIN verification failed: {exc}')
 
 
 # ── PDF generation ─────────────────────────────────────────────────────────────
@@ -413,6 +510,8 @@ def damage_submit():
     signature = data.get('signature', '')
     photos_b64 = data.get('photos', [])
     dots_raw = data.get('dots', [])
+    vin_door_jamb_photo = data.get('vin_door_jamb_photo')
+    vin_dash_photo = data.get('vin_dash_photo')
 
     vehicle = None
     if vehicle_id:
@@ -462,6 +561,11 @@ def damage_submit():
 
     # Claude Opus damage analysis — runs after photos are flushed
     _analyze_damage_with_claude(report, photos_b64)
+
+    # VIN photo verification — only meaningful once we've matched a real vehicle
+    # record to compare against (skipped on manual-entry-fallback submissions).
+    if vehicle and vin_door_jamb_photo and vin_dash_photo:
+        _verify_vin_photos(vehicle, vin_door_jamb_photo, vin_dash_photo)
 
     # Generate and store PDF
     try:

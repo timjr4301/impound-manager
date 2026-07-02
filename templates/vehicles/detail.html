@@ -91,6 +91,59 @@
 </div>
 {% endif %}
 
+{# ══ VIN Mismatch Banner ══ #}
+{% if vehicle.vin_mismatch and not vehicle.vin_mismatch_resolved %}
+<div class="alert alert-danger border-danger border-3 d-flex align-items-center gap-3 mb-4" style="background:#fff0f0;">
+  <i class="bi bi-fingerprint fs-3 text-danger"></i>
+  <div class="flex-grow-1">
+    <strong class="d-block text-danger fs-5">VIN MISMATCH — LETTERS BLOCKED</strong>
+    <span class="small">{{ vehicle.vin_verification_notes or 'Door jamb and dash VIN photos did not match each other or the VIN on file.' }}</span>
+    <span class="text-muted small ms-2">Tim must review and resolve before any certified letter or notice can go out.</span>
+  </div>
+  {% if current_user.role == 'tim' %}
+  <button class="btn btn-danger btn-sm flex-shrink-0"
+          data-bs-toggle="modal" data-bs-target="#resolveVinModal">Resolve</button>
+  {% endif %}
+</div>
+
+{# Resolve Modal (Tim only) #}
+<div class="modal fade" id="resolveVinModal" tabindex="-1">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header bg-danger text-white">
+        <h5 class="modal-title">Resolve — VIN Mismatch</h5>
+        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+      </div>
+      <form method="POST" action="{{ url_for('heather.resolve_vin_mismatch', vehicle_id=vehicle.id) }}">
+        <div class="modal-body">
+          <p class="small"><strong>Flagged:</strong> {{ vehicle.vin_verification_notes or '—' }}</p>
+          <div class="mb-3">
+            <label class="form-label fw-semibold">Resolution notes</label>
+            <textarea name="resolution_notes" class="form-control" rows="3"
+                      placeholder="e.g. VIN corrected in system / photo misread, confirmed correct on lot"></textarea>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+          <button type="submit" class="btn btn-danger">Mark Resolved</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+{% elif vehicle.vin_mismatch and vehicle.vin_mismatch_resolved %}
+<div class="alert alert-secondary d-flex gap-2 align-items-center mb-4 py-2">
+  <i class="bi bi-check-circle text-muted"></i>
+  <small class="text-muted">VIN mismatch resolved by {{ vehicle.vin_mismatch_resolved_by or 'Tim' }}
+    on {{ vehicle.vin_mismatch_resolved_date|mdY if vehicle.vin_mismatch_resolved_date else '—' }}.</small>
+</div>
+{% elif vehicle.vin_verified %}
+<div class="alert alert-success d-flex gap-2 align-items-center mb-4 py-2">
+  <i class="bi bi-patch-check-fill"></i>
+  <small>VIN verified from field photos — door jamb, dash, and system record all match.</small>
+</div>
+{% endif %}
+
 {# ══ Possible Release / Ghost Vehicle Banner ══ #}
 {% if vehicle.possible_release %}
 <div class="alert alert-danger border-danger border-3 d-flex align-items-center gap-3 mb-4" style="background:#fff0f0;">
@@ -351,6 +404,45 @@
     </div>
   </div>
 </div>
+
+{# ── VIN Photo Verification (captured by the driver at time of tow) ── #}
+{% if vehicle.vin_door_jamb_photo or vehicle.vin_dash_photo %}
+<div class="card mb-3" id="vin-verification">
+  <div class="card-header py-2 fw-semibold small">
+    <i class="bi bi-fingerprint me-1"></i> VIN Photo Verification
+    {% if vehicle.vin_verified %}<span class="badge bg-success ms-1">Verified</span>
+    {% elif vehicle.vin_mismatch and not vehicle.vin_mismatch_resolved %}<span class="badge bg-danger ms-1">Mismatch</span>
+    {% elif vehicle.vin_mismatch %}<span class="badge bg-secondary ms-1">Resolved</span>
+    {% endif %}
+  </div>
+  <div class="card-body py-2">
+    <div class="row g-3">
+      <div class="col-md-6">
+        <div class="small fw-semibold mb-1">Door Jamb Sticker</div>
+        {% if vehicle.vin_door_jamb_photo %}
+        <img src="{{ vehicle.vin_door_jamb_photo }}" class="img-fluid rounded border" style="max-height:180px;object-fit:cover;" alt="Door jamb VIN photo">
+        <div class="text-muted mt-1 font-monospace" style="font-size:.75rem;">Read: {{ vehicle.vin_door_jamb_read or 'unreadable' }}</div>
+        {% else %}
+        <div class="text-muted small">Not captured.</div>
+        {% endif %}
+      </div>
+      <div class="col-md-6">
+        <div class="small fw-semibold mb-1">Dash Plate</div>
+        {% if vehicle.vin_dash_photo %}
+        <img src="{{ vehicle.vin_dash_photo }}" class="img-fluid rounded border" style="max-height:180px;object-fit:cover;" alt="Dash VIN photo">
+        <div class="text-muted mt-1 font-monospace" style="font-size:.75rem;">Read: {{ vehicle.vin_dash_read or 'unreadable' }}</div>
+        {% else %}
+        <div class="text-muted small">Not captured.</div>
+        {% endif %}
+      </div>
+    </div>
+    <div class="text-muted small mt-2">System VIN: <span class="font-monospace">{{ vehicle.vin or '—' }}</span></div>
+    {% if vehicle.vin_verification_notes %}
+    <div class="text-muted small mt-1">{{ vehicle.vin_verification_notes }}</div>
+    {% endif %}
+  </div>
+</div>
+{% endif %}
 
 {# Task 1 modals on vehicle detail page #}
 {% if vehicle.status == 'ACTIVE' and not t1_done and vehicle.bmv_stage != 'NO_RECORD' %}

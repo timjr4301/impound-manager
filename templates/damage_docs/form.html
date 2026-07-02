@@ -278,9 +278,10 @@
     <div class="step-pip" id="pip-4"></div>
     <div class="step-pip" id="pip-5"></div>
     <div class="step-pip" id="pip-6"></div>
+    <div class="step-pip" id="pip-7"></div>
   </div>
   <div class="step-label">
-    <span id="step-label-text">Step 1 of 7 — Vehicle Info</span>
+    <span id="step-label-text">Step 1 of 8 — Vehicle Info</span>
   </div>
 </div>
 
@@ -355,11 +356,51 @@
   </div>
 </div>
 
-<!-- ─────────────── STEP 1: Damage Type ─────────────────────────────── -->
+<!-- ─────────────── STEP 1: VIN Photos ────────────────────────────────── -->
 <div class="section-wrap" id="step-1">
   <div class="section-card">
     <div class="section-header">
-      <span class="step-num">2</span> Damage Type
+      <span class="step-num">2</span> VIN Photos
+    </div>
+    <div class="section-body">
+      <p class="text-muted small mb-3">
+        Photograph the VIN in <strong>two places</strong> — the door jamb sticker and the dash
+        plate. Both are required. This confirms the car matches the paperwork before it goes
+        any further in the system.
+      </p>
+
+      <label class="form-label">Door Jamb Sticker</label>
+      <p class="text-muted" style="font-size:.75rem;margin-top:-6px;">Usually on the driver-side door frame — open the door and look at the edge.</p>
+      <input type="file" id="vin-jamb-input" accept="image/*" capture="environment" style="display:none" onchange="handleVinPhoto(event, 'jamb')">
+      <div id="vin-jamb-tile" class="add-photo-tile" style="aspect-ratio:auto;height:120px;" onclick="document.getElementById('vin-jamb-input').click()">
+        <i class="bi bi-camera-fill"></i>
+        <span>Tap to Capture</span>
+      </div>
+
+      <label class="form-label mt-3">Dash Plate</label>
+      <p class="text-muted" style="font-size:.75rem;margin-top:-6px;">Visible through the windshield, driver side.</p>
+      <input type="file" id="vin-dash-input" accept="image/*" capture="environment" style="display:none" onchange="handleVinPhoto(event, 'dash')">
+      <div id="vin-dash-tile" class="add-photo-tile" style="aspect-ratio:auto;height:120px;" onclick="document.getElementById('vin-dash-input').click()">
+        <i class="bi bi-camera-fill"></i>
+        <span>Tap to Capture</span>
+      </div>
+
+      <div id="vin-photo-error" class="text-danger small mt-2" style="display:none">
+        Both VIN photos are required before continuing.
+      </div>
+    </div>
+  </div>
+  <div class="nav-row">
+    <button class="btn-back" onclick="goBack(1)"><i class="bi bi-arrow-left"></i></button>
+    <button class="btn-next" onclick="goNext(1)">Next <i class="bi bi-arrow-right ms-1"></i></button>
+  </div>
+</div>
+
+<!-- ─────────────── STEP 2: Damage Type ─────────────────────────────── -->
+<div class="section-wrap" id="step-2">
+  <div class="section-card">
+    <div class="section-header">
+      <span class="step-num">3</span> Damage Type
     </div>
     <div class="section-body">
       <p class="text-muted small mb-3">Select the type of damage being documented:</p>
@@ -383,16 +424,16 @@
     </div>
   </div>
   <div class="nav-row">
-    <button class="btn-back" onclick="goBack(1)"><i class="bi bi-arrow-left"></i></button>
-    <button class="btn-next" onclick="goNext(1)">Next <i class="bi bi-arrow-right ms-1"></i></button>
+    <button class="btn-back" onclick="goBack(2)"><i class="bi bi-arrow-left"></i></button>
+    <button class="btn-next" onclick="goNext(2)">Next <i class="bi bi-arrow-right ms-1"></i></button>
   </div>
 </div>
 
-<!-- ─────────────── STEP 2: Car Diagram ─────────────────────────────── -->
-<div class="section-wrap" id="step-2">
+<!-- ─────────────── STEP 3: Car Diagram ─────────────────────────────── -->
+<div class="section-wrap" id="step-3">
   <div class="section-card">
     <div class="section-header">
-      <span class="step-num">3</span> Damage Diagram
+      <span class="step-num">4</span> Damage Diagram
     </div>
     <div class="section-body">
       <p class="text-muted small mb-2">
@@ -462,16 +503,16 @@
     </div>
   </div>
   <div class="nav-row">
-    <button class="btn-back" onclick="goBack(2)"><i class="bi bi-arrow-left"></i></button>
-    <button class="btn-next" onclick="goNext(2)">Next <i class="bi bi-arrow-right ms-1"></i></button>
+    <button class="btn-back" onclick="goBack(3)"><i class="bi bi-arrow-left"></i></button>
+    <button class="btn-next" onclick="goNext(3)">Next <i class="bi bi-arrow-right ms-1"></i></button>
   </div>
 </div>
 
-<!-- ─────────────── STEP 3: Photos ─────────────────────────────────── -->
-<div class="section-wrap" id="step-3">
+<!-- ─────────────── STEP 4: Photos ─────────────────────────────────── -->
+<div class="section-wrap" id="step-4">
   <div class="section-card">
     <div class="section-header">
-      <span class="step-num">4</span> Photos
+      <span class="step-num">5</span> Photos
     </div>
     <div class="section-body">
       <p class="text-muted small mb-1" id="photo-req-text">
@@ -495,16 +536,16 @@
     </div>
   </div>
   <div class="nav-row">
-    <button class="btn-back" onclick="goBack(3)"><i class="bi bi-arrow-left"></i></button>
-    <button class="btn-next" onclick="goNext(3)">Next <i class="bi bi-arrow-right ms-1"></i></button>
+    <button class="btn-back" onclick="goBack(4)"><i class="bi bi-arrow-left"></i></button>
+    <button class="btn-next" onclick="goNext(4)">Next <i class="bi bi-arrow-right ms-1"></i></button>
   </div>
 </div>
 
-<!-- ─────────────── STEP 4: Description ─────────────────────────────── -->
-<div class="section-wrap" id="step-4">
+<!-- ─────────────── STEP 5: Description ─────────────────────────────── -->
+<div class="section-wrap" id="step-5">
   <div class="section-card">
     <div class="section-header">
-      <span class="step-num">5</span> Description
+      <span class="step-num">6</span> Description
     </div>
     <div class="section-body">
       <label class="form-label" for="description-input">Describe the damage in detail</label>
@@ -514,16 +555,16 @@
     </div>
   </div>
   <div class="nav-row">
-    <button class="btn-back" onclick="goBack(4)"><i class="bi bi-arrow-left"></i></button>
-    <button class="btn-next" onclick="goNext(4)">Next <i class="bi bi-arrow-right ms-1"></i></button>
+    <button class="btn-back" onclick="goBack(5)"><i class="bi bi-arrow-left"></i></button>
+    <button class="btn-next" onclick="goNext(5)">Next <i class="bi bi-arrow-right ms-1"></i></button>
   </div>
 </div>
 
-<!-- ─────────────── STEP 5: Owner Present ────────────────────────────── -->
-<div class="section-wrap" id="step-5">
+<!-- ─────────────── STEP 6: Owner Present ────────────────────────────── -->
+<div class="section-wrap" id="step-6">
   <div class="section-card">
     <div class="section-header">
-      <span class="step-num">6</span> Owner Present
+      <span class="step-num">7</span> Owner Present
     </div>
     <div class="section-body">
       <p class="text-muted small mb-3">Was the vehicle owner present during documentation?</p>
@@ -536,16 +577,16 @@
     </div>
   </div>
   <div class="nav-row">
-    <button class="btn-back" onclick="goBack(5)"><i class="bi bi-arrow-left"></i></button>
-    <button class="btn-next" onclick="goNext(5)">Next <i class="bi bi-arrow-right ms-1"></i></button>
+    <button class="btn-back" onclick="goBack(6)"><i class="bi bi-arrow-left"></i></button>
+    <button class="btn-next" onclick="goNext(6)">Next <i class="bi bi-arrow-right ms-1"></i></button>
   </div>
 </div>
 
-<!-- ─────────────── STEP 6: Signature ────────────────────────────────── -->
-<div class="section-wrap" id="step-6">
+<!-- ─────────────── STEP 7: Signature ────────────────────────────────── -->
+<div class="section-wrap" id="step-7">
   <div class="section-card">
     <div class="section-header">
-      <span class="step-num">7</span> Signature
+      <span class="step-num">8</span> Signature
     </div>
     <div class="section-body">
       <div class="mb-3">
@@ -581,7 +622,7 @@
   </div>
 
   <div class="nav-row">
-    <button class="btn-back" onclick="goBack(6)"><i class="bi bi-arrow-left"></i></button>
+    <button class="btn-back" onclick="goBack(7)"><i class="bi bi-arrow-left"></i></button>
     <button class="btn-submit" id="submit-btn" onclick="submitReport()">
       <i class="bi bi-check-circle-fill me-2"></i>Submit Report
     </button>
@@ -627,7 +668,7 @@
 // ──────────────────────────────────────────────────────────────────────────
 const state = {
   currentStep: 0,
-  totalSteps: 7,
+  totalSteps: 8,
   vehicleId: '{{ vehicle.id if vehicle else "" }}' || null,
   callNumber: '{{ prefill_call or "" }}',
   damageType: null,
@@ -637,10 +678,12 @@ const state = {
   pendingDot: null, // {x_pct, y_pct} waiting for label
   gps: { lat: null, lng: null },
   signaturePad: null,
+  vinJambPhoto: null, // dataUrl
+  vinDashPhoto: null, // dataUrl
 };
 
 const STEP_LABELS = [
-  'Vehicle Info', 'Damage Type', 'Diagram', 'Photos',
+  'Vehicle Info', 'VIN Photos', 'Damage Type', 'Diagram', 'Photos',
   'Description', 'Owner Present', 'Signature'
 ];
 
@@ -669,7 +712,7 @@ function setStep(n) {
   }
   state.currentStep = n;
   updateProgress();
-  if (n === 6) initSignaturePad();
+  if (n === 7) initSignaturePad();
 }
 
 function updateProgress() {
@@ -690,13 +733,20 @@ function updateProgress() {
 // ──────────────────────────────────────────────────────────────────────────
 function validateStep(step) {
   if (step === 1) {
+    if (!state.vinJambPhoto || !state.vinDashPhoto) {
+      document.getElementById('vin-photo-error').style.display = '';
+      return false;
+    }
+    document.getElementById('vin-photo-error').style.display = 'none';
+  }
+  if (step === 2) {
     if (!state.damageType) {
       document.getElementById('type-error').style.display = '';
       return false;
     }
     document.getElementById('type-error').style.display = 'none';
   }
-  if (step === 3) {
+  if (step === 4) {
     const minPhotos = state.damageType === 'pre_existing' ? 4 : 2;
     if (state.photos.length < minPhotos) {
       document.getElementById('photo-error').style.display = '';
@@ -878,7 +928,30 @@ function escHtml(str) {
 }
 
 // ──────────────────────────────────────────────────────────────────────────
-// STEP 3 — PHOTOS
+// STEP 1 — VIN PHOTOS (door jamb / dash)
+// ──────────────────────────────────────────────────────────────────────────
+function handleVinPhoto(e, which) {
+  const file = e.target.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = (ev) => {
+    const dataUrl = ev.target.result;
+    const tileId = which === 'jamb' ? 'vin-jamb-tile' : 'vin-dash-tile';
+    if (which === 'jamb') state.vinJambPhoto = dataUrl;
+    else state.vinDashPhoto = dataUrl;
+    const tile = document.getElementById(tileId);
+    tile.style.aspectRatio = '';
+    tile.style.padding = '0';
+    tile.style.border = '2px solid #16a34a';
+    tile.innerHTML = `<img src="${dataUrl}" style="width:100%;height:100%;object-fit:cover;border-radius:6px;">`;
+    document.getElementById('vin-photo-error').style.display = 'none';
+  };
+  reader.readAsDataURL(file);
+  e.target.value = '';
+}
+
+// ──────────────────────────────────────────────────────────────────────────
+// STEP 4 — PHOTOS
 // ──────────────────────────────────────────────────────────────────────────
 function triggerCamera() {
   document.getElementById('camera-input').click();
@@ -1036,6 +1109,8 @@ async function submitReport() {
     signature: state.signaturePad.toDataURL('image/png'),
     photos: state.photos.map(p => p.dataUrl),
     dots: state.dots,
+    vin_door_jamb_photo: state.vinJambPhoto,
+    vin_dash_photo: state.vinDashPhoto,
   };
 
   try {

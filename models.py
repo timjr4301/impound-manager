@@ -221,6 +221,28 @@ class Vehicle(db.Model):
     afo_detected_at = db.Column(db.DateTime)
     afo_detected_by = db.Column(db.String(50))   # username, or 'envelope-scan'
 
+    # VIN photo verification — driver photographs the door jamb VIN sticker and
+    # the dash VIN plate at time of tow (damage_docs field form). Claude Opus
+    # reads both and compares them to each other and to Vehicle.vin. Unlike
+    # is_afo/is_anomaly, a mismatch here HARD BLOCKS certified letters — a wrong
+    # VIN means the legal notice is for the wrong car.
+    vin_door_jamb_photo = db.Column(db.Text)      # base64 data URL
+    vin_dash_photo      = db.Column(db.Text)      # base64 data URL
+    vin_door_jamb_read  = db.Column(db.String(20))
+    vin_dash_read       = db.Column(db.String(20))
+    vin_verified         = db.Column(db.Boolean, default=False)
+    vin_mismatch          = db.Column(db.Boolean, default=False)
+    vin_verification_notes = db.Column(db.Text)
+    vin_verified_at      = db.Column(db.DateTime)
+    vin_mismatch_resolved      = db.Column(db.Boolean, default=False)
+    vin_mismatch_resolved_by   = db.Column(db.String(50))
+    vin_mismatch_resolved_date = db.Column(db.Date)
+
+    @property
+    def vin_check_blocked(self):
+        """True when a VIN photo mismatch is unresolved — hard-blocks letters."""
+        return bool(self.vin_mismatch) and not self.vin_mismatch_resolved
+
     # Pre-computed by task_engine.recalculate_all — enables fast DB queries
     letter_urgency    = db.Column(db.String(10))    # RED | YELLOW | GREEN | NA
     current_task_num  = db.Column(db.Integer)       # 1, 2, 3, 4

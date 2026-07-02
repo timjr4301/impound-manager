@@ -96,6 +96,17 @@ def run_migrations(app):
                     ('is_afo',                  'BOOLEAN'),
                     ('afo_detected_at',         'TIMESTAMP'),
                     ('afo_detected_by',         'VARCHAR(50)'),
+                    ('vin_door_jamb_photo',     'TEXT'),
+                    ('vin_dash_photo',          'TEXT'),
+                    ('vin_door_jamb_read',      'VARCHAR(20)'),
+                    ('vin_dash_read',           'VARCHAR(20)'),
+                    ('vin_verified',            'BOOLEAN'),
+                    ('vin_mismatch',            'BOOLEAN'),
+                    ('vin_verification_notes',  'TEXT'),
+                    ('vin_verified_at',         'TIMESTAMP'),
+                    ('vin_mismatch_resolved',      'BOOLEAN'),
+                    ('vin_mismatch_resolved_by',   'VARCHAR(50)'),
+                    ('vin_mismatch_resolved_date', 'DATE'),
                 ]
                 for col_name, col_type in new_cols:
                     if col_name not in cols:
@@ -1048,6 +1059,14 @@ def create_app():
             )
             return redirect(url_for('vehicles_detail', vehicle_id=letter.vehicle_id))
 
+        if letter.vehicle.vin_check_blocked:
+            flash(
+                f'{letter.vehicle.display_name} has a VIN mismatch from field photo verification — '
+                'resolve it before sending any letter.',
+                'danger',
+            )
+            return redirect(url_for('vehicles_detail', vehicle_id=letter.vehicle_id))
+
         if request.method == 'POST':
             sent_str = request.form.get('sent_date', '').strip()
             sent_date = date.fromisoformat(sent_str) if sent_str else date.today()
@@ -1326,6 +1345,14 @@ def create_app():
             flash(
                 f'{vehicle.display_name} is flagged Possible Release — verify it\'s '
                 'still on the lot before restarting the letter clock.',
+                'danger',
+            )
+            return redirect(url_for('vehicles_detail', vehicle_id=vehicle_id) + '#letters')
+
+        if vehicle.vin_check_blocked:
+            flash(
+                f'{vehicle.display_name} has a VIN mismatch from field photo verification — '
+                'resolve it before restarting the letter clock.',
                 'danger',
             )
             return redirect(url_for('vehicles_detail', vehicle_id=vehicle_id) + '#letters')
