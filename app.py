@@ -178,6 +178,7 @@ def seed_default_users(app):
             ('lori',       'bjt-lori-2024!',       'lori',       'Lori'),
             ('brady',      'BJ2026!',              'brady',      'Brady'),
             ('jim',        'BJ2026!',              'jim',        'Jim'),
+            ('test',       'BandJDemo!',           'demo',       'Demo'),
         ]
         for username, password, role, display in staff_defaults:
             if not User.query.filter_by(username=username).first():
@@ -354,6 +355,17 @@ def create_app():
     @login_manager.user_loader
     def load_user(user_id):
         return db.session.get(User, int(user_id))
+
+    # ── Demo mode: block all writes for the read-only demo account ─────────────
+    @app.before_request
+    def _block_demo_writes():
+        if (current_user.is_authenticated
+                and current_user.role == 'demo'
+                and request.method not in ('GET', 'HEAD', 'OPTIONS')):
+            if request.is_json or request.accept_mimetypes.best == 'application/json':
+                return jsonify({'ok': False, 'error': 'Demo mode is read-only.'}), 403
+            flash('Demo mode is read-only — changes are disabled.', 'warning')
+            return redirect(request.referrer or url_for('dashboard'))
 
     # ── SocketIO (optional — only if flask-socketio is installed) ──────────────
     if socketio is not None:

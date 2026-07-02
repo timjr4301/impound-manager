@@ -150,6 +150,45 @@
         <a href="{{ url_for('vehicles_list') }}" class="nav-link text-white px-2">
           <i class="bi bi-list-ul"></i> Vehicles
         </a>
+
+      {# ── BRADY (Wally): same as Lawrence/Lori ── #}
+      {% elif current_user.role == 'brady' %}
+        <a href="{{ url_for('hub') }}" class="nav-link text-white px-2">
+          <i class="bi bi-grid-3x3-gap"></i> Hub
+        </a>
+        <a href="{{ url_for('vehicles_list') }}" class="nav-link text-white px-2">
+          <i class="bi bi-list-ul"></i> Vehicles
+        </a>
+        <a href="{{ url_for('invoice_camera.index') }}" class="nav-link text-white px-2">
+          <i class="bi bi-camera"></i> Invoice Cam
+        </a>
+
+      {# ── DEMO: full preview nav, no HR/payroll/admin ── #}
+      {% elif current_user.role == 'demo' %}
+        <a href="{{ url_for('hub') }}" class="nav-link text-white px-2">
+          <i class="bi bi-grid-3x3-gap"></i> Hub
+        </a>
+        <a href="{{ url_for('dashboard') }}" class="nav-link text-white px-2">
+          <i class="bi bi-speedometer2"></i> Overview
+        </a>
+        <a href="{{ url_for('heather.dashboard') }}" class="nav-link text-white px-2">
+          <i class="bi bi-envelope-check"></i> Heather
+        </a>
+        <a href="{{ url_for('tina.dashboard') }}" class="nav-link text-white px-2">
+          <i class="bi bi-file-earmark-check"></i> Tina
+        </a>
+        <a href="{{ url_for('tina.pipeline') }}" class="nav-link text-white px-2">
+          <i class="bi bi-kanban"></i> Pipeline
+        </a>
+        <a href="{{ url_for('heather.letters') }}" class="nav-link text-white px-2">
+          <i class="bi bi-envelope"></i> Letters
+        </a>
+        <a href="{{ url_for('vehicles_list') }}" class="nav-link text-white px-2">
+          <i class="bi bi-list-ul"></i> Vehicles
+        </a>
+        <a href="{{ url_for('invoice_camera.index') }}" class="nav-link text-white px-2">
+          <i class="bi bi-camera"></i> Invoice Cam
+        </a>
       {% endif %}
 
       {# ── Daily Intake (tim, heather, lori, brady only) ── #}
@@ -204,6 +243,14 @@
     </a>
     {% endif %}
   </nav>
+
+  {# ── DEMO MODE banner ── #}
+  {% if current_user.is_authenticated and current_user.role == 'demo' %}
+  <div class="alert alert-warning mb-0 rounded-0 border-0 border-bottom py-2 text-center fw-bold no-print"
+       role="alert">
+    <i class="bi bi-eye-fill me-1"></i> DEMO MODE — read-only preview. No changes will be saved.
+  </div>
+  {% endif %}
 
   {# ── Towbook sync status banner (Tim + Heather only) ── #}
   {% if towbook_sync_status and towbook_sync_status.status in ('pending', 'error', 'no_sync') %}

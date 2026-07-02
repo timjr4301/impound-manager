@@ -11,6 +11,7 @@ ROLE_PERMISSIONS = {
     'brady':      {'all_access': True,  'payroll': False, 'override': False},
     'dispatcher': {'all_access': False, 'payroll': False, 'override': False},
     'lori':       {'all_access': True,  'payroll': False, 'override': False},
+    'demo':       {'all_access': False, 'payroll': False, 'override': False},
 }
 
 

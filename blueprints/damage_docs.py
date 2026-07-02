@@ -433,7 +433,7 @@ def damage_submit():
         longitude=float(longitude) if longitude is not None else None,
         signature_data=signature or None,
         is_dispute=is_dispute,
-        is_locked=is_dispute,
+        is_locked=False,
         submitted_by=driver_name or 'field',
         created_at=datetime.utcnow(),
     )
