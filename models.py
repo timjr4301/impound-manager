@@ -986,3 +986,22 @@ class VehicleDocument(db.Model):
     @property
     def label(self):
         return 'LKA (BMV 2433)' if self.doc_type == 'LKA' else 'Title Search (BMV 1148)'
+
+
+# ── Staff Feedback ───────────────────────────────────────────────────────────
+
+class StaffFeedback(db.Model):
+    __tablename__ = 'staff_feedback'
+
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False)
+    username = db.Column(db.String(50))     # denormalized so it still shows if the user is later removed
+    display_name = db.Column(db.String(100))
+    body = db.Column(db.Text, nullable=False)
+    page_url = db.Column(db.String(500))    # where they were when they hit the button
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    is_read = db.Column(db.Boolean, default=False)
+    read_by = db.Column(db.String(50))
+    read_at = db.Column(db.DateTime)
+
+    user = db.relationship('User')

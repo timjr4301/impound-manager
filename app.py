@@ -6,7 +6,7 @@ from flask import (Flask, render_template, request, redirect, url_for,
                    flash, send_file, jsonify, g)
 from flask_login import LoginManager, login_required, current_user
 from models import (db, User, Vehicle, CertifiedLetter, TitleFiling,
-                    VehicleNote, DamageItem, SyncLog, VehicleDocument,
+                    VehicleNote, DamageItem, SyncLog, VehicleDocument, StaffFeedback,
                     PPI_LETTER1_DAYS, PPI_LETTER2_DAYS, POLICE_LETTER1_DAYS)
 from werkzeug.utils import secure_filename
 
@@ -134,6 +134,9 @@ def run_migrations(app):
 
             if 'vehicle_documents' not in existing_tables:
                 VehicleDocument.__table__.create(db.engine)
+
+            if 'staff_feedback' not in existing_tables:
+                StaffFeedback.__table__.create(db.engine)
 
 
 def parse_quantum_view_csv(content: str):
@@ -600,6 +603,16 @@ def create_app():
 
         from towbook_api import is_configured as towbook_api_configured
 
+        # Staff feedback — visible to Tim/Jim only
+        staff_feedback = []
+        if current_user.can_see_all:
+            staff_feedback = (
+                StaffFeedback.query
+                .order_by(StaffFeedback.is_read.asc(), StaffFeedback.created_at.desc())
+                .limit(50)
+                .all()
+            )
+
         return render_template('dashboard.html',
             today=today,
             total_active=total_active,
@@ -614,6 +627,7 @@ def create_app():
             handoff_queue=handoff_queue,
             timecard_flags=timecard_flags,
             towbook_api_configured=towbook_api_configured(),
+            staff_feedback=staff_feedback,
         )
 
     @app.route('/api/import-towbook/trigger', methods=['POST'])
@@ -737,6 +751,41 @@ def create_app():
                     .all()
                 )
         return render_template('vin_lookup.html', digits=digits, dlen=len(digits), results=results, error=error)
+
+    # ── Staff Feedback ───────────────────────────────────────────────────────────
+
+    @app.route('/feedback/submit', methods=['POST'])
+    @login_required
+    def feedback_submit():
+        body = request.form.get('body', '').strip()
+        if not body:
+            flash('Enter some feedback before submitting.', 'danger')
+            return redirect(request.referrer or url_for('dashboard'))
+
+        db.session.add(StaffFeedback(
+            user_id=current_user.id,
+            username=current_user.username,
+            display_name=current_user.display_name or current_user.username,
+            body=body,
+            page_url=request.form.get('page_url', '').strip() or request.referrer,
+            created_at=datetime.utcnow(),
+        ))
+        db.session.commit()
+        flash('Feedback sent. Thanks!', 'success')
+        return redirect(request.referrer or url_for('dashboard'))
+
+    @app.route('/feedback/<int:feedback_id>/mark-read', methods=['POST'])
+    @login_required
+    def feedback_mark_read(feedback_id):
+        if not current_user.can_see_all:
+            flash('Permission denied.', 'danger')
+            return redirect(url_for('dashboard'))
+        fb = db.get_or_404(StaffFeedback, feedback_id)
+        fb.is_read = True
+        fb.read_by = current_user.display_name or current_user.username
+        fb.read_at = datetime.utcnow()
+        db.session.commit()
+        return redirect(request.referrer or url_for('dashboard'))
 
     # ── Pipeline ───────────────────────────────────────────────────────────────
 

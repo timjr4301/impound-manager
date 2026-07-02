@@ -55,6 +55,10 @@
     <a href="{{ url_for('vin_lookup') }}" class="btn btn-outline-light btn-sm me-2" title="VIN Quick Lookup — last 4-6 digits">
       <i class="bi bi-upc-scan"></i>
     </a>
+    <button type="button" class="btn btn-outline-light btn-sm me-2" title="Send Feedback"
+            data-bs-toggle="modal" data-bs-target="#feedbackModal">
+      <i class="bi bi-chat-square-text"></i>
+    </button>
 
     <div class="d-flex align-items-center gap-1 flex-wrap">
 
@@ -246,6 +250,32 @@
     </a>
     {% endif %}
   </nav>
+
+  {# ── Staff Feedback Modal — available to everyone ── #}
+  {% if current_user.is_authenticated %}
+  <div class="modal fade" id="feedbackModal" tabindex="-1">
+    <div class="modal-dialog">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h5 class="modal-title"><i class="bi bi-chat-square-text me-2"></i>Send Feedback</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+        </div>
+        <form method="POST" action="{{ url_for('feedback_submit') }}">
+          <div class="modal-body">
+            <p class="text-muted small">Bugs, ideas, anything that's slowing you down — this goes straight to Tim.</p>
+            <input type="hidden" name="page_url" value="{{ request.url }}">
+            <textarea name="body" class="form-control" rows="4" required
+                      placeholder="What's on your mind?"></textarea>
+          </div>
+          <div class="modal-footer">
+            <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+            <button type="submit" class="btn btn-primary"><i class="bi bi-send me-1"></i>Send</button>
+          </div>
+        </form>
+      </div>
+    </div>
+  </div>
+  {% endif %}
 
   {# ── DEMO MODE banner ── #}
   {% if current_user.is_authenticated and current_user.role == 'demo' %}

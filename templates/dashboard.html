@@ -431,6 +431,45 @@
 </div>
 {% endif %}
 
+{# ── Staff Feedback ── #}
+{% if staff_feedback %}
+{% set unread_count = staff_feedback|selectattr('is_read', 'equalto', False)|list|length %}
+<div class="card shadow-sm mb-4 {% if unread_count %}border-primary{% endif %}">
+  <div class="card-header fw-semibold {% if unread_count %}bg-primary text-white{% endif %} d-flex align-items-center">
+    <i class="bi bi-chat-square-text me-2"></i>Staff Feedback
+    {% if unread_count %}<span class="badge bg-white text-primary ms-2">{{ unread_count }} new</span>{% endif %}
+  </div>
+  <div class="card-body p-0">
+    <table class="table table-hover align-middle mb-0">
+      <thead class="table-light">
+        <tr><th>From</th><th>When</th><th>Feedback</th><th>Page</th><th></th></tr>
+      </thead>
+      <tbody>
+      {% for fb in staff_feedback %}
+      <tr class="{% if not fb.is_read %}fw-semibold{% endif %}">
+        <td class="small">{{ fb.display_name or fb.username }}</td>
+        <td class="small text-muted" style="white-space:nowrap;">{{ fb.created_at.strftime('%m/%d %I:%M %p') if fb.created_at else '—' }}</td>
+        <td class="small">{{ fb.body }}</td>
+        <td class="small text-muted">
+          {% if fb.page_url %}<a href="{{ fb.page_url }}" class="text-decoration-none">{{ fb.page_url.split('/')[-1] or 'home' }}</a>{% else %}—{% endif %}
+        </td>
+        <td class="text-end pe-3">
+          {% if not fb.is_read %}
+          <form method="POST" action="{{ url_for('feedback_mark_read', feedback_id=fb.id) }}">
+            <button type="submit" class="btn btn-sm btn-outline-secondary">Mark Read</button>
+          </form>
+          {% else %}
+          <span class="text-muted small">Read by {{ fb.read_by }}</span>
+          {% endif %}
+        </td>
+      </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endif %}
+
 {# ── Heather→Tina Handoff Queue (Tim overview) ── #}
 {% if handoff_queue %}
 <div class="card shadow-sm mb-4 border-warning">
