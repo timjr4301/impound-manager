@@ -717,6 +717,27 @@ def create_app():
             )
         return render_template('search.html', q=q, results=results)
 
+    @app.route('/vin-lookup')
+    @login_required
+    def vin_lookup():
+        """Dedicated VIN-only lookup by the last 4-6 digits — precise suffix
+        match, unlike the general /search box which matches any field anywhere."""
+        digits = request.args.get('digits', '').strip().upper()
+        error = None
+        results = []
+        if digits:
+            if len(digits) < 4:
+                error = 'Enter at least 4 characters.'
+            else:
+                results = (
+                    Vehicle.query
+                    .filter(Vehicle.vin.isnot(None))
+                    .filter(Vehicle.vin.ilike(f'%{digits}'))
+                    .order_by(Vehicle.impound_date.desc())
+                    .all()
+                )
+        return render_template('vin_lookup.html', digits=digits, dlen=len(digits), results=results, error=error)
+
     # ── Pipeline ───────────────────────────────────────────────────────────────
 
     @app.route('/pipeline')
