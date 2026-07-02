@@ -98,6 +98,13 @@ def run_migrations(app):
                 if 'return_to_sender' not in cols:
                     conn.execute(text('ALTER TABLE certified_letters ADD COLUMN return_to_sender BOOLEAN'))
 
+            if 'envelope_scans' in existing_tables:
+                cols = {c['name'] for c in inspector.get_columns('envelope_scans')}
+                if 'outcome' not in cols:
+                    conn.execute(text('ALTER TABLE envelope_scans ADD COLUMN outcome VARCHAR(20)'))
+                if 'matched_by' not in cols:
+                    conn.execute(text('ALTER TABLE envelope_scans ADD COLUMN matched_by VARCHAR(20)'))
+
             if 'sync_log' not in existing_tables:
                 # Use SQLAlchemy ORM to create the table safely on any DB backend
                 SyncLog.__table__.create(db.engine)

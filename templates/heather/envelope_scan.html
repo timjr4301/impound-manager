@@ -12,10 +12,10 @@
 <div class="row g-4">
   <div class="col-md-6">
 
-    {# ── IPEVO Camera Capture ── #}
+    {# ── Webcam Capture ── #}
     <div class="card shadow-sm mb-4">
       <div class="card-header fw-semibold">
-        <i class="bi bi-camera-video me-2"></i>IPEVO Camera — Auto-Read Envelope
+        <i class="bi bi-camera-video me-2"></i>Webcam — Auto-Read Envelope
       </div>
       <div class="card-body">
         <div class="mb-3">
@@ -113,6 +113,7 @@ let stream = null;
 let capturedB64 = null;
 let lastAiResult = null;
 let lastAiRaw = null;
+let lastMatchedBy = null;
 
 async function startCamera() {
   try {
@@ -125,7 +126,7 @@ async function startCamera() {
     document.getElementById('btnStartCamera').style.display = 'none';
     document.getElementById('btnCapture').style.display = 'inline-block';
   } catch (err) {
-    alert('Camera access failed: ' + err.message + '\nMake sure IPEVO is connected and browser has camera permission.');
+    alert('Camera access failed: ' + err.message + '\nMake sure the webcam is connected and browser has camera permission.');
   }
 }
 
@@ -159,6 +160,7 @@ function retakePhoto() {
   capturedB64 = null;
   lastAiResult = null;
   lastAiRaw = null;
+  lastMatchedBy = null;
 }
 
 async function processImage() {
@@ -192,16 +194,31 @@ async function processImage() {
         html += `<b>Tracking #:</b> ${r.tracking_number}<br>`;
         document.getElementById('manualTracking').value = r.tracking_number;
       }
-      if (r.is_delivered) html += '✅ <b>Delivered</b><br>';
-      if (r.is_return_to_sender) html += '↩️ <b>Return to Sender</b><br>';
+      if (r.stock_number) html += `<b>Stock #:</b> ${r.stock_number}<br>`;
+      if (r.owner_name) html += `<b>Owner name:</b> ${r.owner_name}<br>`;
+
+      const outcomeBadges = {
+        DELIVERED: '✅ <b>Delivered</b>',
+        ADDRESS_ISSUE: '⚠️ <b>Address Issue</b> — returned/undeliverable',
+        SERVICE_DISRUPTED: '🚫 <b>Service Disrupted</b> — carrier problem, not the address',
+        UNKNOWN: '❓ <b>Unknown outcome</b> — no clear markings',
+      };
+      if (r.outcome && outcomeBadges[r.outcome]) html += outcomeBadges[r.outcome] + '<br>';
       if (r.delivery_date) html += `📅 Delivery date: ${r.delivery_date}<br>`;
       if (r.notes) html += `Notes: ${r.notes}<br>`;
 
-      const hasIdentifier = !!(r.tracking_number || r.reference_number);
+      const hasIdentifier = !!(r.tracking_number || r.reference_number || r.stock_number || r.owner_name);
 
+      const matchLabels = {
+        reference_number: 'reference #',
+        tracking_number: 'tracking #',
+        stock_number: 'stock #',
+        owner_name: 'owner name',
+      };
+      lastMatchedBy = data.matched_vehicle ? data.matched_vehicle.matched_by : null;
       if (data.matched_vehicle) {
         document.getElementById('cameraVehicleId').value = data.matched_vehicle.id;
-        const via = data.matched_vehicle.matched_by === 'reference_number' ? 'reference #' : 'tracking #';
+        const via = matchLabels[data.matched_vehicle.matched_by] || data.matched_vehicle.matched_by;
         html += `<br>🎯 <b>Matched vehicle (by ${via}):</b> ${data.matched_vehicle.display_name} — confirm and click Match &amp; Save.`;
       } else if (hasIdentifier) {
         html += '<br>⚠️ No vehicle match found — select one manually below, then click Match &amp; Save.';
@@ -226,8 +243,9 @@ async function processImage() {
 async function matchAndSave() {
   const vehicleId = document.getElementById('cameraVehicleId').value;
   if (!vehicleId) { alert('Select a vehicle first — no automatic match was found.'); return; }
-  if (!lastAiResult || (!lastAiResult.tracking_number && !lastAiResult.reference_number)) {
-    alert('No tracking number or reference number to save.');
+  if (!lastAiResult || (!lastAiResult.tracking_number && !lastAiResult.reference_number
+                          && !lastAiResult.stock_number && !lastAiResult.owner_name)) {
+    alert('Nothing was read from the envelope to save.');
     return;
   }
 
@@ -243,6 +261,10 @@ async function matchAndSave() {
         vehicle_id: vehicleId,
         tracking_number: lastAiResult.tracking_number || null,
         reference_number: lastAiResult.reference_number || null,
+        stock_number: lastAiResult.stock_number || null,
+        owner_name: lastAiResult.owner_name || null,
+        outcome: lastAiResult.outcome || null,
+        matched_by: lastMatchedBy || null,
         is_delivered: !!lastAiResult.is_delivered,
         is_return_to_sender: !!lastAiResult.is_return_to_sender,
         delivery_date: lastAiResult.delivery_date || null,

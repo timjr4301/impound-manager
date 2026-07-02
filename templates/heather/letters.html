@@ -493,7 +493,10 @@ async function runScan(b64) {
 
     pendingScanResult = data;
     const r = data.result;
-    const outcomeClass = r.outcome === 'DELIVERED' ? 'success' : r.outcome === 'RETURNED' || r.outcome === 'UNDELIVERABLE' ? 'danger' : 'warning';
+    const outcomeClass = r.outcome === 'DELIVERED' ? 'success'
+      : r.outcome === 'ADDRESS_ISSUE' ? 'danger'
+      : r.outcome === 'SERVICE_DISRUPTED' ? 'warning'
+      : 'secondary';
     let html = `<div class="d-flex align-items-center gap-2 mb-2">
       <span class="badge bg-${outcomeClass} fs-6">${r.outcome || 'UNKNOWN'}</span>
       ${r.tracking_number ? `<span class="font-monospace small">${r.tracking_number}</span>` : ''}

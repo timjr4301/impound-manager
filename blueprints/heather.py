@@ -36,6 +36,79 @@ def _after_cutoff():
     return cast(Vehicle.impound_date, Date) >= HEATHER_QUEUE_CUTOFF
 
 
+def _normalize_ident(val):
+    """Strip whitespace/dashes and uppercase, for fuzzy matching of codes and names."""
+    import re
+    return re.sub(r'[\s-]', '', val or '').upper()
+
+
+def _match_vehicle_from_envelope(result):
+    """
+    Resolve an ACTIVE vehicle from a Claude-read envelope result dict, trying
+    identifiers in order of reliability. Returns (vehicle_or_None, matched_by_or_None).
+
+    Only auto-selects when a tier yields exactly one candidate — ambiguous or
+    zero matches fall through to the next tier, and ultimately to manual
+    selection in the UI, rather than guessing.
+    """
+    raw_reference = result.get('reference_number') or result.get('invoice')
+    if raw_reference:
+        norm = _normalize_ident(raw_reference)
+        vehicle = (
+            Vehicle.query
+            .filter(Vehicle.invoice_number.isnot(None))
+            .filter(func.upper(func.replace(
+                func.replace(Vehicle.invoice_number, ' ', ''), '-', ''
+            )) == norm)
+            .first()
+        )
+        if vehicle:
+            return vehicle, 'reference_number'
+
+    raw_tracking = result.get('tracking_number') or result.get('tracking')
+    if raw_tracking:
+        norm = _normalize_ident(raw_tracking)
+        letter = (
+            CertifiedLetter.query
+            .filter(CertifiedLetter.tracking_number.isnot(None))
+            .filter(func.upper(func.replace(
+                func.replace(CertifiedLetter.tracking_number, ' ', ''), '-', ''
+            )) == norm)
+            .first()
+        )
+        if letter:
+            return letter.vehicle, 'tracking_number'
+
+    raw_stock = result.get('stock_number')
+    if raw_stock:
+        norm = _normalize_ident(raw_stock)
+        vehicle = (
+            Vehicle.query
+            .filter(Vehicle.stock_number.isnot(None))
+            .filter(func.upper(func.replace(
+                func.replace(Vehicle.stock_number, ' ', ''), '-', ''
+            )) == norm)
+            .first()
+        )
+        if vehicle:
+            return vehicle, 'stock_number'
+
+    raw_owner = result.get('owner_name')
+    if raw_owner and len(raw_owner.strip()) >= 4:
+        norm = _normalize_ident(raw_owner)
+        candidates = (
+            Vehicle.query
+            .filter(Vehicle.owner_name.isnot(None))
+            .filter(Vehicle.status.in_(['ACTIVE', 'TITLE_FILED']))
+            .filter(func.upper(func.replace(Vehicle.owner_name, ' ', '')) == norm)
+            .all()
+        )
+        if len(candidates) == 1:
+            return candidates[0], 'owner_name'
+
+    return None, None
+
+
 def _heather_required(f):
     """Tim + Heather can perform Heather actions."""
     from functools import wraps
@@ -838,7 +911,7 @@ def letters_scan():
         import anthropic as _anthropic
         client = _anthropic.Anthropic(api_key=api_key)
         msg = client.messages.create(
-            model='claude-sonnet-4-6',
+            model='claude-opus-4-8',
             max_tokens=512,
             messages=[{
                 'role': 'user',
@@ -854,7 +927,11 @@ def letters_scan():
                             'Respond ONLY with valid JSON — no extra text:\n'
                             '{\n'
                             '  "tracking_number": "full 20-22 digit USPS tracking number, null if not visible",\n'
-                            '  "outcome": "DELIVERED | RETURNED | UNDELIVERABLE | UNKNOWN",\n'
+                            '  "outcome": "classify as exactly one of: DELIVERED (successfully delivered, no return markings), '
+                            'ADDRESS_ISSUE (returned/undeliverable due to bad, incomplete, vacant, or unknown address — '
+                            'look for \'NIS\', \'RTS\', \'VACANT\', \'NO SUCH\', \'INSUFFICIENT ADDRESS\'), '
+                            'SERVICE_DISRUPTED (a carrier/service problem unrelated to the address — e.g. \'REFUSED\', '
+                            '\'DAMAGED IN TRANSIT\', \'UNCLAIMED\', weather/service delay stamps), or UNKNOWN (no clear markings)",\n'
                             '  "delivery_date": "YYYY-MM-DD if stamped, null if not",\n'
                             '  "return_reason": "reason envelope was returned, null if delivered",\n'
                             '  "notes": "any other relevant stamps or markings"\n'
@@ -887,7 +964,7 @@ def letters_scan():
                             )
                         except ValueError:
                             letter.delivery_confirmed_date = date.today()
-                elif outcome in ('RETURNED', 'UNDELIVERABLE'):
+                elif outcome == 'ADDRESS_ISSUE':
                     letter.return_to_sender = True
                     if not letter.notes:
                         letter.notes = result.get('return_reason') or outcome
@@ -895,7 +972,7 @@ def letters_scan():
                     db.session.add(VehicleNote(
                         vehicle_id=letter.vehicle_id,
                         body=(
-                            f'ALERT: {letter.label} returned / undeliverable. '
+                            f'ALERT: {letter.label} returned / undeliverable — address issue. '
                             f'{result.get("return_reason") or ""} — '
                             'Heather must verify address and resend.'
                         ),
@@ -904,6 +981,18 @@ def letters_scan():
                     ))
                     # Update letter urgency
                     letter.vehicle.letter_urgency = 'RED'
+                elif outcome == 'SERVICE_DISRUPTED':
+                    if not letter.notes:
+                        letter.notes = result.get('return_reason') or outcome
+                    db.session.add(VehicleNote(
+                        vehicle_id=letter.vehicle_id,
+                        body=(
+                            f'{letter.label} — carrier service disruption, not an address problem. '
+                            f'{result.get("return_reason") or ""}'
+                        ),
+                        author='Envelope Scanner',
+                        created_at=datetime.utcnow(),
+                    ))
 
                 db.session.commit()
                 updated_letter = {
@@ -943,7 +1032,7 @@ def mark_return_to_sender(letter_id):
 @bp.route('/envelope-scan/camera', methods=['POST'])
 @_heather_required
 def envelope_scan_camera():
-    """Process image from IPEVO camera via Claude vision."""
+    """Process a webcam envelope capture via Claude vision (Opus — vision task)."""
     data = request.get_json()
     image_b64 = data.get('image')
 
@@ -963,7 +1052,7 @@ def envelope_scan_camera():
             image_b64 = image_b64.split(',', 1)[1]
 
         message = client.messages.create(
-            model='claude-sonnet-4-6',
+            model='claude-opus-4-8',
             max_tokens=1024,
             messages=[{
                 'role': 'user',
@@ -984,10 +1073,13 @@ def envelope_scan_camera():
                             '{\n'
                             '  "tracking_number": "the full UPS tracking number, which starts with 1Z, or the full USPS tracking number if this is USPS. Null if not visible.",\n'
                             '  "reference_number": "the 6-digit number next to the field labeled \'Reference\', \'Reference #1\', or \'Ref 1\' on a UPS label — this is our internal invoice number (e.g. 726603). Do NOT use Reference #2 (that is a date, not our invoice number). Do NOT use UPS sort/route codes such as \'141-FDR\' or similar dash-separated codes — those are not the reference number. Null if no Reference #1 field is visible.",\n'
+                            '  "stock_number": "a tow lot stock/call number if handwritten anywhere on the envelope (e.g. by staff before mailing). Null if not visible.",\n'
+                            '  "owner_name": "the addressee/recipient name on the envelope. Null if not visible.",\n'
                             '  "is_return_to_sender": true/false,\n'
                             '  "is_delivered": true/false,\n'
                             '  "delivery_date": "YYYY-MM-DD if visible, null if not",\n'
                             '  "usps_stamps_visible": true/false,\n'
+                            '  "outcome": "classify overall status as exactly one of: DELIVERED (successfully delivered, no return markings), ADDRESS_ISSUE (returned/undeliverable due to bad, incomplete, vacant, or unknown address — look for \'NIS\', \'RTS\', \'VACANT\', \'NO SUCH\', \'INSUFFICIENT ADDRESS\'), SERVICE_DISRUPTED (a carrier/service problem unrelated to the address — e.g. \'REFUSED\', \'DAMAGED IN TRANSIT\', \'UNCLAIMED\', weather/service delay stamps), or UNKNOWN (no clear markings either way)",\n'
                             '  "notes": "any other relevant markings or status"\n'
                             '}'
                         ),
@@ -1006,41 +1098,12 @@ def envelope_scan_camera():
 
         # Auto-match, in priority order, so the front end can auto-select the
         # vehicle instead of making Heather find it in the dropdown herself:
-        #   1. reference/invoice number written on the envelope -> Vehicle.invoice_number
-        #   2. tracking number -> certified_letters.tracking_number
-        #   3. no match -> front end falls back to manual dropdown selection
-        import re
-        matched_vehicle = None
-        matched_by = None
-
-        raw_reference = result.get('reference_number')
-        if raw_reference:
-            normalized_ref = re.sub(r'[\s-]', '', raw_reference).upper()
-            matched_vehicle = (
-                Vehicle.query
-                .filter(Vehicle.invoice_number.isnot(None))
-                .filter(func.upper(func.replace(
-                    func.replace(Vehicle.invoice_number, ' ', ''), '-', ''
-                )) == normalized_ref)
-                .first()
-            )
-            if matched_vehicle:
-                matched_by = 'reference_number'
-
-        raw_tracking = result.get('tracking_number')
-        if not matched_vehicle and raw_tracking:
-            normalized_tracking = re.sub(r'[\s-]', '', raw_tracking).upper()
-            matched_letter = (
-                CertifiedLetter.query
-                .filter(CertifiedLetter.tracking_number.isnot(None))
-                .filter(func.upper(func.replace(
-                    func.replace(CertifiedLetter.tracking_number, ' ', ''), '-', ''
-                )) == normalized_tracking)
-                .first()
-            )
-            if matched_letter:
-                matched_vehicle = matched_letter.vehicle
-                matched_by = 'tracking_number'
+        #   1. reference/invoice number written on the envelope
+        #   2. tracking number (already assigned when we sent the letter)
+        #   3. stock/call number handwritten on the envelope
+        #   4. addressee name, only if it uniquely matches one active vehicle
+        #   5. no match -> front end falls back to manual dropdown selection
+        matched_vehicle, matched_by = _match_vehicle_from_envelope(result)
 
         return jsonify({
             'ok': True,
@@ -1065,16 +1128,23 @@ def envelope_scan_match_save():
     vehicle_id = data.get('vehicle_id')
     tracking = (data.get('tracking_number') or '').strip()
     reference = (data.get('reference_number') or '').strip()
+    stock_number = (data.get('stock_number') or '').strip()
+    owner_name = (data.get('owner_name') or '').strip()
+    outcome = (data.get('outcome') or '').strip().upper() or None
+    if outcome not in ('DELIVERED', 'ADDRESS_ISSUE', 'SERVICE_DISRUPTED', 'UNKNOWN'):
+        outcome = outcome or None  # allow unrecognized values through as-is rather than silently drop
 
-    if not vehicle_id or not (tracking or reference):
-        return jsonify({'error': 'Vehicle and a tracking or reference number are required.'}), 400
+    if not vehicle_id:
+        return jsonify({'error': 'A vehicle is required — no identifier matched automatically, so pick one manually.'}), 400
+    if not (tracking or reference or stock_number or owner_name or outcome):
+        return jsonify({'error': 'Nothing was read from the envelope to save.'}), 400
 
     vehicle = Vehicle.query.get(vehicle_id)
     if not vehicle:
         return jsonify({'error': 'Vehicle not found.'}), 404
 
-    is_rts = bool(data.get('is_return_to_sender'))
-    is_delivered = bool(data.get('is_delivered'))
+    is_rts = bool(data.get('is_return_to_sender')) or outcome == 'ADDRESS_ISSUE'
+    is_delivered = bool(data.get('is_delivered')) or outcome == 'DELIVERED'
     tracking_clean = tracking.replace(' ', '').upper() if tracking else None
 
     delivery_date = None
@@ -1088,6 +1158,8 @@ def envelope_scan_match_save():
     notes = data.get('notes') or ''
     if reference and not tracking_clean:
         notes = f'Matched by reference #{reference}. {notes}'.strip()
+    if owner_name and not (tracking_clean or reference):
+        notes = f'Matched by owner name ({owner_name}). {notes}'.strip()
 
     scan = EnvelopeScan(
         vehicle_id=vehicle.id,
@@ -1098,20 +1170,46 @@ def envelope_scan_match_save():
         is_delivered=is_delivered,
         delivery_date=delivery_date,
         claude_raw_response=data.get('raw'),
+        outcome=outcome,
+        matched_by=data.get('matched_by'),
     )
     db.session.add(scan)
 
-    # Update the matching letter if we can find one, same as manual entry does
-    if tracking_clean:
-        letters = CertifiedLetter.query.filter_by(vehicle_id=vehicle.id).all()
-        for ltr in letters:
-            if not ltr.tracking_number:
-                ltr.tracking_number = tracking_clean
-                if is_rts:
-                    ltr.return_to_sender = True
-                if is_delivered and not ltr.delivery_confirmed_date:
-                    ltr.delivery_confirmed_date = delivery_date
-                break
+    # Attach this scan's outcome to the relevant letter: prefer the letter
+    # still missing a tracking number (i.e. this scan is assigning it one),
+    # otherwise fall back to the most recently sent letter that's still
+    # unresolved (no delivery confirmation or RTS yet).
+    letters = CertifiedLetter.query.filter_by(vehicle_id=vehicle.id).order_by(CertifiedLetter.letter_number.asc()).all()
+    target_letter = next((l for l in letters if tracking_clean and not l.tracking_number), None)
+    if target_letter is None:
+        target_letter = next(
+            (l for l in reversed(letters)
+             if l.sent_date and not l.delivery_confirmed_date and not l.return_to_sender),
+            None
+        )
+    if target_letter:
+        if tracking_clean and not target_letter.tracking_number:
+            target_letter.tracking_number = tracking_clean
+        if is_rts:
+            target_letter.return_to_sender = True
+        if is_delivered and not target_letter.delivery_confirmed_date:
+            target_letter.delivery_confirmed_date = delivery_date
+
+    if outcome == 'ADDRESS_ISSUE':
+        vehicle.letter_urgency = 'RED'
+        db.session.add(VehicleNote(
+            vehicle_id=vehicle.id,
+            body=f'ALERT: Envelope scan — address issue (RTS/undeliverable). {notes}'.strip(),
+            author='Envelope Scanner',
+            created_at=datetime.utcnow(),
+        ))
+    elif outcome == 'SERVICE_DISRUPTED':
+        db.session.add(VehicleNote(
+            vehicle_id=vehicle.id,
+            body=f'Envelope scan — carrier service disruption (not an address problem). {notes}'.strip(),
+            author='Envelope Scanner',
+            created_at=datetime.utcnow(),
+        ))
 
     db.session.commit()
     return jsonify({'ok': True, 'vehicle': vehicle.display_name})
@@ -1126,14 +1224,20 @@ BULK_ENVELOPE_PROMPT = (
     "UPS sort/route codes such as '141-FDR' or similar dash-separated codes "
     "— these are NOT the invoice number.\n"
     "2. UPS Tracking number (starts with 1Z)\n"
-    "3. Delivery status: was this returned to sender? Look for 'NIS', 'RTS', "
-    "'RETURN TO SHIPPER', or similar markings. If no return markings, status "
-    "is 'Delivered'.\n"
-    "4. Owner name on the envelope\n"
-    "Return JSON only: {invoice, tracking, status, owner_name}"
+    "3. A tow lot stock/call number, if handwritten anywhere on the envelope.\n"
+    "4. Owner name (addressee) on the envelope.\n"
+    "5. Overall outcome, classified as exactly one of:\n"
+    "   DELIVERED — successfully delivered, no return markings.\n"
+    "   ADDRESS_ISSUE — returned/undeliverable due to bad, incomplete, vacant, "
+    "or unknown address. Look for 'NIS', 'RTS', 'VACANT', 'NO SUCH', "
+    "'INSUFFICIENT ADDRESS'.\n"
+    "   SERVICE_DISRUPTED — a carrier/service problem unrelated to the "
+    "address, e.g. 'REFUSED', 'DAMAGED IN TRANSIT', 'UNCLAIMED', weather/"
+    "service delay stamps.\n"
+    "   UNKNOWN — no clear markings either way.\n"
+    "Return JSON only: {invoice, tracking, stock_number, owner_name, outcome, status}\n"
+    "(status is a short free-text summary of what's stamped/marked, for notes)"
 )
-
-_RETURN_STATUS_KEYWORDS = ('nis', 'rts', 'return')
 
 
 @bp.route('/bulk-envelope-scan')
@@ -1197,10 +1301,14 @@ def bulk_envelope_scan_process():
 
         invoice = (result.get('invoice') or '').strip()
         tracking = (result.get('tracking') or '').strip()
+        stock_number = (result.get('stock_number') or '').strip()
         status = (result.get('status') or '').strip()
         owner_name = (result.get('owner_name') or '').strip()
+        outcome = (result.get('outcome') or '').strip().upper() or None
+        if outcome not in ('DELIVERED', 'ADDRESS_ISSUE', 'SERVICE_DISRUPTED', 'UNKNOWN'):
+            outcome = outcome or None
 
-        if not invoice:
+        if not (invoice or tracking or stock_number or owner_name):
             return jsonify({
                 'ok': True,
                 'filename': filename,
@@ -1209,15 +1317,7 @@ def bulk_envelope_scan_process():
                 'result': result,
             })
 
-        normalized_invoice = re.sub(r'[\s-]', '', invoice).upper()
-        vehicle = (
-            Vehicle.query
-            .filter(Vehicle.invoice_number.isnot(None))
-            .filter(func.upper(func.replace(
-                func.replace(Vehicle.invoice_number, ' ', ''), '-', ''
-            )) == normalized_invoice)
-            .first()
-        )
+        vehicle, matched_by = _match_vehicle_from_envelope(result)
 
         if not vehicle:
             return jsonify({
@@ -1227,16 +1327,17 @@ def bulk_envelope_scan_process():
                 'matched': False,
                 'invoice': invoice,
                 'tracking': tracking,
+                'stock_number': stock_number,
                 'status': status,
                 'owner_name': owner_name,
+                'outcome': outcome,
             })
 
-        status_lower = status.lower()
-        is_rts = any(kw in status_lower for kw in _RETURN_STATUS_KEYWORDS)
-        is_delivered = bool(status_lower) and not is_rts
+        is_rts = outcome == 'ADDRESS_ISSUE'
+        is_delivered = outcome == 'DELIVERED'
         tracking_clean = tracking.replace(' ', '').upper() if tracking else None
 
-        notes = f'Bulk envelope scan ({filename}). Status: {status or "unknown"}.'
+        notes = f'Bulk envelope scan ({filename}), matched by {matched_by}. Status: {status or outcome or "unknown"}.'
         if owner_name:
             notes += f' Owner on envelope: {owner_name}.'
 
@@ -1249,6 +1350,8 @@ def bulk_envelope_scan_process():
             is_delivered=is_delivered,
             delivery_date=date.today() if is_delivered else None,
             claude_raw_response=raw,
+            outcome=outcome,
+            matched_by=matched_by,
         )
         db.session.add(scan)
 
@@ -1261,13 +1364,23 @@ def bulk_envelope_scan_process():
             if is_delivered and not ltr.delivery_confirmed_date:
                 ltr.delivery_confirmed_date = date.today()
 
-        if is_rts:
+        if outcome == 'ADDRESS_ISSUE':
             vehicle.letter_urgency = 'RED'
             db.session.add(VehicleNote(
                 vehicle_id=vehicle.id,
                 body=(
-                    f'ALERT: Envelope returned/undeliverable (bulk scan, {filename}). '
+                    f'ALERT: Envelope returned/undeliverable — address issue (bulk scan, {filename}). '
                     f'Status: {status}. Heather must verify address and resend.'
+                ),
+                author='Bulk Envelope Scanner',
+                created_at=datetime.utcnow(),
+            ))
+        elif outcome == 'SERVICE_DISRUPTED':
+            db.session.add(VehicleNote(
+                vehicle_id=vehicle.id,
+                body=(
+                    f'Envelope scan — carrier service disruption, not an address problem '
+                    f'(bulk scan, {filename}). Status: {status}.'
                 ),
                 author='Bulk Envelope Scanner',
                 created_at=datetime.utcnow(),
@@ -1283,8 +1396,11 @@ def bulk_envelope_scan_process():
             'matched': True,
             'invoice': invoice,
             'tracking': tracking,
+            'stock_number': stock_number,
             'status': status,
             'owner_name': owner_name,
+            'outcome': outcome,
+            'matched_by': matched_by,
             'vehicle': {'id': vehicle.id, 'display_name': vehicle.display_name},
         })
 

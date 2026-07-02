@@ -571,6 +571,10 @@ class EnvelopeScan(db.Model):
     claude_raw_response = db.Column(db.Text)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
+    # DELIVERED | ADDRESS_ISSUE | SERVICE_DISRUPTED | UNKNOWN
+    outcome = db.Column(db.String(20))
+    matched_by = db.Column(db.String(20))  # reference_number | tracking_number | stock_number | owner_name | manual
+
     vehicle = db.relationship('Vehicle', back_populates='envelope_scans')
 
 

@@ -74,15 +74,15 @@
     <h6 class="fw-semibold">Matched — Vehicle &amp; Status Saved</h6>
     <div class="table-responsive mb-3">
       <table class="table table-sm">
-        <thead><tr><th>File</th><th>Vehicle</th><th>Invoice</th><th>Status</th><th>Owner</th></tr></thead>
+        <thead><tr><th>File</th><th>Vehicle</th><th>Matched By</th><th>Outcome</th><th>Owner</th></tr></thead>
         <tbody id="matchedRows"><tr><td colspan="5" class="text-muted">None</td></tr></tbody>
       </table>
     </div>
 
-    <h6 class="fw-semibold">Not Matched — Invoice Not Found in Database</h6>
+    <h6 class="fw-semibold">Not Matched — No Vehicle Found (by invoice, tracking #, stock #, or owner name)</h6>
     <div class="table-responsive mb-3">
       <table class="table table-sm">
-        <thead><tr><th>File</th><th>Invoice</th><th>Status</th><th>Owner</th></tr></thead>
+        <thead><tr><th>File</th><th>Invoice</th><th>Outcome</th><th>Owner</th></tr></thead>
         <tbody id="notMatchedRows"><tr><td colspan="4" class="text-muted">None</td></tr></tbody>
       </table>
     </div>
@@ -171,10 +171,11 @@ async function startBatch() {
         logLine(`⚠️ <b>${escapeHtml(file.name)}</b> — could not read invoice number`);
       } else if (!data.matched) {
         notMatched.push(data);
-        logLine(`🔍 <b>${escapeHtml(file.name)}</b> — invoice #${escapeHtml(data.invoice)} not found in database`);
+        const ident = data.invoice || data.tracking || data.stock_number || data.owner_name || '—';
+        logLine(`🔍 <b>${escapeHtml(file.name)}</b> — no vehicle found for ${escapeHtml(ident)}`);
       } else {
         matched.push(data);
-        logLine(`✅ <b>${escapeHtml(file.name)}</b> — matched ${escapeHtml(data.vehicle.display_name)} (${escapeHtml(data.status)})`);
+        logLine(`✅ <b>${escapeHtml(file.name)}</b> — matched ${escapeHtml(data.vehicle.display_name)} by ${escapeHtml(data.matched_by)} (${escapeHtml(data.outcome || data.status)})`);
       }
     } catch (err) {
       unreadable.push({ filename: file.name });
@@ -204,8 +205,8 @@ function renderSummary(matched, notMatched, unreadable) {
     matchedRows.innerHTML += `<tr>
       <td>${escapeHtml(m.filename)}</td>
       <td>${escapeHtml(m.vehicle.display_name)}</td>
-      <td>${escapeHtml(m.invoice)}</td>
-      <td>${escapeHtml(m.status)}</td>
+      <td>${escapeHtml(m.matched_by)}</td>
+      <td>${escapeHtml(m.outcome || m.status)}</td>
       <td>${escapeHtml(m.owner_name)}</td>
     </tr>`;
   });
@@ -216,7 +217,7 @@ function renderSummary(matched, notMatched, unreadable) {
     notMatchedRows.innerHTML += `<tr>
       <td>${escapeHtml(m.filename)}</td>
       <td>${escapeHtml(m.invoice)}</td>
-      <td>${escapeHtml(m.status)}</td>
+      <td>${escapeHtml(m.outcome || m.status)}</td>
       <td>${escapeHtml(m.owner_name)}</td>
     </tr>`;
   });
