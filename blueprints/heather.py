@@ -109,6 +109,27 @@ def _match_vehicle_from_envelope(result):
     return None, None
 
 
+def _apply_afo_flag(vehicle, reference_number_2, detected_by, source='Envelope Scanner'):
+    """
+    If reference_number_2 (as read off the envelope) is "AFO" (Accident for
+    Owner), flag the vehicle. Informational only — never blocks letters, and
+    never clears itself once set. No-op if reference_number_2 isn't "AFO".
+    """
+    if not reference_number_2 or _normalize_ident(reference_number_2) != 'AFO':
+        return
+    if vehicle.is_afo:
+        return
+    vehicle.is_afo = True
+    vehicle.afo_detected_at = datetime.utcnow()
+    vehicle.afo_detected_by = detected_by
+    db.session.add(VehicleNote(
+        vehicle_id=vehicle.id,
+        body=f'AFO (Accident for Owner) auto-flagged — Reference #2 "{reference_number_2}" read off a scanned envelope.',
+        author=source,
+        created_at=datetime.utcnow(),
+    ))
+
+
 def _heather_required(f):
     """Tim + Heather can perform Heather actions."""
     from functools import wraps
@@ -1139,7 +1160,8 @@ def envelope_scan_camera():
                             'Extract the following and respond ONLY with valid JSON:\n'
                             '{\n'
                             '  "tracking_number": "the full UPS tracking number, which starts with 1Z, or the full USPS tracking number if this is USPS. Null if not visible.",\n'
-                            '  "reference_number": "the 6-digit number next to the field labeled \'Reference\', \'Reference #1\', or \'Ref 1\' on a UPS label — this is our internal invoice number (e.g. 726603). Do NOT use Reference #2 (that is a date, not our invoice number). Do NOT use UPS sort/route codes such as \'141-FDR\' or similar dash-separated codes — those are not the reference number. Null if no Reference #1 field is visible.",\n'
+                            '  "reference_number": "the 6-digit number next to the field labeled \'Reference\', \'Reference #1\', or \'Ref 1\' on a UPS label — this is our internal invoice number (e.g. 726603). This is NOT the same field as Reference #2 (see reference_number_2 below) — do not mix them up. Do NOT use UPS sort/route codes such as \'141-FDR\' or similar dash-separated codes — those are not the reference number. Null if no Reference #1 field is visible.",\n'
+                            '  "reference_number_2": "the value next to the field labeled \'Reference #2\' or \'Ref 2\' on a UPS label, separate from Reference #1 above. This is usually a ship date, but staff sometimes write a short code here instead, such as \'AFO\'. Return exactly what is printed/written there. Null if no Reference #2 field is visible.",\n'
                             '  "stock_number": "a tow lot stock/call number if handwritten anywhere on the envelope (e.g. by staff before mailing). Null if not visible.",\n'
                             '  "owner_name": "the addressee/recipient name on the envelope. Null if not visible.",\n'
                             '  "is_return_to_sender": true/false,\n'
@@ -1195,6 +1217,7 @@ def envelope_scan_match_save():
     vehicle_id = data.get('vehicle_id')
     tracking = (data.get('tracking_number') or '').strip()
     reference = (data.get('reference_number') or '').strip()
+    reference_2 = (data.get('reference_number_2') or '').strip()
     stock_number = (data.get('stock_number') or '').strip()
     owner_name = (data.get('owner_name') or '').strip()
     outcome = (data.get('outcome') or '').strip().upper() or None
@@ -1239,8 +1262,10 @@ def envelope_scan_match_save():
         claude_raw_response=data.get('raw'),
         outcome=outcome,
         matched_by=data.get('matched_by'),
+        reference_number_2=reference_2 or None,
     )
     db.session.add(scan)
+    _apply_afo_flag(vehicle, reference_2, detected_by='envelope-scan')
 
     # Attach this scan's outcome to the relevant letter: prefer the letter
     # still missing a tracking number (i.e. this scan is assigning it one),
@@ -1290,10 +1315,13 @@ BULK_ENVELOPE_PROMPT = (
     "'Reference', 'Reference #1', or 'Ref 1' on the UPS label. Do NOT use "
     "UPS sort/route codes such as '141-FDR' or similar dash-separated codes "
     "— these are NOT the invoice number.\n"
-    "2. UPS Tracking number (starts with 1Z)\n"
-    "3. A tow lot stock/call number, if handwritten anywhere on the envelope.\n"
-    "4. Owner name (addressee) on the envelope.\n"
-    "5. Overall outcome, classified as exactly one of:\n"
+    "2. Reference #2 — a separate field from Reference #1 above, usually a ship "
+    "date, but staff sometimes write a short code here instead such as 'AFO'. "
+    "Return exactly what is shown there.\n"
+    "3. UPS Tracking number (starts with 1Z)\n"
+    "4. A tow lot stock/call number, if handwritten anywhere on the envelope.\n"
+    "5. Owner name (addressee) on the envelope.\n"
+    "6. Overall outcome, classified as exactly one of:\n"
     "   DELIVERED — successfully delivered, no return markings.\n"
     "   ADDRESS_ISSUE — returned/undeliverable due to bad, incomplete, vacant, "
     "or unknown address. Look for 'NIS', 'RTS', 'VACANT', 'NO SUCH', "
@@ -1302,7 +1330,7 @@ BULK_ENVELOPE_PROMPT = (
     "address, e.g. 'REFUSED', 'DAMAGED IN TRANSIT', 'UNCLAIMED', weather/"
     "service delay stamps.\n"
     "   UNKNOWN — no clear markings either way.\n"
-    "Return JSON only: {invoice, tracking, stock_number, owner_name, outcome, status}\n"
+    "Return JSON only: {invoice, reference_2, tracking, stock_number, owner_name, outcome, status}\n"
     "(status is a short free-text summary of what's stamped/marked, for notes)"
 )
 
@@ -1367,6 +1395,7 @@ def bulk_envelope_scan_process():
             result = json.loads(m.group()) if m else {}
 
         invoice = (result.get('invoice') or '').strip()
+        reference_2 = (result.get('reference_2') or '').strip()
         tracking = (result.get('tracking') or '').strip()
         stock_number = (result.get('stock_number') or '').strip()
         status = (result.get('status') or '').strip()
@@ -1419,8 +1448,10 @@ def bulk_envelope_scan_process():
             claude_raw_response=raw,
             outcome=outcome,
             matched_by=matched_by,
+            reference_number_2=reference_2 or None,
         )
         db.session.add(scan)
+        _apply_afo_flag(vehicle, reference_2, detected_by='envelope-scan', source='Bulk Envelope Scanner')
 
         letters = CertifiedLetter.query.filter_by(vehicle_id=vehicle.id).all()
         for ltr in letters:

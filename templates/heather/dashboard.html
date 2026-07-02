@@ -169,6 +169,7 @@
         <td class="fw-semibold">
           <a href="{{ url_for('vehicles_detail', vehicle_id=v.id) }}" class="text-decoration-none text-dark">{{ v.display_name }}</a>
           {% if v.task_no_record and not v.task_no_record_resolved %}<span class="badge bg-danger ms-1">NO RECORD</span>{% endif %}
+          {% if v.is_afo %}<span class="badge bg-dark ms-1" title="Accident for Owner">AFO</span>{% endif %}
         </td>
         <td class="small text-muted">{{ v.account or '—' }}</td>
         <td><span class="badge bg-danger">{{ v.days_in_storage }}d</span></td>
@@ -203,6 +204,7 @@
         </td>
         <td class="fw-semibold">
           <a href="{{ url_for('vehicles_detail', vehicle_id=v.id) }}" class="text-decoration-none text-dark">{{ v.display_name }}</a>
+          {% if v.is_afo %}<span class="badge bg-dark ms-1" title="Accident for Owner">AFO</span>{% endif %}
         </td>
         <td class="small text-muted">{{ v.account or '—' }}</td>
         <td><span class="badge bg-warning text-dark">{{ v.days_in_storage }}d</span></td>
@@ -237,6 +239,7 @@
         </td>
         <td class="fw-semibold">
           <a href="{{ url_for('vehicles_detail', vehicle_id=v.id) }}" class="text-decoration-none text-dark">{{ v.display_name }}</a>
+          {% if v.is_afo %}<span class="badge bg-dark ms-1" title="Accident for Owner">AFO</span>{% endif %}
         </td>
         <td class="small text-muted">{{ v.account or '—' }}</td>
         <td><span class="badge bg-success">{{ v.days_in_storage }}d</span></td>

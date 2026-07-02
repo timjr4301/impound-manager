@@ -93,6 +93,9 @@ def run_migrations(app):
                     ('restart_reason',          'TEXT'),
                     ('restart_set_by',          'VARCHAR(50)'),
                     ('restart_set_at',          'TIMESTAMP'),
+                    ('is_afo',                  'BOOLEAN'),
+                    ('afo_detected_at',         'TIMESTAMP'),
+                    ('afo_detected_by',         'VARCHAR(50)'),
                 ]
                 for col_name, col_type in new_cols:
                     if col_name not in cols:
@@ -102,6 +105,8 @@ def run_migrations(app):
                 cols = {c['name'] for c in inspector.get_columns('certified_letters')}
                 if 'return_to_sender' not in cols:
                     conn.execute(text('ALTER TABLE certified_letters ADD COLUMN return_to_sender BOOLEAN'))
+                if 'reference_number_2' not in cols:
+                    conn.execute(text('ALTER TABLE certified_letters ADD COLUMN reference_number_2 VARCHAR(50)'))
 
             if 'envelope_scans' in existing_tables:
                 cols = {c['name'] for c in inspector.get_columns('envelope_scans')}
@@ -109,6 +114,8 @@ def run_migrations(app):
                     conn.execute(text('ALTER TABLE envelope_scans ADD COLUMN outcome VARCHAR(20)'))
                 if 'matched_by' not in cols:
                     conn.execute(text('ALTER TABLE envelope_scans ADD COLUMN matched_by VARCHAR(20)'))
+                if 'reference_number_2' not in cols:
+                    conn.execute(text('ALTER TABLE envelope_scans ADD COLUMN reference_number_2 VARCHAR(50)'))
 
             if 'sync_log' not in existing_tables:
                 # Use SQLAlchemy ORM to create the table safely on any DB backend
@@ -1035,6 +1042,7 @@ def create_app():
 
             letter.sent_date = sent_date
             letter.tracking_number = request.form.get('tracking_number', '').strip() or None
+            letter.reference_number_2 = request.form.get('reference_number_2', '').strip() or None
             letter.notes = request.form.get('notes', '').strip() or letter.notes
 
             vehicle = letter.vehicle

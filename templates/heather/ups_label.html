@@ -28,6 +28,10 @@
     🖨️ Print Label
   </button>
   <span style="margin-left:15px;color:#666;">4×6 label — use UPS label printer or print on adhesive sheet</span>
+  <label style="margin-left:15px;color:#666;">
+    <input type="checkbox" id="afoToggle" onchange="document.getElementById('afoLine').style.display = this.checked ? 'block' : 'none';">
+    Accident for Owner (AFO)
+  </label>
 </div>
 
 <div class="label">
@@ -60,6 +64,10 @@
     RE: {{ vehicle.display_name }}{% if vehicle.plate %} | Plate: {{ vehicle.plate }}{% endif %}<br>
     {% if vehicle.vin %}VIN: {{ vehicle.vin[-8:] }}{% endif %}
     | Impounded: {{ vehicle.impound_date.strftime('%m/%d/%Y') }}
+  </div>
+
+  <div id="afoLine" style="display:none; margin-top:6px; font-weight:bold; font-size:10pt;">
+    REFERENCE #2: AFO
   </div>
 
   <div style="margin-top:0.3in; border: 1px dashed #ccc; height: 0.6in; display:flex; align-items:center; justify-content:center;">

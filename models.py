@@ -214,6 +214,13 @@ class Vehicle(db.Model):
     anomaly_flagged_by = db.Column(db.String(50))
     anomaly_flagged_at = db.Column(db.DateTime)
 
+    # Accident for Owner — informational only, never blocks letters. Set manually
+    # when Heather marks a letter's Reference #2 as "AFO", or auto-detected when
+    # the envelope scanner reads "AFO" back off a returned envelope's Reference #2.
+    is_afo = db.Column(db.Boolean, default=False)
+    afo_detected_at = db.Column(db.DateTime)
+    afo_detected_by = db.Column(db.String(50))   # username, or 'envelope-scan'
+
     # Pre-computed by task_engine.recalculate_all — enables fast DB queries
     letter_urgency    = db.Column(db.String(10))    # RED | YELLOW | GREEN | NA
     current_task_num  = db.Column(db.Integer)       # 1, 2, 3, 4
@@ -502,6 +509,11 @@ class CertifiedLetter(db.Model):
     created_at = db.Column(db.DateTime)
     updated_at = db.Column(db.DateTime)
 
+    # Envelope Reference #2 field on the shipping label — freeform, but "AFO"
+    # (Accident for Owner) is the one value the envelope scanner watches for
+    # to auto-flag Vehicle.is_afo when a scanned return envelope shows it.
+    reference_number_2 = db.Column(db.String(50))
+
     vehicle = db.relationship('Vehicle', back_populates='letters')
 
     @property
@@ -610,6 +622,10 @@ class EnvelopeScan(db.Model):
     # DELIVERED | ADDRESS_ISSUE | SERVICE_DISRUPTED | UNKNOWN
     outcome = db.Column(db.String(20))
     matched_by = db.Column(db.String(20))  # reference_number | tracking_number | stock_number | owner_name | manual
+
+    # Reference #2 as read off the envelope by the scan AI — "AFO" here
+    # auto-flags Vehicle.is_afo (see reference_number for Reference #1).
+    reference_number_2 = db.Column(db.String(50))
 
     vehicle = db.relationship('Vehicle', back_populates='envelope_scans')
 

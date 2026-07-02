@@ -190,6 +190,11 @@ async function processImage() {
       const r = data.result;
       let html = '<strong>AI Read Results:</strong><br>';
       if (r.reference_number) html += `<b>Reference #:</b> ${r.reference_number}<br>`;
+      if (r.reference_number_2) {
+        const isAfo = r.reference_number_2.trim().toUpperCase() === 'AFO';
+        html += `<b>Reference #2:</b> ${r.reference_number_2}`;
+        html += isAfo ? ' 🚨 <b class="text-danger">AFO — will flag this vehicle</b><br>' : '<br>';
+      }
       if (r.tracking_number) {
         html += `<b>Tracking #:</b> ${r.tracking_number}<br>`;
         document.getElementById('manualTracking').value = r.tracking_number;
@@ -261,6 +266,7 @@ async function matchAndSave() {
         vehicle_id: vehicleId,
         tracking_number: lastAiResult.tracking_number || null,
         reference_number: lastAiResult.reference_number || null,
+        reference_number_2: lastAiResult.reference_number_2 || null,
         stock_number: lastAiResult.stock_number || null,
         owner_name: lastAiResult.owner_name || null,
         outcome: lastAiResult.outcome || null,

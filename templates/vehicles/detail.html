@@ -7,7 +7,14 @@
     <i class="bi bi-arrow-left"></i>
   </a>
   <div>
-    <h2 class="h4 mb-0 fw-bold">{{ vehicle.display_name }}</h2>
+    <h2 class="h4 mb-0 fw-bold">
+      {{ vehicle.display_name }}
+      {% if vehicle.is_afo %}
+      <span class="badge bg-dark" title="Accident for Owner — flagged {{ vehicle.afo_detected_at.strftime('%m/%d/%Y') if vehicle.afo_detected_at else '' }} by {{ vehicle.afo_detected_by or '—' }}">
+        <i class="bi bi-exclamation-triangle-fill"></i> AFO
+      </span>
+      {% endif %}
+    </h2>
     <small class="text-muted">
       {{ vehicle.impound_type }} Impound &bull;
       {{ vehicle.impound_date|mdY }} &bull;

@@ -68,6 +68,12 @@
             <div class="form-text">From the certified mail receipt (optional but recommended).</div>
           </div>
           <div class="mb-3">
+            <label for="reference_number_2" class="form-label fw-semibold">Reference #2 <span class="text-muted fw-normal">(optional)</span></label>
+            <input type="text" class="form-control font-monospace" id="reference_number_2" name="reference_number_2"
+                   value="{{ letter.reference_number_2 or '' }}" placeholder="e.g. AFO">
+            <div class="form-text">Write "AFO" here for an accident-for-owner case — enter the same value in the Reference #2 field on the physical UPS label. If this envelope ever comes back, the scanner will auto-flag the vehicle.</div>
+          </div>
+          <div class="mb-3">
             <label for="notes" class="form-label fw-semibold">Notes</label>
             <textarea class="form-control" id="notes" name="notes" rows="2"
                       placeholder="Any relevant notes..."></textarea>
