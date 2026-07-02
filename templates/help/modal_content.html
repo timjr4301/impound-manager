@@ -6,7 +6,7 @@
 <div class="mb-3">
   <h6 class="fw-bold border-bottom pb-1 mb-2" style="color:{{ data.color }}">{{ section.heading }}</h6>
   <ul class="mb-0 ps-3">
-    {% for item in section.items %}
+    {% for item in section['items'] %}
     <li class="small mb-1">{{ item }}</li>
     {% endfor %}
   </ul>
