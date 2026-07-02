@@ -243,6 +243,25 @@ class Vehicle(db.Model):
         """True when a VIN photo mismatch is unresolved — hard-blocks letters."""
         return bool(self.vin_mismatch) and not self.vin_mismatch_resolved
 
+    # Paid/Released Pending Pickup — set when staff authorize release (paid in
+    # full) but the vehicle hasn't physically left the lot yet. status goes
+    # ACTIVE -> PENDING_PICKUP -> RELEASED (Confirm Picked Up). Distinct from
+    # the RELEASED status set directly by Tina's sale/junk invoice flows, which
+    # have no "customer picks it up" step and skip this entirely.
+    pending_pickup_since = db.Column(db.DateTime)
+
+    @property
+    def pending_pickup_hours(self):
+        if self.status != 'PENDING_PICKUP' or not self.pending_pickup_since:
+            return None
+        return int((datetime.utcnow() - self.pending_pickup_since).total_seconds() // 3600)
+
+    @property
+    def pending_pickup_overdue(self):
+        """True once a Paid/Released vehicle has waited more than 48h for physical pickup."""
+        hours = self.pending_pickup_hours
+        return hours is not None and hours >= 48
+
     # Pre-computed by task_engine.recalculate_all — enables fast DB queries
     letter_urgency    = db.Column(db.String(10))    # RED | YELLOW | GREEN | NA
     current_task_num  = db.Column(db.Integer)       # 1, 2, 3, 4

@@ -431,6 +431,42 @@
 </div>
 {% endif %}
 
+{# ── Paid/Released Pending Pickup ── #}
+{% if pending_pickup_vehicles %}
+<div class="card shadow-sm mb-4 {% if pending_pickup_overdue %}border-danger border-3{% else %}border-warning{% endif %}">
+  <div class="card-header fw-bold {% if pending_pickup_overdue %}text-white{% else %}bg-warning{% endif %}"
+       style="{% if pending_pickup_overdue %}background:#8b0000;{% endif %}">
+    <i class="bi bi-box-seam me-2"></i>
+    Paid / Released — Pending Pickup ({{ pending_pickup_vehicles|length }})
+    {% if pending_pickup_overdue %}<small class="fw-normal ms-2">{{ pending_pickup_overdue|length }} over 48 hours — follow up with the customer</small>{% endif %}
+  </div>
+  <div class="card-body p-0">
+    <table class="table table-hover align-middle mb-0">
+      <thead class="table-light">
+        <tr><th>Stock #</th><th>Vehicle</th><th>Released</th><th>Waiting</th><th></th></tr>
+      </thead>
+      <tbody>
+      {% for v in pending_pickup_vehicles %}
+      <tr class="{% if v.pending_pickup_overdue %}table-danger{% endif %}">
+        <td class="font-monospace small"><a href="{{ url_for('vehicles_detail', vehicle_id=v.id) }}" class="row-link">{{ v.stock_number or '#' ~ v.id }}</a></td>
+        <td><a href="{{ url_for('vehicles_detail', vehicle_id=v.id) }}" class="fw-semibold row-link">{{ v.display_name }}</a>
+            {% if v.plate %}<br><small class="text-muted">{{ v.plate }}</small>{% endif %}</td>
+        <td class="small">{{ v.pending_pickup_since.strftime('%m/%d %I:%M %p') if v.pending_pickup_since else '—' }}</td>
+        <td><span class="badge {% if v.pending_pickup_overdue %}bg-danger{% else %}bg-warning text-dark{% endif %}">{{ v.pending_pickup_hours }}h</span></td>
+        <td class="text-end pe-3">
+          <form method="POST" action="{{ url_for('vehicles_confirm_pickup', vehicle_id=v.id) }}"
+                onsubmit="return confirm('Confirm this vehicle has actually left the lot?');">
+            <button type="submit" class="btn btn-sm btn-success">Confirm Picked Up</button>
+          </form>
+        </td>
+      </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endif %}
+
 {# ── Staff Feedback ── #}
 {% if staff_feedback %}
 {% set unread_count = staff_feedback|selectattr('is_read', 'equalto', False)|list|length %}

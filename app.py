@@ -107,6 +107,7 @@ def run_migrations(app):
                     ('vin_mismatch_resolved',      'BOOLEAN'),
                     ('vin_mismatch_resolved_by',   'VARCHAR(50)'),
                     ('vin_mismatch_resolved_date', 'DATE'),
+                    ('pending_pickup_since',       'TIMESTAMP'),
                 ]
                 for col_name, col_type in new_cols:
                     if col_name not in cols:
@@ -594,6 +595,16 @@ def create_app():
             .all()
         )
 
+        # Paid/Released Pending Pickup — authorized for release but not yet
+        # physically collected. Oldest (most overdue) first.
+        pending_pickup_vehicles = (
+            Vehicle.query
+            .filter_by(status='PENDING_PICKUP')
+            .order_by(Vehicle.pending_pickup_since.asc())
+            .all()
+        )
+        pending_pickup_overdue = [v for v in pending_pickup_vehicles if v.pending_pickup_overdue]
+
         # Heather→Tina handoff queue
         handoff_queue = Vehicle.query.filter_by(heather_complete=True, tina_stage='QUEUED').all()
 
@@ -628,6 +639,8 @@ def create_app():
             timecard_flags=timecard_flags,
             towbook_api_configured=towbook_api_configured(),
             staff_feedback=staff_feedback,
+            pending_pickup_vehicles=pending_pickup_vehicles,
+            pending_pickup_overdue=pending_pickup_overdue,
         )
 
     @app.route('/api/import-towbook/trigger', methods=['POST'])
@@ -966,15 +979,44 @@ def create_app():
     @app.route('/vehicles/<int:vehicle_id>/release', methods=['POST'])
     @login_required
     def vehicles_release(vehicle_id):
+        """Authorize release (paid in full) — vehicle isn't gone yet, just cleared
+        to be picked up. See confirm_pickup for the actual departure step."""
+        vehicle = db.get_or_404(Vehicle, vehicle_id)
+        if not current_user.can_edit_vehicles:
+            flash('Permission denied.', 'danger')
+            return redirect(url_for('vehicles_detail', vehicle_id=vehicle_id))
+        vehicle.status = 'PENDING_PICKUP'
+        vehicle.pending_pickup_since = datetime.utcnow()
+        vehicle.updated_at = datetime.utcnow()
+        db.session.add(VehicleNote(
+            vehicle_id=vehicle.id,
+            body=f'Marked Paid/Released — pending pickup by {current_user.display_name or current_user.username}.',
+            author=current_user.display_name or current_user.username,
+            created_at=datetime.utcnow(),
+        ))
+        db.session.commit()
+        flash(f'{vehicle.display_name} marked Paid/Released — pending pickup.', 'info')
+        return redirect(url_for('dashboard'))
+
+    @app.route('/vehicles/<int:vehicle_id>/confirm-pickup', methods=['POST'])
+    @login_required
+    def vehicles_confirm_pickup(vehicle_id):
+        """The vehicle has actually left the lot — final RELEASED status."""
         vehicle = db.get_or_404(Vehicle, vehicle_id)
         if not current_user.can_edit_vehicles:
             flash('Permission denied.', 'danger')
             return redirect(url_for('vehicles_detail', vehicle_id=vehicle_id))
         vehicle.status = 'RELEASED'
         vehicle.updated_at = datetime.utcnow()
+        db.session.add(VehicleNote(
+            vehicle_id=vehicle.id,
+            body=f'Pickup confirmed by {current_user.display_name or current_user.username} — vehicle has left the lot.',
+            author=current_user.display_name or current_user.username,
+            created_at=datetime.utcnow(),
+        ))
         db.session.commit()
-        flash(f'{vehicle.display_name} marked as released.', 'info')
-        return redirect(url_for('dashboard'))
+        flash(f'{vehicle.display_name} pickup confirmed — released.', 'success')
+        return redirect(url_for('vehicles_detail', vehicle_id=vehicle_id))
 
     # ── Valuation Report ───────────────────────────────────────────────────────
 
