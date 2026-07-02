@@ -319,6 +319,76 @@ _HELP = {
             },
         ],
     },
+
+    'dispatcher': {
+        'title': "Dispatch Quick Reference",
+        'color': '#20c997',
+        'sections': [
+            {
+                'heading': 'Dispatch Board',
+                'items': [
+                    'Your dashboard shows every active vehicle — newest impound first.',
+                    'Use the All / Red / Yellow / Green buttons at the top to filter by letter urgency stoplight.',
+                    'Columns: Vehicle, Plate/VIN, Impound date, Days in storage, Owner, Next Action, Balance, Keys, Location.',
+                    'Days in storage turns orange after 14 days and red after 30 — a quick sign a car has been sitting a while.',
+                ],
+            },
+            {
+                'heading': 'Adding a New Impound',
+                'items': [
+                    'Click "New" (top right) to add a vehicle that isn\'t in Towbook yet.',
+                    'Fill in what you know — plate, VIN, make/model, impound type (PPI or Police), storage location.',
+                    'You can come back and fill in owner/BMV info later — Heather handles that step.',
+                ],
+            },
+            {
+                'heading': 'Finding a Vehicle',
+                'items': [
+                    'Use the search bar (top of every page) — searches plate, VIN, owner name, or stock number.',
+                    'Click any vehicle row to open its full detail page.',
+                ],
+            },
+            {
+                'heading': 'If Something Looks Wrong',
+                'items': [
+                    'Add a note to the vehicle record from its detail page.',
+                    'Text or call Tim directly for anything urgent.',
+                ],
+            },
+        ],
+    },
+
+    'demo': {
+        'title': "Demo Mode — What You're Looking At",
+        'color': '#ffc107',
+        'sections': [
+            {
+                'heading': 'This Is a Read-Only Preview',
+                'items': [
+                    'The yellow "DEMO MODE" banner means nothing you do here is saved — no edits, no letters sent, no payments logged, no imports.',
+                    'Every button and form is real and clickable — you\'ll see how the workflow works, but any save/submit attempt is blocked and shows a "read-only" message.',
+                    'Feel free to click around — there\'s nothing to break.',
+                ],
+            },
+            {
+                'heading': 'What You Can Explore',
+                'items': [
+                    'Hub — the full launch pad with tiles for every system.',
+                    'Overview, Heather, and Tina dashboards — see the letter/title pipeline stoplight system.',
+                    'Pipeline and Letters — how certified mail tracking and the 4-task deadline engine work.',
+                    'Vehicles — the full active-impound list and a sample vehicle detail page.',
+                    'Invoice Camera — try scanning a check or invoice; Claude will read it (the read works), you just can\'t confirm/save the payment.',
+                ],
+            },
+            {
+                'heading': 'Not Included in This Preview',
+                'items': [
+                    'Driver payroll, timecards, and HR — restricted to the owner/admin accounts, not part of this demo.',
+                    'The Admin panel (user management) — same reason.',
+                ],
+            },
+        ],
+    },
 }
 
 _DEFAULT_HELP = {
