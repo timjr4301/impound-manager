@@ -315,8 +315,10 @@
             <td class="font-monospace small">{{ s.tracking_number or '—' }}</td>
             <td class="small text-muted">{{ s.scan_date.strftime('%m/%d %I:%M %p') if s.scan_date else '—' }}</td>
             <td>
-              {% if s.is_return_to_sender %}
-                <span class="badge bg-danger">Return to Sender</span>
+              {% if s.outcome == 'SERVICE_DISRUPTED' %}
+                <span class="badge bg-warning text-dark">Service Disrupted</span>
+              {% elif s.is_return_to_sender %}
+                <span class="badge bg-danger">Address Issue</span>
               {% elif s.is_delivered %}
                 <span class="badge bg-success">Delivered</span>
               {% else %}
