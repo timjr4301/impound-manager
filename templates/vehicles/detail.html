@@ -14,8 +14,16 @@
       {{ vehicle.days_in_storage }} days in storage
     </small>
   </div>
+  {% if vehicle.status == 'ACTIVE' and not vehicle.possible_release and current_user.is_heather %}
+  <form method="POST" action="{{ url_for('heather.flag_possible_release', vehicle_id=vehicle.id) }}"
+        class="ms-auto me-2 d-inline" onsubmit="return confirm('Flag this vehicle as possibly missing/released? This will block letters from going out until confirmed.');">
+    <button type="submit" class="btn btn-outline-danger btn-sm">
+      <i class="bi bi-question-diamond"></i> Flag Missing / Ghost
+    </button>
+  </form>
+  {% endif %}
   {% if vehicle.status == 'ACTIVE' and current_user.can_edit_vehicles %}
-  <a href="{{ url_for('vehicles_edit', vehicle_id=vehicle.id) }}" class="btn btn-outline-secondary btn-sm ms-auto me-2">
+  <a href="{{ url_for('vehicles_edit', vehicle_id=vehicle.id) }}" class="btn btn-outline-secondary btn-sm {% if not (not vehicle.possible_release and current_user.is_heather) %}ms-auto{% endif %} me-2">
     <i class="bi bi-pencil"></i> Edit
   </a>
   {% endif %}
@@ -76,6 +84,29 @@
 </div>
 {% endif %}
 
+{# ══ Possible Release / Ghost Vehicle Banner ══ #}
+{% if vehicle.possible_release %}
+<div class="alert alert-danger border-danger border-3 d-flex align-items-center gap-3 mb-4" style="background:#fff0f0;">
+  <i class="bi bi-question-diamond-fill fs-3 text-danger"></i>
+  <div class="flex-grow-1">
+    <strong class="d-block text-danger fs-5">POSSIBLE RELEASE — VERIFY BEFORE SENDING LETTER</strong>
+    <span class="small">Not found in the latest Towbook export, or manually flagged as possibly missing from the lot.</span>
+    <span class="text-muted small ms-2">Letters are blocked until this is confirmed one way or the other.</span>
+  </div>
+  {% if current_user.is_heather %}
+  <div class="d-flex gap-2 flex-shrink-0">
+    <form method="POST" action="{{ url_for('heather.confirm_possible_release', vehicle_id=vehicle.id) }}">
+      <button type="submit" class="btn btn-success btn-sm"><i class="bi bi-check-lg"></i> Still On Lot</button>
+    </form>
+    <form method="POST" action="{{ url_for('heather.mark_possible_release_released', vehicle_id=vehicle.id) }}"
+          onsubmit="return confirm('Mark this vehicle as RELEASED? It will drop out of the active pipeline entirely.');">
+      <button type="submit" class="btn btn-outline-danger btn-sm"><i class="bi bi-box-arrow-right"></i> Mark Released</button>
+    </form>
+  </div>
+  {% endif %}
+</div>
+{% endif %}
+
 {# ══ Task Pipeline Widget ══ #}
 {% if vehicle.status in ('ACTIVE', 'TITLE_FILED') %}
 {% set t1_done = vehicle.heather_complete or vehicle.bmv_stage == 'COMPLETE' %}
@@ -132,8 +163,10 @@
           {% else %}
           <div class="text-muted" style="font-size:.75rem;">Opens day 5 ({{ (5 - vehicle.days_in_storage) }}d)</div>
           {% endif %}
-          {% if l1 and not l1_sent and vehicle.days_in_storage >= 5 and vehicle.status == 'ACTIVE' %}
+          {% if l1 and not l1_sent and vehicle.days_in_storage >= 5 and vehicle.status == 'ACTIVE' and not vehicle.possible_release %}
           <a href="{{ url_for('letters_mark_sent', letter_id=l1.id) }}" class="btn btn-danger btn-sm py-0 mt-1 w-100">Send Now</a>
+          {% elif l1 and not l1_sent and vehicle.days_in_storage >= 5 and vehicle.possible_release %}
+          <span class="badge bg-secondary d-block mt-1">Blocked — verify Possible Release</span>
           {% endif %}
         </div>
       </div>
@@ -158,8 +191,10 @@
           {% else %}
           <div class="text-muted" style="font-size:.75rem;">Locked — complete Task 2 first</div>
           {% endif %}
-          {% if l2 and not l2_sent and task3_open and today >= task3_open and vehicle.status == 'ACTIVE' %}
+          {% if l2 and not l2_sent and task3_open and today >= task3_open and vehicle.status == 'ACTIVE' and not vehicle.possible_release %}
           <a href="{{ url_for('letters_mark_sent', letter_id=l2.id) }}" class="btn btn-danger btn-sm py-0 mt-1 w-100">Send Now</a>
+          {% elif l2 and not l2_sent and task3_open and today >= task3_open and vehicle.possible_release %}
+          <span class="badge bg-secondary d-block mt-1">Blocked — verify Possible Release</span>
           {% endif %}
         </div>
       </div>

@@ -509,6 +509,7 @@ def create_app():
             .join(Vehicle)
             .filter(Vehicle.status == 'ACTIVE')
             .filter(CertifiedLetter.sent_date.is_(None))
+            .filter(Vehicle.possible_release.isnot(True))
             .all()
         )
 
@@ -517,6 +518,18 @@ def create_app():
         due_this_week = sorted(
             [l for l in pending_letters if today < l.due_date <= week_ahead],
             key=lambda l: l.due_date
+        )
+
+        # Possible Release / Ghost Vehicle — flagged missing from the latest
+        # Towbook export or a manual lot-walk flag. Highest legal priority:
+        # sending an abandonment notice for a vehicle that may already be gone
+        # is real exposure, so these must be verified before any letter goes out.
+        ghost_vehicles = (
+            Vehicle.query
+            .filter(Vehicle.status == 'ACTIVE')
+            .filter(Vehicle.possible_release == True)
+            .order_by(Vehicle.updated_at.desc())
+            .all()
         )
 
         all_active = Vehicle.query.filter_by(status='ACTIVE').all()
@@ -559,6 +572,7 @@ def create_app():
             towbook_total=towbook_total,
             last_sync=last_sync,
             urgent_no_record=urgent_no_record,
+            ghost_vehicles=ghost_vehicles,
             handoff_queue=handoff_queue,
             timecard_flags=timecard_flags,
             towbook_api_configured=towbook_api_configured(),
@@ -667,6 +681,7 @@ def create_app():
             .filter(Vehicle.status == 'ACTIVE')
             .filter(CertifiedLetter.sent_date.is_(None))
             .filter(CertifiedLetter.due_date <= horizon)
+            .filter(Vehicle.possible_release.isnot(True))
             .order_by(CertifiedLetter.due_date.asc())
             .all()
         )
@@ -906,6 +921,14 @@ def create_app():
     def letters_mark_sent(letter_id):
         letter = db.get_or_404(CertifiedLetter, letter_id)
 
+        if letter.vehicle.possible_release:
+            flash(
+                f'{letter.vehicle.display_name} is flagged Possible Release — verify it\'s '
+                'still on the lot before sending any letter.',
+                'danger',
+            )
+            return redirect(url_for('vehicles_detail', vehicle_id=letter.vehicle_id))
+
         if request.method == 'POST':
             sent_str = request.form.get('sent_date', '').strip()
             sent_date = date.fromisoformat(sent_str) if sent_str else date.today()
@@ -991,6 +1014,7 @@ def create_app():
             .join(Vehicle)
             .filter(Vehicle.status == 'ACTIVE')
             .filter(CertifiedLetter.sent_date.is_(None))
+            .filter(Vehicle.possible_release.isnot(True))
             .all()
         )
 

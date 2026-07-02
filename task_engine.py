@@ -58,6 +58,19 @@ def compute_task(v, today: date) -> dict:
     if not v.impound_date or v.status not in ('ACTIVE', 'TITLE_FILED'):
         return _na()
 
+    # Possible Release / Ghost Vehicle — flagged missing from the latest Towbook
+    # export or a manual lot-walk flag. Never auto-advance the letter pipeline for
+    # these; Heather must verify the vehicle is still on the lot first.
+    if v.possible_release:
+        return dict(
+            task_num=0,
+            task_label='Possible Release — Verify Before Sending Letter',
+            task_due=None,
+            urgency='RED',
+            locked=True,
+            action='Flagged missing from latest Towbook export. Confirm still on lot (or mark released) before any letter goes out.',
+        )
+
     try:
         letters = v.letters or []
         l1 = next((l for l in letters if l.letter_number == 1), None)

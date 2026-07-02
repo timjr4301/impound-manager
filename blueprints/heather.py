@@ -240,6 +240,7 @@ def dashboard():
         .join(Vehicle)
         .filter(Vehicle.status == 'ACTIVE')
         .filter(CertifiedLetter.sent_date.is_(None))
+        .filter(Vehicle.possible_release.isnot(True))
         .filter(_after_cutoff())
         .all()
     )
@@ -249,6 +250,18 @@ def dashboard():
     due_this_week = sorted(
         [l for l in pending_letters if today < l.due_date <= week_ahead],
         key=lambda l: l.due_date
+    )
+
+    # Possible Release / Ghost Vehicle — flagged missing from the latest Towbook
+    # export (or manually flagged from a lot walk). Must be verified before any
+    # letter goes out — sending a certified abandonment notice for a vehicle
+    # that may already be gone is a real legal exposure.
+    possible_release_vehicles = (
+        Vehicle.query
+        .filter(Vehicle.status == 'ACTIVE')
+        .filter(Vehicle.possible_release == True)
+        .order_by(Vehicle.updated_at.desc())
+        .all()
     )
 
     # BMV search queue — vehicles on Task 1 needing owner lookup
@@ -285,6 +298,7 @@ def dashboard():
         today=today,
         red=red, yellow=yellow, green=green,
         urgent_vehicles=urgent_vehicles,
+        possible_release_vehicles=possible_release_vehicles,
         overdue=overdue, due_today=due_today, due_this_week=due_this_week,
         bmv_queue=bmv_queue,
         sent_unconfirmed=sent_unconfirmed,
@@ -354,6 +368,51 @@ def resolve_urgent(vehicle_id):
     db.session.commit()
     flash(f'Urgent flag cleared for {vehicle.display_name}.', 'success')
     return redirect(request.referrer or url_for('dashboard'))
+
+
+@bp.route('/possible-release/<int:vehicle_id>/flag', methods=['POST'])
+@_heather_required
+def flag_possible_release(vehicle_id):
+    """Manually flag a vehicle as possibly released/missing (e.g. found gone on a lot walk)."""
+    from tina_sync import flag_vehicle_possible_release
+    vehicle = db.get_or_404(Vehicle, vehicle_id)
+    notes = request.form.get('notes', '').strip()
+    flag_vehicle_possible_release(vehicle.id)
+    if notes:
+        db.session.add(VehicleNote(
+            vehicle_id=vehicle.id,
+            body=f'Possible release — manually flagged: {notes}',
+            author=current_user.display_name or 'Heather',
+            created_at=datetime.utcnow(),
+        ))
+        db.session.commit()
+    flash(f'{vehicle.display_name} flagged as possible release — verify before sending any letter.', 'danger')
+    return redirect(request.referrer or url_for('vehicles_detail', vehicle_id=vehicle.id))
+
+
+@bp.route('/possible-release/<int:vehicle_id>/confirm', methods=['POST'])
+@_heather_required
+def confirm_possible_release(vehicle_id):
+    """Heather confirmed the vehicle is still physically on the lot — clear the flag."""
+    from tina_sync import confirm_still_on_lot
+    vehicle = db.get_or_404(Vehicle, vehicle_id)
+    confirm_still_on_lot(vehicle.id)
+    from task_engine import recalculate_vehicle
+    recalculate_vehicle(vehicle)
+    db.session.commit()
+    flash(f'{vehicle.display_name} confirmed still on lot — flag cleared, letters unblocked.', 'success')
+    return redirect(request.referrer or url_for('heather.dashboard'))
+
+
+@bp.route('/possible-release/<int:vehicle_id>/mark-released', methods=['POST'])
+@_heather_required
+def mark_possible_release_released(vehicle_id):
+    """Vehicle confirmed gone — mark it RELEASED so it drops out of the pipeline entirely."""
+    from tina_sync import mark_released
+    vehicle = db.get_or_404(Vehicle, vehicle_id)
+    mark_released(vehicle.id)
+    flash(f'{vehicle.display_name} marked as RELEASED.', 'success')
+    return redirect(request.referrer or url_for('heather.dashboard'))
 
 
 @bp.route('/file-checklist/<int:vehicle_id>', methods=['POST'])
@@ -739,6 +798,14 @@ def notices(vehicle_id):
 def send_notice(vehicle_id):
     from models import VehicleNotice
     vehicle = db.get_or_404(Vehicle, vehicle_id)
+
+    if vehicle.possible_release:
+        flash(
+            f'{vehicle.display_name} is flagged Possible Release — verify it\'s still on the '
+            'lot before sending any notice.',
+            'danger',
+        )
+        return redirect(url_for('vehicles_detail', vehicle_id=vehicle.id))
 
     recipient_name = request.form.get('recipient_name', '').strip()
     recipient_address = request.form.get('recipient_address', '').strip()
