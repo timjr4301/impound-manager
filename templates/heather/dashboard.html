@@ -8,6 +8,15 @@
     <small class="text-muted">{{ today.strftime('%A, %B ') + today.day|string + ', ' + today.year|string }}</small>
   </div>
   <div class="ms-auto d-flex gap-2 flex-wrap align-items-center">
+    <div class="btn-group btn-group-sm" role="group" aria-label="Days on lot sort">
+      <a href="{{ url_for('heather.dashboard') }}" class="btn btn-outline-secondary {% if not lot_sort %}active{% endif %}">Default Sort</a>
+      <a href="{{ url_for('heather.dashboard', lot_sort='shortest') }}" class="btn btn-outline-secondary {% if lot_sort == 'shortest' %}active{% endif %}">
+        <i class="bi bi-sort-numeric-down"></i> Shortest on Lot
+      </a>
+      <a href="{{ url_for('heather.dashboard', lot_sort='longest') }}" class="btn btn-outline-secondary {% if lot_sort == 'longest' %}active{% endif %}">
+        <i class="bi bi-sort-numeric-up"></i> Longest on Lot
+      </a>
+    </div>
     {% if can_act %}
     <form method="POST" action="{{ url_for('heather.recalculate') }}" class="d-inline">
       <button type="submit" class="btn btn-outline-secondary btn-sm">

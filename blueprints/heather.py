@@ -36,6 +36,25 @@ def _after_cutoff():
     return cast(Vehicle.impound_date, Date) >= HEATHER_QUEUE_CUTOFF
 
 
+def _lot_sort_param():
+    """Read ?lot_sort=shortest|longest from the request. None means 'use each
+    list's own default ordering' (unchanged from before this sort existed)."""
+    v = request.args.get('lot_sort', '').strip().lower()
+    return v if v in ('shortest', 'longest') else None
+
+
+def _lot_order(lot_sort, default):
+    """Days-on-lot ordering, reversible via lot_sort: 'shortest' = fewest days
+    first (most recently impounded, i.e. impound_date desc), 'longest' = most
+    days first (impound_date asc). Falls back to `default` when lot_sort is
+    None so existing pages keep their original ordering until toggled."""
+    if lot_sort == 'shortest':
+        return Vehicle.impound_date.desc()
+    if lot_sort == 'longest':
+        return Vehicle.impound_date.asc()
+    return default
+
+
 def _normalize_ident(val):
     """Strip whitespace/dashes and uppercase, for fuzzy matching of codes and names."""
     import re
@@ -193,25 +212,26 @@ def _bmv_scanner_available():
 def dashboard():
     today = date.today()
     week_ahead = today + timedelta(days=7)
+    lot_sort = _lot_sort_param()
 
     # Query by stored letter_urgency — fast DB filter, no Python-side computation
     red = (Vehicle.query
            .filter(Vehicle.status.in_(['ACTIVE', 'TITLE_FILED']))
            .filter(Vehicle.letter_urgency == 'RED')
            .filter(_after_cutoff())
-           .order_by(Vehicle.impound_date.asc())
+           .order_by(_lot_order(lot_sort, Vehicle.impound_date.asc()))
            .all())
     yellow = (Vehicle.query
               .filter(Vehicle.status.in_(['ACTIVE', 'TITLE_FILED']))
               .filter(Vehicle.letter_urgency == 'YELLOW')
               .filter(_after_cutoff())
-              .order_by(Vehicle.impound_date.asc())
+              .order_by(_lot_order(lot_sort, Vehicle.impound_date.asc()))
               .all())
     green = (Vehicle.query
              .filter(Vehicle.status.in_(['ACTIVE', 'TITLE_FILED']))
              .filter(Vehicle.letter_urgency == 'GREEN')
              .filter(_after_cutoff())
-             .order_by(Vehicle.impound_date.desc())
+             .order_by(_lot_order(lot_sort, Vehicle.impound_date.desc()))
              .all())
 
     # Fallback: if all urgencies are null (first run, not yet backfilled), recalculate now
@@ -228,19 +248,19 @@ def dashboard():
                        .filter(Vehicle.status.in_(['ACTIVE', 'TITLE_FILED']))
                        .filter(Vehicle.letter_urgency == 'RED')
                        .filter(_after_cutoff())
-                       .order_by(Vehicle.impound_date.asc())
+                       .order_by(_lot_order(lot_sort, Vehicle.impound_date.asc()))
                        .all())
                 yellow = (Vehicle.query
                           .filter(Vehicle.status.in_(['ACTIVE', 'TITLE_FILED']))
                           .filter(Vehicle.letter_urgency == 'YELLOW')
                           .filter(_after_cutoff())
-                          .order_by(Vehicle.impound_date.asc())
+                          .order_by(_lot_order(lot_sort, Vehicle.impound_date.asc()))
                           .all())
                 green = (Vehicle.query
                          .filter(Vehicle.status.in_(['ACTIVE', 'TITLE_FILED']))
                          .filter(Vehicle.letter_urgency == 'GREEN')
                          .filter(_after_cutoff())
-                         .order_by(Vehicle.impound_date.desc())
+                         .order_by(_lot_order(lot_sort, Vehicle.impound_date.desc()))
                          .all())
         except Exception as exc:
             db.session.rollback()
@@ -292,7 +312,7 @@ def dashboard():
                                 Vehicle.heather_complete.is_(None)))
                  .filter(db.or_(Vehicle.bmv_stage.in_([None, 'PENDING', 'QUEUED'])))
                  .filter(_after_cutoff())
-                 .order_by(Vehicle.impound_date.asc())
+                 .order_by(_lot_order(lot_sort, Vehicle.impound_date.asc()))
                  .limit(100)
                  .all())
 
@@ -325,6 +345,7 @@ def dashboard():
         sent_unconfirmed=sent_unconfirmed,
         last_calc=last_calc,
         can_act=current_user.is_heather,  # Tina can view but not act
+        lot_sort=lot_sort,
     )
 
 
@@ -910,6 +931,7 @@ def send_notice(vehicle_id):
 def letters():
     """Letters management tab — sent/pending/RTS status for all active vehicles."""
     today = date.today()
+    lot_sort = _lot_sort_param()
 
     # All unsent letters (pending)
     pending = (
@@ -918,7 +940,7 @@ def letters():
         .filter(Vehicle.status == 'ACTIVE')
         .filter(CertifiedLetter.sent_date.is_(None))
         .filter(_after_cutoff())
-        .order_by(CertifiedLetter.due_date.asc())
+        .order_by(_lot_order(lot_sort, CertifiedLetter.due_date.asc()))
         .all()
     )
 
@@ -930,7 +952,7 @@ def letters():
         .filter(CertifiedLetter.sent_date.isnot(None))
         .filter(CertifiedLetter.delivery_confirmed_date.is_(None))
         .filter(_after_cutoff())
-        .order_by(CertifiedLetter.sent_date.asc())
+        .order_by(_lot_order(lot_sort, CertifiedLetter.sent_date.asc()))
         .all()
     )
 
@@ -941,7 +963,7 @@ def letters():
         .filter(CertifiedLetter.return_to_sender == True)
         .filter(Vehicle.status == 'ACTIVE')
         .filter(_after_cutoff())
-        .order_by(CertifiedLetter.sent_date.desc())
+        .order_by(_lot_order(lot_sort, CertifiedLetter.sent_date.desc()))
         .all()
     )
 
@@ -952,7 +974,7 @@ def letters():
         .filter(CertifiedLetter.delivery_confirmed_date.isnot(None))
         .filter(CertifiedLetter.delivery_confirmed_date >= today - timedelta(days=30))
         .filter(_after_cutoff())
-        .order_by(CertifiedLetter.delivery_confirmed_date.desc())
+        .order_by(_lot_order(lot_sort, CertifiedLetter.delivery_confirmed_date.desc()))
         .limit(50)
         .all()
     )
@@ -974,6 +996,7 @@ def letters():
         confirmed=confirmed,
         recent_scans=recent_scans,
         can_act=current_user.is_heather,
+        lot_sort=lot_sort,
     )
 
 
