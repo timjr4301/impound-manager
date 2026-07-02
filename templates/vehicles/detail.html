@@ -590,7 +590,9 @@
             {% endif %}
           </dl>
 
-          {% if not l1.sent_date and vehicle.status == 'ACTIVE' %}
+          {% if not l1.sent_date and vehicle.status == 'ACTIVE' and vehicle.possible_release %}
+          <span class="badge bg-secondary">Blocked — verify Possible Release first</span>
+          {% elif not l1.sent_date and vehicle.status == 'ACTIVE' %}
           <a href="{{ url_for('letters_mark_sent', letter_id=l1.id) }}"
              class="btn btn-sm {% if l1.is_overdue %}btn-danger{% elif l1.is_due_today %}btn-warning{% else %}btn-outline-primary{% endif %}">
             <i class="bi bi-send"></i> Mark as Sent
@@ -654,7 +656,9 @@
             {% endif %}
           </dl>
 
-          {% if not l2.sent_date and vehicle.status == 'ACTIVE' %}
+          {% if not l2.sent_date and vehicle.status == 'ACTIVE' and vehicle.possible_release %}
+          <span class="badge bg-secondary">Blocked — verify Possible Release first</span>
+          {% elif not l2.sent_date and vehicle.status == 'ACTIVE' %}
           <a href="{{ url_for('letters_mark_sent', letter_id=l2.id) }}"
              class="btn btn-sm {% if l2.is_overdue %}btn-danger{% elif l2.is_due_today %}btn-warning{% else %}btn-outline-primary{% endif %}">
             <i class="bi bi-send"></i> Mark as Sent
