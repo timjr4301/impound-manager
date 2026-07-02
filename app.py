@@ -6,8 +6,9 @@ from flask import (Flask, render_template, request, redirect, url_for,
                    flash, send_file, jsonify, g)
 from flask_login import LoginManager, login_required, current_user
 from models import (db, User, Vehicle, CertifiedLetter, TitleFiling,
-                    VehicleNote, DamageItem, SyncLog,
+                    VehicleNote, DamageItem, SyncLog, VehicleDocument,
                     PPI_LETTER1_DAYS, PPI_LETTER2_DAYS, POLICE_LETTER1_DAYS)
+from werkzeug.utils import secure_filename
 
 try:
     from flask_cors import CORS as _CORS
@@ -112,6 +113,9 @@ def run_migrations(app):
             if 'sync_log' not in existing_tables:
                 # Use SQLAlchemy ORM to create the table safely on any DB backend
                 SyncLog.__table__.create(db.engine)
+
+            if 'vehicle_documents' not in existing_tables:
+                VehicleDocument.__table__.create(db.engine)
 
 
 def parse_quantum_view_csv(content: str):
@@ -929,6 +933,86 @@ def create_app():
         db.session.delete(note)
         db.session.commit()
         return redirect(url_for('vehicles_detail', vehicle_id=vehicle_id))
+
+    # ── Documents (LKA / Title Search PDFs) ─────────────────────────────────────
+
+    ALLOWED_DOCUMENT_TYPES = {'LKA', 'TITLE_SEARCH'}
+
+    @app.route('/vehicles/<int:vehicle_id>/documents/upload', methods=['POST'])
+    @login_required
+    def vehicles_document_upload(vehicle_id):
+        vehicle = db.get_or_404(Vehicle, vehicle_id)
+        if not current_user.is_heather:
+            flash('Permission denied.', 'danger')
+            return redirect(url_for('vehicles_detail', vehicle_id=vehicle_id))
+
+        doc_type = request.form.get('doc_type', '').strip().upper()
+        if doc_type not in ALLOWED_DOCUMENT_TYPES:
+            flash('Invalid document type.', 'danger')
+            return redirect(url_for('vehicles_detail', vehicle_id=vehicle_id) + '#documents')
+
+        upload = request.files.get('file')
+        if not upload or not upload.filename:
+            flash('Choose a file to upload.', 'danger')
+            return redirect(url_for('vehicles_detail', vehicle_id=vehicle_id) + '#documents')
+
+        file_bytes = upload.read()
+        if not file_bytes:
+            flash('That file appears to be empty.', 'danger')
+            return redirect(url_for('vehicles_detail', vehicle_id=vehicle_id) + '#documents')
+
+        actor = current_user.display_name or current_user.username
+        db.session.add(VehicleDocument(
+            vehicle_id=vehicle.id,
+            doc_type=doc_type,
+            filename=secure_filename(upload.filename),
+            content_type=upload.content_type or 'application/octet-stream',
+            file_data=file_bytes,
+            uploaded_by=actor,
+            uploaded_at=datetime.utcnow(),
+        ))
+
+        # Uploading the file is the confirmation — check the matching checklist box.
+        if doc_type == 'LKA':
+            vehicle.lka_document_confirmed = True
+        else:
+            vehicle.title_search_confirmed = True
+        vehicle.updated_at = datetime.utcnow()
+
+        db.session.add(VehicleNote(
+            vehicle_id=vehicle.id,
+            body=f'{"LKA (BMV 2433)" if doc_type == "LKA" else "Title Search (BMV 1148)"} document uploaded by {actor}.',
+            author=actor,
+            created_at=datetime.utcnow(),
+        ))
+        db.session.commit()
+
+        flash(f'Document uploaded and confirmed.', 'success')
+        return redirect(url_for('vehicles_detail', vehicle_id=vehicle_id) + '#documents')
+
+    @app.route('/documents/<int:doc_id>')
+    @login_required
+    def vehicles_document_view(doc_id):
+        doc = db.get_or_404(VehicleDocument, doc_id)
+        return send_file(
+            io.BytesIO(doc.file_data),
+            mimetype=doc.content_type or 'application/octet-stream',
+            as_attachment=False,
+            download_name=doc.filename or f'document_{doc.id}',
+        )
+
+    @app.route('/documents/<int:doc_id>/delete', methods=['POST'])
+    @login_required
+    def vehicles_document_delete(doc_id):
+        doc = db.get_or_404(VehicleDocument, doc_id)
+        vehicle_id = doc.vehicle_id
+        if not current_user.is_heather:
+            flash('Permission denied.', 'danger')
+            return redirect(url_for('vehicles_detail', vehicle_id=vehicle_id))
+        db.session.delete(doc)
+        db.session.commit()
+        flash('Document removed.', 'info')
+        return redirect(url_for('vehicles_detail', vehicle_id=vehicle_id) + '#documents')
 
     # ── Letters ────────────────────────────────────────────────────────────────
 

@@ -294,6 +294,57 @@
 </div>
 {% endif %}
 
+{# ── Documents (LKA / Title Search PDFs) ── #}
+<div class="card mb-3" id="documents">
+  <div class="card-header py-2 fw-semibold small">
+    <i class="bi bi-file-earmark-pdf me-1"></i> Documents
+  </div>
+  <div class="card-body py-2">
+    <div class="row g-3">
+      {% for doc_type, doc, doc_label in [('LKA', vehicle.lka_document, 'LKA (BMV 2433)'), ('TITLE_SEARCH', vehicle.title_search_document, 'Title Search (BMV 1148)')] %}
+      <div class="col-md-6">
+        <div class="small fw-semibold mb-1">{{ doc_label }}</div>
+        {% if doc %}
+        <div class="d-flex align-items-center gap-2 flex-wrap">
+          <span class="badge bg-success"><i class="bi bi-check-lg"></i> Uploaded</span>
+          <a href="{{ url_for('vehicles_document_view', doc_id=doc.id) }}" target="_blank" class="btn btn-outline-primary btn-sm py-0">
+            <i class="bi bi-eye"></i> View
+          </a>
+          {% if current_user.is_heather %}
+          <form method="POST" action="{{ url_for('vehicles_document_delete', doc_id=doc.id) }}" class="d-inline"
+                onsubmit="return confirm('Remove this document? You can upload a replacement right after.');">
+            <button type="submit" class="btn btn-outline-danger btn-sm py-0"><i class="bi bi-trash"></i></button>
+          </form>
+          {% endif %}
+        </div>
+        <div class="text-muted mt-1" style="font-size:.75rem;">
+          {{ doc.filename or '—' }} &bull; {{ doc.uploaded_by or '—' }}, {{ doc.uploaded_at.strftime('%m/%d/%Y') if doc.uploaded_at else '—' }}
+        </div>
+        {% if current_user.is_heather %}
+        <form method="POST" action="{{ url_for('vehicles_document_upload', vehicle_id=vehicle.id) }}" enctype="multipart/form-data" class="d-flex gap-2 mt-2">
+          <input type="hidden" name="doc_type" value="{{ doc_type }}">
+          <input type="file" name="file" class="form-control form-control-sm" accept=".pdf,image/*" required>
+          <button type="submit" class="btn btn-outline-secondary btn-sm flex-shrink-0">Replace</button>
+        </form>
+        {% endif %}
+        {% else %}
+        <span class="badge bg-light text-muted border mb-2">Not yet uploaded</span>
+        {% if current_user.is_heather %}
+        <form method="POST" action="{{ url_for('vehicles_document_upload', vehicle_id=vehicle.id) }}" enctype="multipart/form-data" class="d-flex gap-2">
+          <input type="hidden" name="doc_type" value="{{ doc_type }}">
+          <input type="file" name="file" class="form-control form-control-sm" accept=".pdf,image/*" required>
+          <button type="submit" class="btn btn-primary btn-sm flex-shrink-0">Upload</button>
+        </form>
+        {% else %}
+        <div class="text-muted small">No upload yet.</div>
+        {% endif %}
+        {% endif %}
+      </div>
+      {% endfor %}
+    </div>
+  </div>
+</div>
+
 {# Task 1 modals on vehicle detail page #}
 {% if vehicle.status == 'ACTIVE' and not t1_done and vehicle.bmv_stage != 'NO_RECORD' %}
 <div class="modal fade" id="bmvModal{{ vehicle.id }}" tabindex="-1">

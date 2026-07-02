@@ -283,6 +283,11 @@ class Vehicle(db.Model):
         order_by='VehicleNotice.notice_number',
         cascade='all, delete-orphan'
     )
+    documents = db.relationship(
+        'VehicleDocument', back_populates='vehicle',
+        order_by='VehicleDocument.uploaded_at.desc()',
+        cascade='all, delete-orphan'
+    )
 
     def __repr__(self):
         return f'<Vehicle {self.id}: {self.display_name}>'
@@ -319,6 +324,16 @@ class Vehicle(db.Model):
     @property
     def letter2(self):
         return next((l for l in self.letters if l.letter_number == 2), None)
+
+    @property
+    def lka_document(self):
+        """Most recently uploaded LKA document (documents are ordered newest-first)."""
+        return next((d for d in self.documents if d.doc_type == 'LKA'), None)
+
+    @property
+    def title_search_document(self):
+        """Most recently uploaded title search document."""
+        return next((d for d in self.documents if d.doc_type == 'TITLE_SEARCH'), None)
 
     @property
     def title_eligible_date(self):
@@ -912,3 +927,24 @@ class VehicleNotice(db.Model):
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
     vehicle = db.relationship('Vehicle', back_populates='notices')
+
+
+# ── Vehicle Documents (LKA / Title Search PDFs) ─────────────────────────────────
+
+class VehicleDocument(db.Model):
+    __tablename__ = 'vehicle_documents'
+
+    id = db.Column(db.Integer, primary_key=True)
+    vehicle_id = db.Column(db.Integer, db.ForeignKey('vehicles.id'), nullable=False)
+    doc_type = db.Column(db.String(20), nullable=False)   # LKA | TITLE_SEARCH
+    filename = db.Column(db.String(255))
+    content_type = db.Column(db.String(100))
+    file_data = db.Column(db.LargeBinary, nullable=False)
+    uploaded_by = db.Column(db.String(50))
+    uploaded_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+    vehicle = db.relationship('Vehicle', back_populates='documents')
+
+    @property
+    def label(self):
+        return 'LKA (BMV 2433)' if self.doc_type == 'LKA' else 'Title Search (BMV 1148)'
