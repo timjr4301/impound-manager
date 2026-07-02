@@ -640,6 +640,18 @@ def create_app():
             vehicles=active,
         )
 
+    # ── Staff Training Guides ─────────────────────────────────────────────────
+    # Short, bookmarkable URLs to the same role guides served from the ? help
+    # modal (blueprints/help.py's _HELP data + printable_guide.html), so staff
+    # can jump straight to their own guide from inside the app.
+
+    @app.route('/guides/<role>')
+    @login_required
+    def staff_guide(role):
+        from blueprints.help import _HELP, _DEFAULT_HELP
+        data = _HELP.get(role, _DEFAULT_HELP)
+        return render_template('help/printable_guide.html', data=data, role=role)
+
     # ── Search ─────────────────────────────────────────────────────────────────
 
     @app.route('/search')

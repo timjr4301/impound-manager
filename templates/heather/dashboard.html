@@ -24,6 +24,9 @@
     <a href="{{ url_for('print_post_office') }}" class="btn btn-outline-secondary btn-sm" target="_blank">
       <i class="bi bi-printer"></i> Post Office List
     </a>
+    <a href="{{ url_for('staff_guide', role='heather') }}" class="btn btn-outline-secondary btn-sm" target="_blank">
+      <i class="bi bi-book"></i> Training Guide
+    </a>
     {% else %}
     {% if last_calc %}<small class="text-muted">Last calc: {{ last_calc.strftime('%m/%d %I:%M %p') }}</small>{% endif %}
     {% endif %}
