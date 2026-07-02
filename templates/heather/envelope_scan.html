@@ -20,10 +20,18 @@
       <div class="card-body">
         <div class="mb-3">
           <label class="form-label fw-semibold">Select Vehicle</label>
-          <select id="cameraVehicleId" class="form-select">
+          <select id="cameraVehicleId" class="form-select" onchange="updateMatchCard()">
             <option value="">— select vehicle —</option>
             {% for v in vehicles %}
-            <option value="{{ v.id }}">{{ v.display_name }} ({{ v.plate or v.vin or '#'+v.id|string }})</option>
+            <option value="{{ v.id }}"
+              data-display="{{ v.display_name }}"
+              data-plate="{{ v.plate or '' }}{% if v.plate %} ({{ v.plate_state }}){% endif %}"
+              data-vin="{{ v.vin or '' }}"
+              data-owner="{{ v.owner_name or '' }}"
+              data-stock="{{ v.stock_number or '' }}"
+              data-impound="{{ v.impound_date|mdY if v.impound_date else '' }}">
+              {{ v.display_name }} ({{ v.plate or v.vin or '#'+v.id|string }})
+            </option>
             {% endfor %}
           </select>
         </div>
@@ -46,13 +54,44 @@
           <button id="btnRetake" class="btn btn-outline-secondary btn-sm" onclick="retakePhoto()" style="display:none;">
             Retake
           </button>
-          <button id="btnMatchSave" class="btn btn-success btn-sm" onclick="matchAndSave()" style="display:none;">
-            <i class="bi bi-check2-circle"></i> Match &amp; Save
-          </button>
         </div>
 
         <div id="aiResult" class="mt-3" style="display:none;">
           <div class="alert alert-info py-2 small" id="aiResultContent"></div>
+        </div>
+      </div>
+    </div>
+
+    {# ── Side-by-side match confirmation — shown once a vehicle is selected (auto-matched or manually picked) ── #}
+    <div id="matchConfirm" class="card shadow-sm mb-4 border-primary" style="display:none;">
+      <div class="card-header fw-semibold bg-primary text-white">
+        <i class="bi bi-arrows-collapse me-2"></i>Confirm This Is the Right Vehicle
+      </div>
+      <div class="card-body">
+        <div class="row g-3">
+          <div class="col-6">
+            <div class="small text-muted fw-semibold mb-1">ENVELOPE (scanned)</div>
+            <img id="matchConfirmImg" style="width:100%;border-radius:6px;border:1px solid #dee2e6;" alt="Scanned envelope">
+          </div>
+          <div class="col-6">
+            <div class="small text-muted fw-semibold mb-1">VEHICLE ON FILE</div>
+            <div class="border rounded p-2 small" style="background:#f8f9fa;">
+              <div class="fw-bold mb-1" id="matchConfirmName">—</div>
+              <div><span class="text-muted">Plate:</span> <span id="matchConfirmPlate">—</span></div>
+              <div><span class="text-muted">VIN:</span> <span id="matchConfirmVin" class="font-monospace"></span></div>
+              <div><span class="text-muted">Owner:</span> <span id="matchConfirmOwner">—</span></div>
+              <div><span class="text-muted">Stock #:</span> <span id="matchConfirmStock">—</span></div>
+              <div><span class="text-muted">Impound date:</span> <span id="matchConfirmImpound">—</span></div>
+            </div>
+          </div>
+        </div>
+        <div class="d-flex gap-2 mt-3">
+          <button id="btnMatchSave" class="btn btn-success btn-sm flex-fill" onclick="matchAndSave()">
+            <i class="bi bi-check2-circle"></i> This Is Correct — Match &amp; Save
+          </button>
+          <button class="btn btn-outline-secondary btn-sm" onclick="document.getElementById('cameraVehicleId').focus()">
+            <i class="bi bi-pencil"></i> Not a Match — Pick Another
+          </button>
         </div>
       </div>
     </div>
@@ -154,13 +193,34 @@ function retakePhoto() {
   document.getElementById('capturedImage').style.display = 'none';
   document.getElementById('btnProcess').style.display = 'none';
   document.getElementById('btnRetake').style.display = 'none';
-  document.getElementById('btnMatchSave').style.display = 'none';
   document.getElementById('btnStartCamera').style.display = 'inline-block';
   document.getElementById('aiResult').style.display = 'none';
+  document.getElementById('matchConfirm').style.display = 'none';
+  document.getElementById('cameraVehicleId').value = '';
   capturedB64 = null;
   lastAiResult = null;
   lastAiRaw = null;
   lastMatchedBy = null;
+}
+
+function updateMatchCard() {
+  const select = document.getElementById('cameraVehicleId');
+  const confirmCard = document.getElementById('matchConfirm');
+  const opt = select.selectedOptions[0];
+
+  if (!select.value || !opt) {
+    confirmCard.style.display = 'none';
+    return;
+  }
+
+  document.getElementById('matchConfirmImg').src = capturedB64 || '';
+  document.getElementById('matchConfirmName').textContent = opt.dataset.display || '—';
+  document.getElementById('matchConfirmPlate').textContent = opt.dataset.plate || '—';
+  document.getElementById('matchConfirmVin').textContent = opt.dataset.vin || '—';
+  document.getElementById('matchConfirmOwner').textContent = opt.dataset.owner || '—';
+  document.getElementById('matchConfirmStock').textContent = opt.dataset.stock || '—';
+  document.getElementById('matchConfirmImpound').textContent = opt.dataset.impound || '—';
+  confirmCard.style.display = 'block';
 }
 
 async function processImage() {
@@ -180,7 +240,6 @@ async function processImage() {
 
     const resultDiv = document.getElementById('aiResult');
     const content = document.getElementById('aiResultContent');
-    const matchSaveBtn = document.getElementById('btnMatchSave');
     resultDiv.style.display = 'block';
 
     if (data.ok) {
@@ -224,15 +283,15 @@ async function processImage() {
       if (data.matched_vehicle) {
         document.getElementById('cameraVehicleId').value = data.matched_vehicle.id;
         const via = matchLabels[data.matched_vehicle.matched_by] || data.matched_vehicle.matched_by;
-        html += `<br>🎯 <b>Matched vehicle (by ${via}):</b> ${data.matched_vehicle.display_name} — confirm and click Match &amp; Save.`;
+        html += `<br>🎯 <b>Matched vehicle (by ${via}):</b> ${data.matched_vehicle.display_name} — check the side-by-side below before saving.`;
       } else if (hasIdentifier) {
-        html += '<br>⚠️ No vehicle match found — select one manually below, then click Match &amp; Save.';
+        html += '<br>⚠️ No vehicle match found — select one manually below, then check the side-by-side before saving.';
       }
 
       content.innerHTML = html;
       content.className = 'alert alert-success py-2 small';
 
-      if (hasIdentifier) matchSaveBtn.style.display = 'inline-block';
+      updateMatchCard();
     } else {
       content.innerHTML = `Error: ${data.error}`;
       content.className = 'alert alert-danger py-2 small';
