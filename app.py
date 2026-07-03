@@ -108,6 +108,9 @@ def run_migrations(app):
                     ('vin_mismatch_resolved_by',   'VARCHAR(50)'),
                     ('vin_mismatch_resolved_date', 'DATE'),
                     ('pending_pickup_since',       'TIMESTAMP'),
+                    ('snoozed_until',           'DATE'),
+                    ('snoozed_at',              'TIMESTAMP'),
+                    ('snoozed_by',              'VARCHAR(50)'),
                 ]
                 for col_name, col_type in new_cols:
                     if col_name not in cols:
@@ -1534,6 +1537,81 @@ def create_app():
             'success',
         )
         return redirect(url_for('vehicles_detail', vehicle_id=vehicle_id) + '#letters')
+
+    # ── Task Backlog Suppression (Snooze) ────────────────────────────────────
+    # Only Tim-level users (tim/jim, plus wally who uses the tim role) can
+    # snooze/un-snooze — this hides a vehicle from Heather's and Tina's daily
+    # queues for a fixed window without touching its data or letter clock.
+
+    @app.route('/vehicles/<int:vehicle_id>/snooze', methods=['POST'])
+    @login_required
+    def vehicles_snooze(vehicle_id):
+        vehicle = db.get_or_404(Vehicle, vehicle_id)
+        if not current_user.can_see_all:
+            flash('Permission denied.', 'danger')
+            return redirect(request.referrer or url_for('vehicles_detail', vehicle_id=vehicle_id))
+
+        try:
+            days = int(request.form.get('days', ''))
+        except ValueError:
+            days = 0
+        if days not in (7, 14, 30):
+            flash('Choose a snooze length of 7, 14, or 30 days.', 'danger')
+            return redirect(request.referrer or url_for('vehicles_detail', vehicle_id=vehicle_id))
+
+        actor = current_user.display_name or current_user.username
+        vehicle.snoozed_until = date.today() + timedelta(days=days)
+        vehicle.snoozed_at = datetime.utcnow()
+        vehicle.snoozed_by = actor
+        vehicle.updated_at = datetime.utcnow()
+        db.session.add(VehicleNote(
+            vehicle_id=vehicle.id,
+            body=f'Snoozed for {days} days (until {vehicle.snoozed_until.strftime("%m/%d/%Y")}) by {actor}. '
+                 'Hidden from the main task queues until it expires.',
+            author=actor,
+            created_at=datetime.utcnow(),
+        ))
+        db.session.commit()
+        flash(f'{vehicle.display_name} snoozed until {vehicle.snoozed_until.strftime("%m/%d/%Y")}.', 'success')
+        return redirect(request.referrer or url_for('vehicles_detail', vehicle_id=vehicle_id))
+
+    @app.route('/vehicles/<int:vehicle_id>/unsnooze', methods=['POST'])
+    @login_required
+    def vehicles_unsnooze(vehicle_id):
+        vehicle = db.get_or_404(Vehicle, vehicle_id)
+        if not current_user.can_see_all:
+            flash('Permission denied.', 'danger')
+            return redirect(request.referrer or url_for('vehicles_detail', vehicle_id=vehicle_id))
+
+        actor = current_user.display_name or current_user.username
+        vehicle.snoozed_until = None
+        vehicle.snoozed_at = None
+        vehicle.snoozed_by = None
+        vehicle.updated_at = datetime.utcnow()
+        db.session.add(VehicleNote(
+            vehicle_id=vehicle.id,
+            body=f'Un-snoozed by {actor} — back in the main task queues.',
+            author=actor,
+            created_at=datetime.utcnow(),
+        ))
+        db.session.commit()
+        flash(f'{vehicle.display_name} is back in the main task queues.', 'info')
+        return redirect(request.referrer or url_for('vehicles_detail', vehicle_id=vehicle_id))
+
+    @app.route('/snoozed')
+    @login_required
+    def vehicles_snoozed():
+        if not (current_user.can_see_heather_dashboard or current_user.can_see_tina_dashboard):
+            flash('Access restricted.', 'danger')
+            return redirect(url_for('dashboard'))
+        snoozed = (
+            Vehicle.query
+            .filter(Vehicle.snoozed_until.isnot(None))
+            .filter(Vehicle.snoozed_until >= date.today())
+            .order_by(Vehicle.snoozed_until.asc())
+            .all()
+        )
+        return render_template('snoozed.html', snoozed=snoozed)
 
     # ── Title Packet PDF ───────────────────────────────────────────────────────
 

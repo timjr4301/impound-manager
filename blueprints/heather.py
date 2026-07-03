@@ -219,18 +219,21 @@ def dashboard():
            .filter(Vehicle.status.in_(['ACTIVE', 'TITLE_FILED']))
            .filter(Vehicle.letter_urgency == 'RED')
            .filter(_after_cutoff())
+           .filter(Vehicle.not_snoozed_filter())
            .order_by(_lot_order(lot_sort, Vehicle.impound_date.asc()))
            .all())
     yellow = (Vehicle.query
               .filter(Vehicle.status.in_(['ACTIVE', 'TITLE_FILED']))
               .filter(Vehicle.letter_urgency == 'YELLOW')
               .filter(_after_cutoff())
+              .filter(Vehicle.not_snoozed_filter())
               .order_by(_lot_order(lot_sort, Vehicle.impound_date.asc()))
               .all())
     green = (Vehicle.query
              .filter(Vehicle.status.in_(['ACTIVE', 'TITLE_FILED']))
              .filter(Vehicle.letter_urgency == 'GREEN')
              .filter(_after_cutoff())
+             .filter(Vehicle.not_snoozed_filter())
              .order_by(_lot_order(lot_sort, Vehicle.impound_date.desc()))
              .all())
 
@@ -248,25 +251,30 @@ def dashboard():
                        .filter(Vehicle.status.in_(['ACTIVE', 'TITLE_FILED']))
                        .filter(Vehicle.letter_urgency == 'RED')
                        .filter(_after_cutoff())
+                       .filter(Vehicle.not_snoozed_filter())
                        .order_by(_lot_order(lot_sort, Vehicle.impound_date.asc()))
                        .all())
                 yellow = (Vehicle.query
                           .filter(Vehicle.status.in_(['ACTIVE', 'TITLE_FILED']))
                           .filter(Vehicle.letter_urgency == 'YELLOW')
                           .filter(_after_cutoff())
+                          .filter(Vehicle.not_snoozed_filter())
                           .order_by(_lot_order(lot_sort, Vehicle.impound_date.asc()))
                           .all())
                 green = (Vehicle.query
                          .filter(Vehicle.status.in_(['ACTIVE', 'TITLE_FILED']))
                          .filter(Vehicle.letter_urgency == 'GREEN')
                          .filter(_after_cutoff())
+                         .filter(Vehicle.not_snoozed_filter())
                          .order_by(_lot_order(lot_sort, Vehicle.impound_date.desc()))
                          .all())
         except Exception as exc:
             db.session.rollback()
             print(f'[heather.dashboard] urgency backfill error: {exc}')
 
-    # Task 5 URGENT — No Record Found vehicles (unresolved)
+    # Task 5 URGENT — No Record Found vehicles (unresolved). Deliberately NOT
+    # filtered by snooze — this is a compliance flag Tim must resolve, not a
+    # routine backlog item, same as possible_release_vehicles below.
     urgent_vehicles = (Vehicle.query
                        .filter(Vehicle.status.in_(['ACTIVE', 'TITLE_FILED']))
                        .filter(Vehicle.task_no_record == True)
@@ -283,6 +291,7 @@ def dashboard():
         .filter(CertifiedLetter.sent_date.is_(None))
         .filter(Vehicle.possible_release.isnot(True))
         .filter(_after_cutoff())
+        .filter(Vehicle.not_snoozed_filter())
         .all()
     )
 
@@ -312,6 +321,7 @@ def dashboard():
                                 Vehicle.heather_complete.is_(None)))
                  .filter(db.or_(Vehicle.bmv_stage.in_([None, 'PENDING', 'QUEUED'])))
                  .filter(_after_cutoff())
+                 .filter(Vehicle.not_snoozed_filter())
                  .order_by(_lot_order(lot_sort, Vehicle.impound_date.asc()))
                  .limit(100)
                  .all())
@@ -324,6 +334,7 @@ def dashboard():
         .filter(CertifiedLetter.sent_date.isnot(None))
         .filter(CertifiedLetter.delivery_confirmed_date.is_(None))
         .filter(_after_cutoff())
+        .filter(Vehicle.not_snoozed_filter())
         .order_by(CertifiedLetter.sent_date.asc())
         .all()
     )
@@ -345,6 +356,7 @@ def dashboard():
         sent_unconfirmed=sent_unconfirmed,
         last_calc=last_calc,
         can_act=current_user.is_heather,  # Tina can view but not act
+        can_snooze=current_user.can_see_all,
         lot_sort=lot_sort,
     )
 

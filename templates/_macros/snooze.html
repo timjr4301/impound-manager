@@ -1,0 +1,41 @@
+{% macro snooze_button(v) %}
+<button class="btn btn-sm btn-outline-dark py-0" type="button"
+        data-bs-toggle="modal" data-bs-target="#snoozeModal{{ v.id }}" title="Snooze out of the task queues">
+  <i class="bi bi-moon-stars"></i> Snooze
+</button>
+{% endmacro %}
+
+{% macro snooze_modal(v) %}
+<div class="modal fade" id="snoozeModal{{ v.id }}" tabindex="-1">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title">Snooze — {{ v.display_name }}</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <form method="POST" action="{{ url_for('vehicles_snooze', vehicle_id=v.id) }}">
+        <div class="modal-body">
+          <p class="small text-muted">
+            Hides this vehicle from Heather's and Tina's main task queues until the snooze
+            expires. It stays fully in the system — nothing else changes — and reappears
+            automatically. View all snoozed vehicles any time on the
+            <a href="{{ url_for('vehicles_snoozed') }}" target="_blank">Snoozed</a> page.
+          </p>
+          <div class="mb-2">
+            <label class="form-label fw-semibold">Snooze for</label>
+            <select name="days" class="form-select" required>
+              <option value="7">7 days</option>
+              <option value="14">14 days</option>
+              <option value="30">30 days</option>
+            </select>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+          <button type="submit" class="btn btn-dark">Snooze Vehicle</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+{% endmacro %}

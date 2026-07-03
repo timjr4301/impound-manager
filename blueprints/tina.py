@@ -31,6 +31,7 @@ def dashboard():
     queued = (
         Vehicle.query
         .filter_by(heather_complete=True, tina_stage='QUEUED')
+        .filter(Vehicle.not_snoozed_filter())
         .order_by(Vehicle.heather_complete_date.asc())
         .all()
     )
@@ -39,13 +40,14 @@ def dashboard():
     in_progress = (
         Vehicle.query
         .filter(Vehicle.tina_stage.in_(['TITLE_WORK', 'COURT', 'AFFIDAVIT']))
+        .filter(Vehicle.not_snoozed_filter())
         .order_by(Vehicle.impound_date.asc())
         .all()
     )
 
     # Title-eligible and ready to file
     title_eligible = [
-        v for v in Vehicle.query.filter_by(status='ACTIVE').all()
+        v for v in Vehicle.query.filter_by(status='ACTIVE').filter(Vehicle.not_snoozed_filter()).all()
         if v.is_title_eligible and v.title_filing is None
     ]
 
@@ -95,6 +97,7 @@ def dashboard():
         court_upcoming=court_upcoming,
         recent_invoices=recent_invoices,
         damage_reports=damage_reports,
+        can_snooze=current_user.can_see_all,
     )
 
 
@@ -107,6 +110,7 @@ def title_eligibility():
     active = (
         Vehicle.query
         .filter_by(status='ACTIVE')
+        .filter(Vehicle.not_snoozed_filter())
         .order_by(Vehicle.impound_date.asc())
         .all()
     )
@@ -139,6 +143,7 @@ def title_eligibility():
         upcoming=upcoming,
         blocked=blocked,
         recently_filed=recently_filed,
+        can_snooze=current_user.can_see_all,
     )
 
 

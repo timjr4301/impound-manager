@@ -1,4 +1,5 @@
 {% extends 'base.html' %}
+{% from '_macros/snooze.html' import snooze_button, snooze_modal %}
 {% block title %}Title Eligibility — Impound Manager{% endblock %}
 
 {% block content %}
@@ -65,8 +66,10 @@
         </td>
         <td class="text-end">
           <a href="{{ url_for('file_title', vehicle_id=v.id) }}" class="btn btn-sm btn-success py-0">File Title</a>
+          {% if can_snooze %}{{ snooze_button(v) }}{% endif %}
         </td>
       </tr>
+      {% if can_snooze %}{{ snooze_modal(v) }}{% endif %}
       {% endfor %}
       </tbody>
     </table>
@@ -85,7 +88,7 @@
     {% if upcoming %}
     <table class="table table-sm table-hover mb-0">
       <thead><tr>
-        <th>Vehicle</th><th>Type</th><th>Impound Date</th><th>Eligible On</th><th>Days Left</th>
+        <th>Vehicle</th><th>Type</th><th>Impound Date</th><th>Eligible On</th><th>Days Left</th>{% if can_snooze %}<th></th>{% endif %}
       </tr></thead>
       <tbody>
       {% for v in upcoming %}
@@ -95,7 +98,9 @@
         <td>{{ v.impound_date|mdY }}</td>
         <td>{{ v.title_eligible_date|mdY }}</td>
         <td><span class="badge bg-info text-dark">{{ (v.title_eligible_date - today).days }} days</span></td>
+        {% if can_snooze %}<td class="text-end">{{ snooze_button(v) }}</td>{% endif %}
       </tr>
+      {% if can_snooze %}{{ snooze_modal(v) }}{% endif %}
       {% endfor %}
       </tbody>
     </table>
@@ -126,8 +131,10 @@
         <td class="text-warning-emphasis">{{ v.title_blocked_reason or 'Unknown' }}</td>
         <td class="text-end">
           <a href="{{ url_for('heather.letters') }}" class="btn btn-sm btn-outline-warning py-0">Letters Queue</a>
+          {% if can_snooze %}{{ snooze_button(v) }}{% endif %}
         </td>
       </tr>
+      {% if can_snooze %}{{ snooze_modal(v) }}{% endif %}
       {% endfor %}
       </tbody>
     </table>

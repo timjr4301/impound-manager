@@ -1,4 +1,5 @@
 {% extends 'base.html' %}
+{% from '_macros/snooze.html' import snooze_button, snooze_modal %}
 {% block title %}{{ vehicle.display_name }} — Impound Manager{% endblock %}
 
 {% block content %}
@@ -33,6 +34,10 @@
   <a href="{{ url_for('vehicles_edit', vehicle_id=vehicle.id) }}" class="btn btn-outline-secondary btn-sm {% if not (not vehicle.possible_release and current_user.is_heather) %}ms-auto{% endif %} me-2">
     <i class="bi bi-pencil"></i> Edit
   </a>
+  {% endif %}
+  {% if current_user.can_see_all and not vehicle.is_snoozed %}
+  {{ snooze_button(vehicle) }}
+  {{ snooze_modal(vehicle) }}
   {% endif %}
   <span class="badge {% if vehicle.status != 'ACTIVE' %}ms-auto{% endif %}
     {% if vehicle.status == 'ACTIVE' %}bg-success
@@ -186,6 +191,25 @@
       <button type="submit" class="btn btn-outline-danger btn-sm"><i class="bi bi-box-arrow-right"></i> Mark Released</button>
     </form>
   </div>
+  {% endif %}
+</div>
+{% endif %}
+
+{# ══ Snoozed Banner ══ #}
+{% if vehicle.is_snoozed %}
+<div class="alert alert-dark d-flex align-items-center gap-3 mb-4">
+  <i class="bi bi-moon-stars-fill fs-3"></i>
+  <div class="flex-grow-1">
+    <strong class="d-block">SNOOZED — hidden from the main task queues</strong>
+    <span class="small">
+      Snoozed by {{ vehicle.snoozed_by or '—' }} on {{ vehicle.snoozed_at.strftime('%m/%d/%Y') if vehicle.snoozed_at else '—' }} —
+      returns to the queues on {{ vehicle.snoozed_until|mdY }} ({{ vehicle.snooze_days_remaining }} day{{ 's' if vehicle.snooze_days_remaining != 1 }} left).
+    </span>
+  </div>
+  {% if current_user.can_see_all %}
+  <form method="POST" action="{{ url_for('vehicles_unsnooze', vehicle_id=vehicle.id) }}" class="flex-shrink-0">
+    <button type="submit" class="btn btn-outline-light btn-sm">Un-snooze Now</button>
+  </form>
   {% endif %}
 </div>
 {% endif %}

@@ -55,6 +55,11 @@
     <a href="{{ url_for('vin_lookup') }}" class="btn btn-outline-light btn-sm me-2" title="VIN Quick Lookup — last 4-6 digits">
       <i class="bi bi-upc-scan"></i>
     </a>
+    {% if current_user.can_see_heather_dashboard or current_user.can_see_tina_dashboard %}
+    <a href="{{ url_for('vehicles_snoozed') }}" class="btn btn-outline-light btn-sm me-2" title="Snoozed Vehicles">
+      <i class="bi bi-moon-stars"></i>
+    </a>
+    {% endif %}
     <button type="button" class="btn btn-outline-light btn-sm me-2" title="Send Feedback"
             data-bs-toggle="modal" data-bs-target="#feedbackModal">
       <i class="bi bi-chat-square-text"></i>

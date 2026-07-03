@@ -291,6 +291,31 @@ class Vehicle(db.Model):
     restart_set_by  = db.Column(db.String(50))
     restart_set_at  = db.Column(db.DateTime)
 
+    # Task backlog suppression — a Tim-level user can snooze a vehicle out of
+    # the daily task queues (Heather's stoplight/BMV queue, Tina's handoff/title
+    # pipeline) for a fixed number of days without touching its data or clock.
+    # It reappears automatically once snoozed_until passes; no cron job needed
+    # since every queue query just filters on the date.
+    snoozed_until = db.Column(db.Date)
+    snoozed_at    = db.Column(db.DateTime)
+    snoozed_by    = db.Column(db.String(50))
+
+    @property
+    def is_snoozed(self):
+        return self.snoozed_until is not None and self.snoozed_until >= date.today()
+
+    @property
+    def snooze_days_remaining(self):
+        if not self.is_snoozed:
+            return None
+        return (self.snoozed_until - date.today()).days
+
+    @classmethod
+    def not_snoozed_filter(cls):
+        """Filter expression excluding currently-snoozed vehicles from task queues.
+        An expired or never-set snooze counts as not-snoozed."""
+        return db.or_(cls.snoozed_until.is_(None), cls.snoozed_until < date.today())
+
     letters = db.relationship(
         'CertifiedLetter', back_populates='vehicle',
         order_by='CertifiedLetter.letter_number',

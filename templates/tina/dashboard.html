@@ -1,4 +1,5 @@
 {% extends 'base.html' %}
+{% from '_macros/snooze.html' import snooze_button, snooze_modal %}
 {% block title %}Tina's Dashboard — Impound Manager{% endblock %}
 
 {% block content %}
@@ -71,8 +72,10 @@
             <a href="{{ url_for('tina.create_invoice', vehicle_id=v.id) }}"
                class="btn btn-outline-success">Invoice</a>
           </div>
+          {% if can_snooze %}{{ snooze_button(v) }}{% endif %}
         </td>
       </tr>
+      {% if can_snooze %}{{ snooze_modal(v) }}{% endif %}
 
       {# Stage modal #}
       <div class="modal fade" id="stageModal{{ v.id }}" tabindex="-1">
@@ -149,8 +152,10 @@
         <td class="text-end">
           <a href="{{ url_for('file_title', vehicle_id=v.id) }}" class="btn btn-sm btn-success py-0">File Title</a>
           <a href="{{ url_for('tina.create_invoice', vehicle_id=v.id) }}" class="btn btn-sm btn-outline-primary py-0">Invoice</a>
+          {% if can_snooze %}{{ snooze_button(v) }}{% endif %}
         </td>
       </tr>
+      {% if can_snooze %}{{ snooze_modal(v) }}{% endif %}
 
       {# Disposition modal #}
       <div class="modal fade" id="dispModal{{ v.id }}" tabindex="-1">
@@ -245,8 +250,10 @@
         <td class="text-end">
           <a href="{{ url_for('vehicles_detail', vehicle_id=v.id) }}" class="btn btn-sm btn-outline-secondary py-0">View</a>
           <a href="{{ url_for('tina.create_invoice', vehicle_id=v.id) }}" class="btn btn-sm btn-outline-success py-0">Invoice</a>
+          {% if can_snooze %}{{ snooze_button(v) }}{% endif %}
         </td>
       </tr>
+      {% if can_snooze %}{{ snooze_modal(v) }}{% endif %}
 
       {# Court modal #}
       <div class="modal fade" id="courtModal{{ v.id }}" tabindex="-1">

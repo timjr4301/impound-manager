@@ -1,4 +1,5 @@
 {% extends 'base.html' %}
+{% from '_macros/snooze.html' import snooze_button, snooze_modal %}
 {% block title %}Heather's Dashboard — Impound Manager{% endblock %}
 
 {% block content %}
@@ -167,7 +168,7 @@
     <div class="table-responsive">
     <table class="table table-sm table-hover mb-0">
       <thead class="table-light">
-        <tr><th>Stock #</th><th>Vehicle</th><th>Account</th><th>Days Held</th><th>Active Task</th><th>Action Needed</th></tr>
+        <tr><th>Stock #</th><th>Vehicle</th><th>Account</th><th>Days Held</th><th>Active Task</th><th>Action Needed</th>{% if can_snooze %}<th></th>{% endif %}</tr>
       </thead>
       <tbody>
       {% for v in red %}
@@ -184,7 +185,9 @@
         <td><span class="badge bg-danger">{{ v.days_in_storage }}d</span></td>
         <td><span class="badge bg-light text-dark border">Task {{ v.current_task_num or '?' }}: {{ v.current_task_label or '—' }}</span></td>
         <td class="small text-danger fw-semibold">{{ v.next_action_label or v.current_task_label or '—' }}</td>
+        {% if can_snooze %}<td class="text-end">{{ snooze_button(v) }}</td>{% endif %}
       </tr>
+      {% if can_snooze %}{{ snooze_modal(v) }}{% endif %}
       {% endfor %}
       </tbody>
     </table>
@@ -203,7 +206,7 @@
     <div class="table-responsive">
     <table class="table table-sm table-hover mb-0">
       <thead class="table-light">
-        <tr><th>Stock #</th><th>Vehicle</th><th>Account</th><th>Days Held</th><th>Active Task</th><th>Action Needed</th></tr>
+        <tr><th>Stock #</th><th>Vehicle</th><th>Account</th><th>Days Held</th><th>Active Task</th><th>Action Needed</th>{% if can_snooze %}<th></th>{% endif %}</tr>
       </thead>
       <tbody>
       {% for v in yellow %}
@@ -219,7 +222,9 @@
         <td><span class="badge bg-warning text-dark">{{ v.days_in_storage }}d</span></td>
         <td><span class="badge bg-light text-dark border">Task {{ v.current_task_num or '?' }}: {{ v.current_task_label or '—' }}</span></td>
         <td class="small text-warning-emphasis fw-semibold">{{ v.next_action_label or v.current_task_label or '—' }}</td>
+        {% if can_snooze %}<td class="text-end">{{ snooze_button(v) }}</td>{% endif %}
       </tr>
+      {% if can_snooze %}{{ snooze_modal(v) }}{% endif %}
       {% endfor %}
       </tbody>
     </table>
@@ -238,7 +243,7 @@
     <div class="table-responsive">
     <table class="table table-sm table-hover mb-0">
       <thead class="table-light">
-        <tr><th>Stock #</th><th>Vehicle</th><th>Account</th><th>Days Held</th><th>Active Task</th><th>Status</th></tr>
+        <tr><th>Stock #</th><th>Vehicle</th><th>Account</th><th>Days Held</th><th>Active Task</th><th>Status</th>{% if can_snooze %}<th></th>{% endif %}</tr>
       </thead>
       <tbody>
       {% for v in green %}
@@ -254,7 +259,9 @@
         <td><span class="badge bg-success">{{ v.days_in_storage }}d</span></td>
         <td><span class="badge bg-light text-dark border">Task {{ v.current_task_num or '?' }}: {{ v.current_task_label or '—' }}</span></td>
         <td class="small text-muted">{{ v.next_action_label or 'On track' }}</td>
+        {% if can_snooze %}<td class="text-end">{{ snooze_button(v) }}</td>{% endif %}
       </tr>
+      {% if can_snooze %}{{ snooze_modal(v) }}{% endif %}
       {% endfor %}
       </tbody>
     </table>
@@ -298,8 +305,10 @@
           {% else %}
           <a href="{{ url_for('vehicles_detail', vehicle_id=v.id) }}" class="btn btn-sm btn-outline-secondary py-0">View</a>
           {% endif %}
+          {% if can_snooze %}{{ snooze_button(v) }}{% endif %}
         </td>
       </tr>
+      {% if can_snooze %}{{ snooze_modal(v) }}{% endif %}
 
       {# BMV Complete Modal — only rendered when can_act, not needed for view-only #}
       {% if can_act %}
