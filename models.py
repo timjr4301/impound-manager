@@ -57,7 +57,7 @@ class User(UserMixin, db.Model):
 
     @property
     def can_edit_vehicles(self):
-        return self.role in ('tim', 'tina', 'jim', 'lawrence', 'lori', 'brady')
+        return self.role in ('tim', 'tina', 'jim', 'lawrence', 'lori', 'brady', 'heather')
 
     @property
     def can_see_heather_dashboard(self):
