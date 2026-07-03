@@ -495,43 +495,49 @@ def update_file_checklist(vehicle_id):
 @bp.route('/bmv-complete/<int:vehicle_id>', methods=['POST'])
 @_heather_required
 def bmv_complete(vehicle_id):
+    """Mark Task 1 (BMV Search) done. Always allowed — queuing for Tina is a
+    separate, later gate (file_complete_for_tina) and must not block this."""
     vehicle = db.get_or_404(Vehicle, vehicle_id)
-
-    if not vehicle.file_complete_for_tina:
-        missing = []
-        if not vehicle.lka_document_confirmed:
-            missing.append('LKA document (BMV 2433)')
-        if not vehicle.title_search_confirmed:
-            missing.append('Title search (BMV 1148)')
-        if not any(l.tracking_number for l in vehicle.letters):
-            missing.append('UPS tracking number')
-        if not vehicle.ups_delivery_confirmed:
-            missing.append('UPS delivery confirmation')
-        if not vehicle.return_receipt_filed:
-            missing.append('Return receipt filed')
-        flash(
-            f'Cannot hand off to Tina — file incomplete. Missing: '
-            f'{", ".join(missing)}',
-            'danger'
-        )
-        return redirect(request.referrer or url_for('heather.dashboard'))
 
     vehicle.bmv_stage = 'COMPLETE'
     vehicle.bmv_searched_date = date.today()
     vehicle.bmv_search_notes = request.form.get('notes', '').strip() or None
     vehicle.heather_complete = True
     vehicle.heather_complete_date = date.today()
-    vehicle.tina_stage = 'QUEUED'
     vehicle.updated_at = datetime.utcnow()
 
-    db.session.add(VehicleNote(
-        vehicle_id=vehicle.id,
-        body=f'BMV search complete. Handed off to Tina. {vehicle.bmv_search_notes or ""}',
-        author=current_user.display_name or 'Heather',
-        created_at=datetime.utcnow(),
-    ))
-    db.session.commit()
-    flash(f'{vehicle.display_name} marked BMV complete — appeared in Tina\'s queue.', 'success')
+    if vehicle.file_complete_for_tina:
+        vehicle.tina_stage = 'QUEUED'
+        db.session.add(VehicleNote(
+            vehicle_id=vehicle.id,
+            body=f'BMV search complete. Handed off to Tina. {vehicle.bmv_search_notes or ""}',
+            author=current_user.display_name or 'Heather',
+            created_at=datetime.utcnow(),
+        ))
+        db.session.commit()
+        flash(f'{vehicle.display_name} marked BMV complete — appeared in Tina\'s queue.', 'success')
+    else:
+        missing = []
+        if not vehicle.lka_document_confirmed:
+            missing.append('LKA document (BMV 2433)')
+        if not vehicle.title_search_confirmed:
+            missing.append('Title search (BMV 1148)')
+        if not vehicle.ups_delivery_confirmed:
+            missing.append('UPS delivery confirmation')
+        if not vehicle.return_receipt_filed:
+            missing.append('Return receipt filed')
+        db.session.add(VehicleNote(
+            vehicle_id=vehicle.id,
+            body=f'BMV search complete. {vehicle.bmv_search_notes or ""}',
+            author=current_user.display_name or 'Heather',
+            created_at=datetime.utcnow(),
+        ))
+        db.session.commit()
+        flash(
+            f'{vehicle.display_name} marked BMV complete. Not yet queued for Tina — '
+            f'file incomplete. Missing: {", ".join(missing)}',
+            'warning'
+        )
     return redirect(url_for('heather.dashboard'))
 
 
