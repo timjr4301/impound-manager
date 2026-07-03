@@ -59,6 +59,10 @@
   <button onclick="window.print()" style="padding:6px 18px; cursor:pointer; margin-right:12px;">
     🖨 Print Letter
   </button>
+  <a href="{{ url_for('heather.ups_label', vehicle_id=vehicle.id) }}" target="_blank"
+     style="margin-right:12px;">📦 UPS Label</a>
+  <a href="{{ url_for('letters_mark_sent', letter_id=letter.id) }}"
+     style="margin-right:12px;">✅ Mark as Sent</a>
   <a href="{{ url_for('vehicles_detail', vehicle_id=vehicle.id) }}">← Back to Vehicle</a>
 </div>
 
@@ -109,8 +113,8 @@
   {% if vehicle.vin %}&bull; VIN: {{ vehicle.vin }}{% endif %}
 </div>
 
-{# ── Second notice banner (Letter 2 only) ── #}
-{% if letter.letter_number == 2 %}
+{# ── Second notice banner (Letter 2 only, PPI only — POLICE impounds only ever get one notification letter) ── #}
+{% if letter.letter_number == 2 and vehicle.impound_type == 'PPI' %}
 <div class="second-notice">Second and Final Notice</div>
 {% endif %}
 

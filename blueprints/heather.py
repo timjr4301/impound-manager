@@ -540,7 +540,11 @@ def bmv_complete(vehicle_id):
 def letter_template(letter_id):
     letter = db.get_or_404(CertifiedLetter, letter_id)
     vehicle = letter.vehicle
-    return render_template('heather/letter_template.html',
+    # Renders the same canonical template as the vehicle detail page's Print
+    # Letter link (print/letter.html) so Heather's dashboard and the vehicle
+    # detail page can never show different legal text/citations for the same
+    # letter again — templates/heather/letter_template.html was retired.
+    return render_template('print/letter.html',
         letter=letter,
         vehicle=vehicle,
         today=date.today(),

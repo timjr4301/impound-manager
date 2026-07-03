@@ -41,6 +41,9 @@
         <canvas id="captureCanvas" style="display:none;"></canvas>
         <img id="capturedImage" style="display:none;width:100%;border-radius:8px;border:2px solid #198754;" alt="Captured envelope">
 
+        <select id="cameraDeviceSelect" class="form-select form-select-sm mt-2"
+                style="display:none;max-width:280px;" onchange="bjOnCameraDeviceChange(this); restartCameraForNewDevice();"></select>
+
         <div class="d-flex gap-2 mt-3 flex-wrap">
           <button id="btnStartCamera" class="btn btn-outline-secondary btn-sm" onclick="startCamera()">
             <i class="bi bi-camera-video"></i> Start Camera
@@ -147,6 +150,7 @@
 {% endblock %}
 
 {% block scripts %}
+<script src="{{ url_for('static', filename='js/camera_device.js') }}"></script>
 <script>
 let stream = null;
 let capturedB64 = null;
@@ -154,19 +158,43 @@ let lastAiResult = null;
 let lastAiRaw = null;
 let lastMatchedBy = null;
 
+window.addEventListener('DOMContentLoaded', () => {
+  bjPopulateCameraSelect(document.getElementById('cameraDeviceSelect'));
+});
+
 async function startCamera() {
+  const deviceSelect = document.getElementById('cameraDeviceSelect');
+  const constraints = bjPreferredVideoConstraints(deviceSelect, { width: { ideal: 1920 }, height: { ideal: 1080 } });
   try {
-    stream = await navigator.mediaDevices.getUserMedia({
-      video: { width: { ideal: 1920 }, height: { ideal: 1080 }, facingMode: 'environment' }
-    });
-    const video = document.getElementById('cameraFeed');
-    video.srcObject = stream;
-    video.style.display = 'block';
-    document.getElementById('btnStartCamera').style.display = 'none';
-    document.getElementById('btnCapture').style.display = 'inline-block';
+    stream = await navigator.mediaDevices.getUserMedia({ video: constraints });
   } catch (err) {
-    alert('Camera access failed: ' + err.message + '\nMake sure the webcam is connected and browser has camera permission.');
+    // Saved camera may have been unplugged/renamed — fall back to the default camera.
+    if (constraints.deviceId) {
+      try {
+        stream = await navigator.mediaDevices.getUserMedia({
+          video: { width: { ideal: 1920 }, height: { ideal: 1080 }, facingMode: 'environment' }
+        });
+      } catch (err2) {
+        alert('Camera access failed: ' + err2.message + '\nMake sure the webcam is connected and browser has camera permission.');
+        return;
+      }
+    } else {
+      alert('Camera access failed: ' + err.message + '\nMake sure the webcam is connected and browser has camera permission.');
+      return;
+    }
   }
+  const video = document.getElementById('cameraFeed');
+  video.srcObject = stream;
+  video.style.display = 'block';
+  document.getElementById('btnStartCamera').style.display = 'none';
+  document.getElementById('btnCapture').style.display = 'inline-block';
+  bjPopulateCameraSelect(deviceSelect);
+}
+
+function restartCameraForNewDevice() {
+  if (!stream) return;
+  stream.getTracks().forEach(t => t.stop());
+  startCamera();
 }
 
 function captureFrame() {
