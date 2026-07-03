@@ -14,7 +14,7 @@
 {% if q and not results %}
 <div class="alert alert-secondary">
   No vehicles found matching <strong>"{{ q }}"</strong>.
-  Try a license plate, VIN, owner name, make, or police report number.
+  Try a license plate, VIN, owner name, make, police report number, or reference number.
 </div>
 {% endif %}
 
@@ -86,7 +86,7 @@
 {% if not q %}
 <div class="text-center text-muted py-5">
   <i class="bi bi-search display-4 d-block mb-3"></i>
-  <p>Enter a license plate, VIN, owner name, make, or police report number above.</p>
+  <p>Enter a license plate, VIN, owner name, make, police report number, or reference number above.</p>
 </div>
 {% endif %}
 {% endblock %}

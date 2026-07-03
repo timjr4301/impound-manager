@@ -726,6 +726,12 @@ def create_app():
         results = []
         if q:
             like = f'%{q}%'
+            ref2_match = (
+                db.session.query(CertifiedLetter.id)
+                .filter(CertifiedLetter.vehicle_id == Vehicle.id)
+                .filter(CertifiedLetter.reference_number_2.ilike(like))
+                .exists()
+            )
             results = (
                 Vehicle.query
                 .filter(
@@ -737,6 +743,8 @@ def create_app():
                         Vehicle.owner_name.ilike(like),
                         Vehicle.police_report_number.ilike(like),
                         Vehicle.stock_number.ilike(like),
+                        Vehicle.invoice_number.ilike(like),  # Reference #1 on the UPS label
+                        ref2_match,  # Reference #2 on the UPS label
                     )
                 )
                 .order_by(Vehicle.impound_date.desc())
