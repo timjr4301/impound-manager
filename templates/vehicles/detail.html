@@ -452,6 +452,100 @@
   </div>
 </div>
 
+{# ── General Documents (any file, custom label — separate from LKA/Title Search above) ── #}
+{% if current_user.can_use_general_documents %}
+<div class="card mb-3" id="general-documents">
+  <div class="card-header py-2 fw-semibold small">
+    <i class="bi bi-folder2-open me-1"></i> Documents
+  </div>
+  <div class="card-body py-2">
+    {% if vehicle.general_documents %}
+    <div class="table-responsive mb-3">
+      <table class="table table-sm align-middle mb-0">
+        <thead>
+          <tr class="text-muted small">
+            <th>Label</th>
+            <th>Filename</th>
+            <th>Uploaded</th>
+            <th>By</th>
+            <th class="text-end">Actions</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for doc in vehicle.general_documents %}
+          <tr>
+            <td>{{ doc.label }}</td>
+            <td class="text-muted small">{{ doc.filename }}</td>
+            <td class="text-muted small">{{ doc.uploaded_at.strftime('%m/%d/%Y') if doc.uploaded_at else '—' }}</td>
+            <td class="text-muted small">{{ doc.uploaded_by or '—' }}</td>
+            <td class="text-end">
+              {% if doc.file_type and doc.file_type.startswith('image/') %}
+              <button type="button" class="btn btn-outline-primary btn-sm py-0"
+                      data-doc-src="{{ doc.file_data }}" data-doc-label="{{ doc.label }} — {{ doc.filename }}"
+                      onclick="showGeneralDocImage(this)">
+                <i class="bi bi-eye"></i> View
+              </button>
+              {% elif doc.file_type == 'application/pdf' %}
+              <a href="{{ doc.file_data }}" target="_blank" class="btn btn-outline-primary btn-sm py-0">
+                <i class="bi bi-eye"></i> View
+              </a>
+              {% else %}
+              <a href="{{ doc.file_data }}" download="{{ doc.filename }}" class="btn btn-outline-primary btn-sm py-0">
+                <i class="bi bi-download"></i> Download
+              </a>
+              {% endif %}
+              <form method="POST" action="{{ url_for('general_documents_delete', doc_id=doc.id) }}" class="d-inline"
+                    onsubmit="return confirm('Delete this document? This cannot be undone.');">
+                <button type="submit" class="btn btn-outline-danger btn-sm py-0"><i class="bi bi-trash"></i></button>
+              </form>
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% else %}
+    <div class="text-muted small mb-3">No documents uploaded yet.</div>
+    {% endif %}
+
+    <form method="POST" action="{{ url_for('general_documents_upload', vehicle_id=vehicle.id) }}" enctype="multipart/form-data" class="row g-2 align-items-end">
+      <div class="col-md-5">
+        <label class="form-label small text-muted mb-1">Label</label>
+        <input type="text" name="label" class="form-control form-control-sm" placeholder="e.g. Police report, Insurance letter, Court order..." required>
+      </div>
+      <div class="col-md-5">
+        <label class="form-label small text-muted mb-1">File</label>
+        <input type="file" name="file" class="form-control form-control-sm" required>
+      </div>
+      <div class="col-md-2">
+        <button type="submit" class="btn btn-primary btn-sm w-100">Upload</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<div class="modal fade" id="generalDocImageModal" tabindex="-1">
+  <div class="modal-dialog modal-lg modal-dialog-centered">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title" id="generalDocImageModalLabel"></h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body text-center">
+        <img id="generalDocImageModalImg" src="" style="max-width:100%;border-radius:6px;" alt="Document preview">
+      </div>
+    </div>
+  </div>
+</div>
+<script>
+function showGeneralDocImage(btn) {
+  document.getElementById('generalDocImageModalImg').src = btn.dataset.docSrc;
+  document.getElementById('generalDocImageModalLabel').textContent = btn.dataset.docLabel;
+  new bootstrap.Modal(document.getElementById('generalDocImageModal')).show();
+}
+</script>
+{% endif %}
+
 {# ── VIN Photo Verification (captured by the driver at time of tow) ── #}
 {% if vehicle.vin_door_jamb_photo or vehicle.vin_dash_photo %}
 <div class="card mb-3" id="vin-verification">

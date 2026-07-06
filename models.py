@@ -90,6 +90,10 @@ class User(UserMixin, db.Model):
     def is_demo(self):
         return self.role == 'demo'
 
+    @property
+    def can_use_general_documents(self):
+        return self.role in ('heather', 'tina', 'tim', 'brady', 'jim')
+
 
 class Vehicle(db.Model):
     __tablename__ = 'vehicles'
@@ -436,6 +440,11 @@ class Vehicle(db.Model):
     documents = db.relationship(
         'VehicleDocument', back_populates='vehicle',
         order_by='VehicleDocument.uploaded_at.desc()',
+        cascade='all, delete-orphan'
+    )
+    general_documents = db.relationship(
+        'GeneralDocument', back_populates='vehicle',
+        order_by='GeneralDocument.uploaded_at.desc()',
         cascade='all, delete-orphan'
     )
     charges = db.relationship(
@@ -1242,6 +1251,29 @@ class VehicleCharge(db.Model):
     added_at = db.Column(db.DateTime, default=datetime.utcnow)
 
     vehicle = db.relationship('Vehicle', back_populates='charges')
+
+
+# ── General Documents ────────────────────────────────────────────────────────
+# Free-form file upload with a custom label, separate from the LKA/Title Search
+# document viewer above (VehicleDocument / vehicle_documents table). Named
+# vehicle_general_documents rather than vehicle_documents since that name is
+# already taken by the LKA/Title Search table.
+# If document storage grows significantly, consider migrating file_data off
+# Postgres to S3 or a Render disk instead of storing base64 in TEXT.
+
+class GeneralDocument(db.Model):
+    __tablename__ = 'vehicle_general_documents'
+
+    id = db.Column(db.Integer, primary_key=True)
+    vehicle_id = db.Column(db.Integer, db.ForeignKey('vehicles.id', ondelete='CASCADE'), nullable=False)
+    label = db.Column(db.String(200), nullable=False)
+    filename = db.Column(db.String(255), nullable=False)
+    file_data = db.Column(db.Text, nullable=False)  # data:<mime>;base64,<...>
+    file_type = db.Column(db.String(100))
+    uploaded_by = db.Column(db.String(50))
+    uploaded_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+    vehicle = db.relationship('Vehicle', back_populates='general_documents')
 
 
 # ── Staff Feedback ───────────────────────────────────────────────────────────

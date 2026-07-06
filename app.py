@@ -1,3 +1,4 @@
+import base64
 import csv
 import io
 import os
@@ -7,7 +8,7 @@ from flask import (Flask, render_template, request, redirect, url_for,
 from flask_login import LoginManager, login_required, current_user
 from models import (db, User, Vehicle, CertifiedLetter, TitleFiling,
                     VehicleNote, DamageItem, SyncLog, VehicleDocument, StaffFeedback,
-                    PoliceDepartment, VehicleCharge,
+                    PoliceDepartment, VehicleCharge, GeneralDocument,
                     PPI_LETTER1_DAYS, PPI_LETTER2_DAYS, POLICE_LETTER1_DAYS)
 from werkzeug.utils import secure_filename
 
@@ -225,6 +226,9 @@ def run_migrations(app):
 
             if 'vehicle_charges' not in existing_tables:
                 VehicleCharge.__table__.create(db.engine)
+
+            if 'vehicle_general_documents' not in existing_tables:
+                GeneralDocument.__table__.create(db.engine)
 
 
 def parse_quantum_view_csv(content: str):
@@ -1299,6 +1303,62 @@ def create_app():
         db.session.commit()
         flash('Document removed.', 'info')
         return redirect(url_for('vehicles_detail', vehicle_id=vehicle_id) + '#documents')
+
+    # ── General Documents (any file, custom label — separate from LKA/Title Search) ──
+
+    @app.route('/vehicles/<int:vehicle_id>/general-documents/upload', methods=['POST'])
+    @login_required
+    def general_documents_upload(vehicle_id):
+        vehicle = db.get_or_404(Vehicle, vehicle_id)
+        if not current_user.can_use_general_documents:
+            flash('Permission denied.', 'danger')
+            return redirect(url_for('vehicles_detail', vehicle_id=vehicle_id))
+
+        label = request.form.get('label', '').strip()
+        if not label:
+            flash('Enter a label for this document.', 'danger')
+            return redirect(url_for('vehicles_detail', vehicle_id=vehicle_id) + '#general-documents')
+
+        upload = request.files.get('file')
+        if not upload or not upload.filename:
+            flash('Choose a file to upload.', 'danger')
+            return redirect(url_for('vehicles_detail', vehicle_id=vehicle_id) + '#general-documents')
+
+        file_bytes = upload.read()
+        if not file_bytes:
+            flash('That file appears to be empty.', 'danger')
+            return redirect(url_for('vehicles_detail', vehicle_id=vehicle_id) + '#general-documents')
+
+        content_type = upload.content_type or 'application/octet-stream'
+        data_uri = f'data:{content_type};base64,{base64.b64encode(file_bytes).decode("ascii")}'
+        actor = current_user.display_name or current_user.username
+
+        db.session.add(GeneralDocument(
+            vehicle_id=vehicle.id,
+            label=label,
+            filename=secure_filename(upload.filename),
+            file_data=data_uri,
+            file_type=content_type,
+            uploaded_by=actor,
+            uploaded_at=datetime.utcnow(),
+        ))
+        db.session.commit()
+
+        flash('Document uploaded.', 'success')
+        return redirect(url_for('vehicles_detail', vehicle_id=vehicle_id) + '#general-documents')
+
+    @app.route('/general-documents/<int:doc_id>/delete', methods=['POST'])
+    @login_required
+    def general_documents_delete(doc_id):
+        doc = db.get_or_404(GeneralDocument, doc_id)
+        vehicle_id = doc.vehicle_id
+        if not current_user.can_use_general_documents:
+            flash('Permission denied.', 'danger')
+            return redirect(url_for('vehicles_detail', vehicle_id=vehicle_id))
+        db.session.delete(doc)
+        db.session.commit()
+        flash('Document removed.', 'info')
+        return redirect(url_for('vehicles_detail', vehicle_id=vehicle_id) + '#general-documents')
 
     # ── Letters ────────────────────────────────────────────────────────────────
 
