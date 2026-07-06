@@ -278,7 +278,7 @@ let socket = null;
 // Socket.IO
 // ─────────────────────────────────────────────────────────────────────────────
 function connectSocket() {
-  socket = io('/chat', { auth: { user_id: CURRENT_USER_ID } });
+  socket = io('/chat', { auth: { user_id: CURRENT_USER_ID }, transports: ['polling'] });
 
   socket.on('connect', () => {
     setConnectionBanner(false);
