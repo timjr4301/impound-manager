@@ -462,7 +462,12 @@ def create_app():
         app.register_blueprint(chat_bp)
         if socketio is not None:
             register_socket_events(socketio)
-    except (ImportError, Exception):
+        else:
+            app.logger.warning(
+                'flask-socketio not installed — chat HTTP routes are live but '
+                'realtime send/receive and Wally are disabled.'
+            )
+    except ImportError:
         pass
     try:
         from blueprints.invoice_camera import bp as invoice_bp

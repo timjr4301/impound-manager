@@ -40,3 +40,12 @@ python-dotenv==1.0.1
 
 # Date/time utilities
 pytz==2024.1
+
+# Chat (staff messaging + Wally AI assistant) — Socket.IO server
+# NOTE: without these, app.py's `try: from flask_socketio import SocketIO`
+# silently fails and the entire realtime chat layer never starts in prod
+# (HTTP routes still work, so the page loads fine — only send/receive is dead).
+Flask-SocketIO==5.3.6
+python-socketio==5.11.2
+python-engineio==4.9.1
+simple-websocket==1.0.0

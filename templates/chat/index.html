@@ -217,6 +217,12 @@
       </div>
     </div>
 
+    <!-- Connection lost banner -->
+    <div class="d-none alert alert-danger text-center small mb-0 rounded-0 py-1" id="chat-connection-banner">
+      <i class="bi bi-exclamation-triangle-fill me-1"></i>
+      Not connected — messages won't send. Reconnecting…
+    </div>
+
     <!-- Input -->
     <div class="chat-input-area d-none" id="chat-input-area">
       <div class="chat-input-row">
@@ -275,7 +281,18 @@ function connectSocket() {
   socket = io('/chat', { auth: { user_id: CURRENT_USER_ID } });
 
   socket.on('connect', () => {
+    setConnectionBanner(false);
     if (activeThreadId) socket.emit('join_thread', { thread_id: activeThreadId });
+  });
+
+  socket.on('connect_error', (err) => {
+    console.error('Chat socket connect_error:', err);
+    setConnectionBanner(true);
+  });
+
+  socket.on('disconnect', (reason) => {
+    console.warn('Chat socket disconnected:', reason);
+    setConnectionBanner(true);
   });
 
   socket.on('new_message', (msg) => {
@@ -293,6 +310,10 @@ function connectSocket() {
   socket.on('wally_done', (data) => {
     if (data.thread_id === activeThreadId)
       document.getElementById('wally-typing').classList.remove('show');
+  });
+
+  socket.on('message_error', (data) => {
+    appendErrorBubble(data.error || 'Message failed to send.');
   });
 }
 
@@ -400,11 +421,39 @@ function sendMessage() {
   const inp  = document.getElementById('msg-input');
   const body = inp.value.trim();
   if (!body || !activeThreadId || !socket) return;
-  socket.emit('send_message', { thread_id: activeThreadId, body });
+
+  if (!socket.connected) {
+    setConnectionBanner(true);
+    return; // don't clear the input — message would silently vanish
+  }
+
+  try {
+    socket.emit('send_message', { thread_id: activeThreadId, body });
+  } catch (err) {
+    console.error('Send failed:', err);
+    appendErrorBubble('Message failed to send: ' + err.message);
+    return; // don't clear the input — message would silently vanish
+  }
+
   inp.value = '';
   inp.style.height = '';
   document.getElementById('send-btn').disabled = true;
   setTimeout(() => { document.getElementById('send-btn').disabled = false; }, 350);
+}
+
+function appendErrorBubble(text) {
+  const area = document.getElementById('messages-area');
+  if (!area) return;
+  const div = document.createElement('div');
+  div.className = 'text-center text-danger small py-1';
+  div.textContent = text;
+  area.appendChild(div);
+  scrollMessages();
+}
+
+function setConnectionBanner(show) {
+  const el = document.getElementById('chat-connection-banner');
+  if (el) el.classList.toggle('d-none', !show);
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

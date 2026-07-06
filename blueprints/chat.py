@@ -48,6 +48,8 @@ def register_socket_events(socketio):
         body = (data.get('body') or '').strip()
 
         if not thread_id or not body:
+            socketio.emit('message_error', {'error': 'Message or thread missing.'},
+                          room=request.sid, namespace='/chat')
             return
 
         # Verify the sender is a member of this thread
@@ -55,6 +57,8 @@ def register_socket_events(socketio):
             thread_id=thread_id, user_id=current_user.id
         ).first()
         if not member:
+            socketio.emit('message_error', {'error': 'You are not a member of this thread.'},
+                          room=request.sid, namespace='/chat')
             return
 
         # Persist the user's message
