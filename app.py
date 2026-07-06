@@ -111,6 +111,11 @@ def run_migrations(app):
                     ('snoozed_until',           'DATE'),
                     ('snoozed_at',              'TIMESTAMP'),
                     ('snoozed_by',              'VARCHAR(50)'),
+                    ('last_location_zone',      'VARCHAR(50)'),
+                    ('last_location_lat',       'FLOAT'),
+                    ('last_location_lng',       'FLOAT'),
+                    ('last_location_at',        'TIMESTAMP'),
+                    ('last_location_by',        'VARCHAR(100)'),
                 ]
                 for col_name, col_type in new_cols:
                     if col_name not in cols:
@@ -435,6 +440,7 @@ def create_app():
     from blueprints.damage_docs import bp as damage_bp
     from blueprints.help import bp as help_bp
     from blueprints.bmv_document_scanner import bp as bmv_scanner_bp
+    from blueprints.driver_snap import bp as driver_snap_bp
     from towbook_import import bp as towbook_bp
 
     app.register_blueprint(auth_bp)
@@ -448,6 +454,7 @@ def create_app():
     app.register_blueprint(help_bp)
     app.register_blueprint(towbook_bp)
     app.register_blueprint(bmv_scanner_bp)
+    app.register_blueprint(driver_snap_bp)
 
     # Chat + Invoice Camera registered only when their files exist
     try:
@@ -577,6 +584,22 @@ def create_app():
             .all()
         )
 
+        # Stale Location — extends (does not replace) the ghost-vehicle logic
+        # above. A vehicle with no VIN-snap in 7+ days (or never snapped) may
+        # not actually be on the lot; already-flagged Possible Release
+        # vehicles are excluded here since they're already surfaced above.
+        stale_location_vehicles = (
+            Vehicle.query
+            .filter(Vehicle.status == 'ACTIVE')
+            .filter(Vehicle.possible_release.isnot(True))
+            .filter(db.or_(
+                Vehicle.last_location_at.is_(None),
+                Vehicle.last_location_at < datetime.utcnow() - timedelta(days=7),
+            ))
+            .order_by(Vehicle.last_location_at.asc().nullsfirst())
+            .all()
+        )
+
         all_active = Vehicle.query.filter_by(status='ACTIVE').all()
         title_eligible = [v for v in all_active if v.is_title_eligible and v.title_filing is None]
 
@@ -638,6 +661,7 @@ def create_app():
             last_sync=last_sync,
             urgent_no_record=urgent_no_record,
             ghost_vehicles=ghost_vehicles,
+            stale_location_vehicles=stale_location_vehicles,
             handoff_queue=handoff_queue,
             timecard_flags=timecard_flags,
             towbook_api_configured=towbook_api_configured(),
@@ -719,6 +743,19 @@ def create_app():
         from blueprints.help import _HELP, _DEFAULT_HELP
         data = _HELP.get(role, _DEFAULT_HELP)
         return render_template('help/printable_guide.html', data=data, role=role)
+
+    # Standalone embedded guides (own HTML/CSS, no base layout). These static
+    # paths take precedence over the /guides/<role> rule above for these two
+    # roles specifically; every other role still falls through to it.
+    @app.route('/guides/heather')
+    @login_required
+    def heather_guide():
+        return render_template('guides/heather-guide.html')
+
+    @app.route('/guides/tina')
+    @login_required
+    def tina_guide():
+        return render_template('guides/tina-guide.html')
 
     # ── Search ─────────────────────────────────────────────────────────────────
 

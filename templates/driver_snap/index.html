@@ -1,0 +1,289 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>Driver / VIN Snap — Impound Manager</title>
+<link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.css" rel="stylesheet">
+<style>
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0; padding: 0; height: 100%;
+    background: #0d1117; color: #f0f2f5;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Arial, sans-serif;
+    -webkit-tap-highlight-color: transparent;
+  }
+  header {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 14px 18px; background: #161b22; border-bottom: 1px solid #2a2f38;
+  }
+  header .brand { font-weight: 700; font-size: 1.05rem; display: flex; align-items: center; gap: 8px; }
+  header .brand i { color: #4caf8a; }
+  header .user { font-size: .85rem; color: #9aa4b2; }
+  main { padding: 20px 16px 40px; max-width: 480px; margin: 0 auto; }
+  .screen { display: none; }
+  .screen.active { display: block; }
+  h2.title { font-size: 1.3rem; font-weight: 700; margin: 0 0 6px; }
+  p.sub { color: #9aa4b2; font-size: .95rem; margin: 0 0 20px; }
+
+  .big-btn {
+    width: 100%; border: none; border-radius: 16px;
+    padding: 26px 18px; font-size: 1.25rem; font-weight: 700;
+    display: flex; align-items: center; justify-content: center; gap: 14px;
+    cursor: pointer; transition: transform .1s;
+    -webkit-user-select: none; user-select: none;
+  }
+  .big-btn:active { transform: scale(.97); }
+  .big-btn.primary { background: #2f6fed; color: #fff; }
+  .big-btn.success { background: #2fb673; color: #fff; }
+  .big-btn.danger  { background: #e5534b; color: #fff; }
+  .big-btn.outline { background: transparent; border: 2px solid #3a4150; color: #f0f2f5; }
+  .big-btn i { font-size: 1.8rem; }
+
+  #preview-wrap { display: none; margin-bottom: 18px; }
+  #preview-img { width: 100%; border-radius: 12px; max-height: 320px; object-fit: contain; background: #000; }
+
+  .spinner-row { display: flex; align-items: center; gap: 12px; justify-content: center; padding: 30px 0; color: #9aa4b2; }
+  .spinner {
+    width: 28px; height: 28px; border: 3px solid #2a2f38; border-top-color: #4caf8a;
+    border-radius: 50%; animation: spin 0.8s linear infinite;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  .card {
+    background: #161b22; border: 1px solid #2a2f38; border-radius: 14px;
+    padding: 20px; margin-bottom: 16px;
+  }
+  .card .vin { font-family: monospace; font-size: 1.1rem; letter-spacing: 1px; color: #4caf8a; margin-bottom: 10px; }
+  .card .field { display: flex; justify-content: space-between; padding: 6px 0; border-bottom: 1px solid #232833; font-size: .95rem; }
+  .card .field:last-child { border-bottom: none; }
+  .card .field .label { color: #9aa4b2; }
+  .card .field .value { font-weight: 600; }
+
+  .btn-row { display: flex; gap: 10px; }
+  .btn-row .big-btn { flex: 1; padding: 20px 10px; font-size: 1.05rem; }
+
+  .zone-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+  .zone-btn {
+    background: #1c2230; border: 2px solid #2a2f38; border-radius: 14px;
+    padding: 26px 10px; font-size: 1.05rem; font-weight: 700; color: #f0f2f5;
+    display: flex; flex-direction: column; align-items: center; gap: 8px;
+    cursor: pointer; transition: transform .1s, background .15s;
+  }
+  .zone-btn:active { transform: scale(.96); background: #2f6fed; }
+  .zone-btn i { font-size: 1.6rem; color: #4caf8a; }
+
+  .success-icon { text-align: center; font-size: 4rem; color: #2fb673; margin-bottom: 12px; }
+  .success-text { text-align: center; font-size: 1.15rem; font-weight: 600; margin-bottom: 24px; }
+
+  .no-match-icon { text-align: center; font-size: 3rem; color: #e5534b; margin-bottom: 10px; }
+
+  #camera-input { display: none; }
+  .alert-inline {
+    background: #2a1e1e; border: 1px solid #e5534b; color: #ffb4ae;
+    border-radius: 10px; padding: 12px 14px; font-size: .9rem; margin-bottom: 16px;
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="brand"><i class="bi bi-truck"></i> B&amp;J Impound Manager</div>
+  <div class="user">{{ current_user.display_name or current_user.username }}</div>
+</header>
+
+<main>
+
+  <!-- SCREEN 1: Camera -->
+  <div class="screen active" id="screen-camera">
+    <h2 class="title">Scan a Vehicle VIN</h2>
+    <p class="sub">Point the camera at the VIN plate (dash or door jamb) and capture.</p>
+
+    <div id="preview-wrap">
+      <img id="preview-img" alt="VIN photo preview">
+    </div>
+
+    <div id="capture-controls">
+      <label for="camera-input" class="big-btn primary">
+        <i class="bi bi-camera-fill"></i> Capture VIN
+      </label>
+      <input type="file" id="camera-input" accept="image/*" capture="environment" onchange="handleCapture(this)">
+    </div>
+
+    <div id="reading-state" class="spinner-row" style="display:none;">
+      <div class="spinner"></div> Reading VIN…
+    </div>
+  </div>
+
+  <!-- SCREEN 2: Confirm match -->
+  <div class="screen" id="screen-confirm">
+    <h2 class="title">Vehicle Found</h2>
+    <div class="card">
+      <div class="vin" id="c-vin"></div>
+      <div class="field"><span class="label">Vehicle</span><span class="value" id="c-name"></span></div>
+      <div class="field"><span class="label">Plate / Stock</span><span class="value" id="c-plate"></span></div>
+      <div class="field"><span class="label">Current Zone</span><span class="value" id="c-zone"></span></div>
+    </div>
+    <div class="btn-row">
+      <button class="big-btn danger" onclick="wrongVehicle()"><i class="bi bi-x-lg"></i> Wrong Vehicle</button>
+      <button class="big-btn success" onclick="goToZoneSelect()"><i class="bi bi-check-lg"></i> Confirm</button>
+    </div>
+  </div>
+
+  <!-- SCREEN 3: No match -->
+  <div class="screen" id="screen-nomatch">
+    <div class="no-match-icon"><i class="bi bi-exclamation-triangle-fill"></i></div>
+    <h2 class="title" style="text-align:center;">No Vehicle Found</h2>
+    <p class="sub" style="text-align:center;" id="nomatch-detail">The VIN read didn't match any active vehicle.</p>
+    <button class="big-btn outline" onclick="resetToCamera()"><i class="bi bi-arrow-counterclockwise"></i> Retry</button>
+  </div>
+
+  <!-- SCREEN 4: Zone select -->
+  <div class="screen" id="screen-zone">
+    <h2 class="title">Where is it parked?</h2>
+    <p class="sub">Tap a zone — this will grab GPS and save.</p>
+    <div id="gps-status" class="alert-inline" style="display:none;"></div>
+    <div class="zone-grid">
+      {% for z in zones %}
+      <button class="zone-btn" onclick="selectZone({{ z|tojson }})">
+        <i class="bi bi-geo-alt-fill"></i>{{ z }}
+      </button>
+      {% endfor %}
+    </div>
+  </div>
+
+  <!-- SCREEN 5: Success -->
+  <div class="screen" id="screen-success">
+    <div class="success-icon"><i class="bi bi-check-circle-fill"></i></div>
+    <div class="success-text" id="success-msg">Location saved</div>
+    <button class="big-btn primary" onclick="resetToCamera()"><i class="bi bi-camera-fill"></i> Scan Another Vehicle</button>
+  </div>
+
+</main>
+
+<script>
+let matchedVehicleId = null;
+let matchedVehicleName = null;
+
+function showScreen(id) {
+  document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
+  document.getElementById(id).classList.add('active');
+}
+
+function handleCapture(input) {
+  const file = input.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = e => {
+    document.getElementById('preview-img').src = e.target.result;
+    document.getElementById('preview-wrap').style.display = 'block';
+    document.getElementById('capture-controls').style.display = 'none';
+    readVin(e.target.result, file.type);
+  };
+  reader.readAsDataURL(file);
+}
+
+async function readVin(dataUrl, mediaType) {
+  document.getElementById('reading-state').style.display = 'flex';
+  const b64 = dataUrl.split(',')[1] || dataUrl;
+
+  try {
+    const resp = await fetch('/driver/read-vin', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ image: b64, media_type: mediaType || 'image/jpeg' }),
+    });
+    const json = await resp.json();
+    document.getElementById('reading-state').style.display = 'none';
+
+    if (!resp.ok || json.error) {
+      alert('Error: ' + (json.error || 'Unknown error'));
+      resetToCamera();
+      return;
+    }
+
+    if (json.matched_vehicle) {
+      const v = json.matched_vehicle;
+      matchedVehicleId = v.id;
+      matchedVehicleName = v.display_name;
+      document.getElementById('c-vin').textContent = json.vin || '(unreadable)';
+      document.getElementById('c-name').textContent = v.display_name;
+      document.getElementById('c-plate').textContent = v.plate || v.stock_number || '—';
+      document.getElementById('c-zone').textContent = v.current_zone || 'Not yet logged';
+      showScreen('screen-confirm');
+    } else {
+      document.getElementById('nomatch-detail').textContent = json.vin
+        ? `Read VIN "${json.vin}" but no active vehicle matched.`
+        : 'Could not read a VIN from that photo.';
+      showScreen('screen-nomatch');
+    }
+  } catch (e) {
+    document.getElementById('reading-state').style.display = 'none';
+    alert('Network error: ' + e.message);
+    resetToCamera();
+  }
+}
+
+function wrongVehicle() {
+  matchedVehicleId = null;
+  matchedVehicleName = null;
+  resetToCamera();
+}
+
+function goToZoneSelect() {
+  showScreen('screen-zone');
+}
+
+function selectZone(zone) {
+  const status = document.getElementById('gps-status');
+  status.style.display = 'block';
+  status.textContent = 'Getting GPS location…';
+
+  if (!navigator.geolocation) {
+    saveLocation(zone, null, null);
+    return;
+  }
+
+  navigator.geolocation.getCurrentPosition(
+    pos => saveLocation(zone, pos.coords.latitude, pos.coords.longitude),
+    () => {
+      status.textContent = 'Could not get GPS — saving zone without coordinates.';
+      saveLocation(zone, null, null);
+    },
+    { enableHighAccuracy: true, timeout: 8000 }
+  );
+}
+
+async function saveLocation(zone, lat, lng) {
+  try {
+    const resp = await fetch('/driver/save-location', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ vehicle_id: matchedVehicleId, zone, lat, lng }),
+    });
+    const json = await resp.json();
+    if (!resp.ok || json.error) {
+      alert('Error: ' + (json.error || 'Unknown error'));
+      return;
+    }
+    document.getElementById('success-msg').textContent =
+      `Location saved — ${json.vehicle} → ${json.zone}`;
+    showScreen('screen-success');
+  } catch (e) {
+    alert('Network error: ' + e.message);
+  }
+}
+
+function resetToCamera() {
+  matchedVehicleId = null;
+  matchedVehicleName = null;
+  document.getElementById('camera-input').value = '';
+  document.getElementById('preview-wrap').style.display = 'none';
+  document.getElementById('capture-controls').style.display = 'block';
+  document.getElementById('gps-status').style.display = 'none';
+  showScreen('screen-camera');
+}
+</script>
+
+</body>
+</html>

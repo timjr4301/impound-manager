@@ -55,6 +55,15 @@
     <a href="{{ url_for('vin_lookup') }}" class="btn btn-outline-light btn-sm me-2" title="VIN Quick Lookup — last 4-6 digits">
       <i class="bi bi-upc-scan"></i>
     </a>
+    <div class="dropdown me-2">
+      <button class="btn btn-outline-light btn-sm dropdown-toggle" type="button" data-bs-toggle="dropdown" title="Staff Guides">
+        <i class="bi bi-book"></i>
+      </button>
+      <ul class="dropdown-menu">
+        <li><a class="dropdown-item" href="{{ url_for('heather_guide') }}">Heather's Guide</a></li>
+        <li><a class="dropdown-item" href="{{ url_for('tina_guide') }}">Tina's Guide</a></li>
+      </ul>
+    </div>
     {% if current_user.can_see_heather_dashboard or current_user.can_see_tina_dashboard %}
     <a href="{{ url_for('vehicles_snoozed') }}" class="btn btn-outline-light btn-sm me-2" title="Snoozed Vehicles">
       <i class="bi bi-moon-stars"></i>
@@ -209,6 +218,11 @@
           <i class="bi bi-inboxes"></i> Daily Intake
         </a>
       {% endif %}
+
+      {# ── Driver / VIN Snap (all authenticated users) ── #}
+      <a href="{{ url_for('driver_snap.index') }}" class="nav-link text-white px-2">
+        <i class="bi bi-geo-alt-fill"></i> VIN Snap
+      </a>
 
       {# ── Chat (all authenticated users) ── #}
       <a href="{{ url_for('chat.index') }}" class="nav-link text-white px-2">

@@ -310,6 +310,24 @@ class Vehicle(db.Model):
             return None
         return (self.snoozed_until - date.today()).days
 
+    # Driver / VIN-snap mode — a driver photographs the VIN plate on the lot,
+    # Claude Opus reads it, and the app logs a GPS-tagged zone snap. Distinct
+    # from vin_door_jamb/dash (intake-time verification against the ticket);
+    # this is ongoing "where is it parked" tracking used to catch ghost
+    # vehicles that haven't been physically seen in a while.
+    last_location_zone = db.Column(db.String(50))
+    last_location_lat   = db.Column(db.Float)
+    last_location_lng   = db.Column(db.Float)
+    last_location_at    = db.Column(db.DateTime)
+    last_location_by    = db.Column(db.String(100))
+
+    @property
+    def location_stale(self):
+        """True when active and not location-snapped in 7+ days (or never)."""
+        if self.last_location_at is None:
+            return True
+        return (datetime.utcnow() - self.last_location_at).days >= 7
+
     @classmethod
     def not_snoozed_filter(cls):
         """Filter expression excluding currently-snoozed vehicles from task queues.
