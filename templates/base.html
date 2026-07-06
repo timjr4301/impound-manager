@@ -236,6 +236,13 @@
         </a>
       {% endif %}
 
+      {# ── Status Audit Tool (Tim only) ── #}
+      {% if current_user.role == 'tim' %}
+        <a href="{{ url_for('audit.index') }}" class="nav-link text-white px-2">
+          <i class="bi bi-clipboard-check"></i> Audit
+        </a>
+      {% endif %}
+
       {# ── Admin (Tim only) ── #}
       {% if current_user.role == 'tim' %}
         <a href="{{ url_for('admin.users') }}" class="nav-link text-white px-2">

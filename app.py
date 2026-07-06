@@ -441,6 +441,7 @@ def create_app():
     from blueprints.help import bp as help_bp
     from blueprints.bmv_document_scanner import bp as bmv_scanner_bp
     from blueprints.driver_snap import bp as driver_snap_bp
+    from blueprints.audit import bp as audit_bp
     from towbook_import import bp as towbook_bp
 
     app.register_blueprint(auth_bp)
@@ -455,6 +456,7 @@ def create_app():
     app.register_blueprint(towbook_bp)
     app.register_blueprint(bmv_scanner_bp)
     app.register_blueprint(driver_snap_bp)
+    app.register_blueprint(audit_bp)
 
     # Chat + Invoice Camera registered only when their files exist
     try:

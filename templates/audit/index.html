@@ -1,0 +1,347 @@
+{% extends 'base.html' %}
+{% block title %}Status Audit — Impound Manager{% endblock %}
+
+{% block content %}
+<div class="d-flex align-items-center mb-3 gap-2 flex-wrap">
+  <div>
+    <h2 class="h4 mb-0 fw-bold"><i class="bi bi-clipboard-check me-2"></i>Status Audit Tool</h2>
+    <small class="text-muted">Backlog triage — read-mostly, computed live from existing data</small>
+  </div>
+</div>
+
+{# ── Summary bar ── #}
+<div class="card mb-4">
+  <div class="card-body py-3">
+    <div class="d-flex flex-wrap gap-4">
+      <div>
+        <div class="text-muted small text-uppercase" style="letter-spacing:.06em; font-size:.7rem;">Total Active</div>
+        <div class="fs-3 fw-bold">{{ total_active }}</div>
+      </div>
+      <div>
+        <div class="text-muted small text-uppercase" style="letter-spacing:.06em; font-size:.7rem;">🔴 Towbook Mismatch</div>
+        <div class="fs-3 fw-bold" id="summary-mismatch-count">—</div>
+      </div>
+      <div>
+        <div class="text-muted small text-uppercase" style="letter-spacing:.06em; font-size:.7rem;">🔴 Overdue Letters</div>
+        <div class="fs-3 fw-bold" id="summary-overdue-count">{{ overdue|length }}</div>
+      </div>
+      <div>
+        <div class="text-muted small text-uppercase" style="letter-spacing:.06em; font-size:.7rem;">🟡 Missing LKA</div>
+        <div class="fs-3 fw-bold" id="summary-lka-count">{{ missing_lka|length }}</div>
+      </div>
+      <div>
+        <div class="text-muted small text-uppercase" style="letter-spacing:.06em; font-size:.7rem;">🟡 Missing Title Search</div>
+        <div class="fs-3 fw-bold" id="summary-title-count">{{ missing_title_search|length }}</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+{# ══════════════════ 1. TOWBOOK MISMATCH ══════════════════ #}
+<div class="card mb-3">
+  <div class="card-header d-flex align-items-center justify-content-between" role="button"
+       data-bs-toggle="collapse" data-bs-target="#sec-mismatch">
+    <span class="fw-bold"><i class="bi bi-exclamation-triangle-fill text-danger me-2"></i>Towbook Mismatch</span>
+    <span class="badge bg-danger" id="badge-mismatch">0</span>
+  </div>
+  <div class="collapse show" id="sec-mismatch">
+    <div class="card-body">
+      <div class="d-flex align-items-center gap-2 flex-wrap mb-3">
+        <input type="file" id="towbook-file-input" accept=".csv" class="form-control form-control-sm" style="max-width:320px">
+        <button class="btn btn-sm btn-primary" id="towbook-upload-btn">
+          <i class="bi bi-upload me-1"></i>Upload Towbook Export
+        </button>
+        <span id="towbook-stats" class="small text-muted"></span>
+      </div>
+      <div id="mismatch-placeholder" class="text-muted small">
+        Upload a Towbook export to check for mismatches
+      </div>
+      <div class="table-responsive d-none" id="mismatch-table-wrap">
+        <table class="table table-sm mb-0">
+          <thead class="table-light">
+            <tr><th>Stock#</th><th>Year/Make/Model</th><th>Plate</th><th>Impound Date</th><th>Days In</th><th></th></tr>
+          </thead>
+          <tbody id="mismatch-tbody"></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</div>
+
+{# ══════════════════ 2. OVERDUE LETTERS ══════════════════ #}
+<div class="card mb-3">
+  <div class="card-header d-flex align-items-center justify-content-between" role="button"
+       data-bs-toggle="collapse" data-bs-target="#sec-overdue">
+    <span class="fw-bold"><i class="bi bi-envelope-exclamation-fill text-danger me-2"></i>Overdue Letters</span>
+    <span class="badge bg-danger" id="badge-overdue">{{ overdue|length }}</span>
+  </div>
+  <div class="collapse show" id="sec-overdue">
+    <div class="card-body p-0">
+      {% if overdue %}
+      <div class="table-responsive">
+        <table class="table table-sm mb-0">
+          <thead class="table-light">
+            <tr><th>Stock#</th><th>Year/Make/Model</th><th>Impound Date</th><th>Days In</th><th>Last Letter Sent</th><th>What's Missing</th><th></th></tr>
+          </thead>
+          <tbody>
+          {% for row in overdue %}
+          {% set v = row.vehicle %}
+          <tr>
+            <td class="font-monospace small">{{ v.stock_number or '#' ~ v.id }}</td>
+            <td><a href="{{ url_for('vehicles_detail', vehicle_id=v.id) }}" class="fw-semibold">{{ v.display_name }}</a></td>
+            <td>{{ v.impound_date.strftime('%m/%d/%Y') if v.impound_date else '—' }}</td>
+            <td><span class="badge bg-danger">{{ v.days_in_storage }}d</span></td>
+            <td class="small">{{ row.last_letter_sent.strftime('%m/%d/%Y') if row.last_letter_sent else 'None' }}</td>
+            <td class="small text-danger">{{ row.reasons|join(', ') }}</td>
+            <td><a href="{{ url_for('vehicles_detail', vehicle_id=v.id) }}" class="btn btn-sm btn-outline-secondary py-0">Go to Vehicle</a></td>
+          </tr>
+          {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      {% else %}
+      <div class="text-muted small p-3">Nothing overdue.</div>
+      {% endif %}
+    </div>
+  </div>
+</div>
+
+{# ══════════════════ 3. MISSING LKA ══════════════════ #}
+<div class="card mb-3">
+  <div class="card-header d-flex align-items-center justify-content-between" role="button"
+       data-bs-toggle="collapse" data-bs-target="#sec-lka">
+    <span class="fw-bold"><i class="bi bi-file-earmark-x-fill text-warning me-2"></i>Missing LKA</span>
+    <span class="badge bg-warning text-dark" id="badge-lka">{{ missing_lka|length }}</span>
+  </div>
+  <div class="collapse show" id="sec-lka">
+    <div class="card-body p-0">
+      {% if missing_lka %}
+      <div class="table-responsive">
+        <table class="table table-sm mb-0" id="lka-table">
+          <thead class="table-light">
+            <tr><th>Stock#</th><th>Year/Make/Model</th><th>Plate</th><th>Impound Date</th><th>Days In</th><th></th></tr>
+          </thead>
+          <tbody>
+          {% for v in missing_lka %}
+          <tr data-vehicle-id="{{ v.id }}">
+            <td class="font-monospace small">{{ v.stock_number or '#' ~ v.id }}</td>
+            <td><a href="{{ url_for('vehicles_detail', vehicle_id=v.id) }}" class="fw-semibold">{{ v.display_name }}</a></td>
+            <td>{{ v.plate or '—' }}</td>
+            <td>{{ v.impound_date.strftime('%m/%d/%Y') if v.impound_date else '—' }}</td>
+            <td><span class="badge bg-warning text-dark">{{ v.days_in_storage }}d</span></td>
+            <td>
+              <button class="btn btn-sm btn-outline-success py-0 action-btn"
+                      data-action-url="{{ url_for('audit.mark_lka_confirmed', vehicle_id=v.id) }}"
+                      data-badge="badge-lka" data-summary="summary-lka-count">
+                Mark LKA Confirmed
+              </button>
+              <div class="text-danger small action-error d-none"></div>
+            </td>
+          </tr>
+          {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      {% else %}
+      <div class="text-muted small p-3">Nothing missing.</div>
+      {% endif %}
+    </div>
+  </div>
+</div>
+
+{# ══════════════════ 4. MISSING TITLE SEARCH ══════════════════ #}
+<div class="card mb-3">
+  <div class="card-header d-flex align-items-center justify-content-between" role="button"
+       data-bs-toggle="collapse" data-bs-target="#sec-title">
+    <span class="fw-bold"><i class="bi bi-file-earmark-x-fill text-warning me-2"></i>Missing Title Search</span>
+    <span class="badge bg-warning text-dark" id="badge-title">{{ missing_title_search|length }}</span>
+  </div>
+  <div class="collapse show" id="sec-title">
+    <div class="card-body p-0">
+      {% if missing_title_search %}
+      <div class="table-responsive">
+        <table class="table table-sm mb-0" id="title-table">
+          <thead class="table-light">
+            <tr><th>Stock#</th><th>Year/Make/Model</th><th>Plate</th><th>Impound Date</th><th>Days In</th><th></th></tr>
+          </thead>
+          <tbody>
+          {% for v in missing_title_search %}
+          <tr data-vehicle-id="{{ v.id }}">
+            <td class="font-monospace small">{{ v.stock_number or '#' ~ v.id }}</td>
+            <td><a href="{{ url_for('vehicles_detail', vehicle_id=v.id) }}" class="fw-semibold">{{ v.display_name }}</a></td>
+            <td>{{ v.plate or '—' }}</td>
+            <td>{{ v.impound_date.strftime('%m/%d/%Y') if v.impound_date else '—' }}</td>
+            <td><span class="badge bg-warning text-dark">{{ v.days_in_storage }}d</span></td>
+            <td>
+              <button class="btn btn-sm btn-outline-success py-0 action-btn"
+                      data-action-url="{{ url_for('audit.mark_title_search_confirmed', vehicle_id=v.id) }}"
+                      data-badge="badge-title" data-summary="summary-title-count">
+                Mark Title Search Confirmed
+              </button>
+              <div class="text-danger small action-error d-none"></div>
+            </td>
+          </tr>
+          {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      {% else %}
+      <div class="text-muted small p-3">Nothing missing.</div>
+      {% endif %}
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+// ── Generic AJAX row action: POST, remove row on success, decrement badges ──
+function wireActionButtons() {
+  document.querySelectorAll('.action-btn').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const row = btn.closest('tr');
+      const errBox = row.querySelector('.action-error');
+      const url = btn.dataset.actionUrl;
+      const badgeId = btn.dataset.badge;
+      const summaryId = btn.dataset.summary;
+
+      btn.disabled = true;
+      errBox.classList.add('d-none');
+
+      try {
+        const resp = await fetch(url, { method: 'POST' });
+        const data = await resp.json().catch(() => ({}));
+        if (!resp.ok) throw new Error(data.error || `Request failed (${resp.status})`);
+
+        row.remove();
+        decrementBadge(badgeId);
+        decrementBadge(summaryId);
+      } catch (err) {
+        btn.disabled = false;
+        errBox.textContent = err.message;
+        errBox.classList.remove('d-none');
+      }
+    });
+  });
+}
+
+function decrementBadge(id) {
+  const el = document.getElementById(id);
+  if (!el) return;
+  const n = parseInt(el.textContent, 10);
+  if (!isNaN(n)) el.textContent = Math.max(0, n - 1);
+}
+
+// ── Towbook Mismatch upload ──
+async function uploadTowbookCsv() {
+  const input = document.getElementById('towbook-file-input');
+  const statsEl = document.getElementById('towbook-stats');
+  const uploadBtn = document.getElementById('towbook-upload-btn');
+
+  if (!input.files.length) {
+    statsEl.textContent = 'Choose a CSV file first.';
+    statsEl.className = 'small text-danger';
+    return;
+  }
+
+  const formData = new FormData();
+  formData.append('file', input.files[0]);
+
+  uploadBtn.disabled = true;
+  statsEl.textContent = 'Uploading…';
+  statsEl.className = 'small text-muted';
+
+  try {
+    const resp = await fetch('/audit/towbook-check', { method: 'POST', body: formData });
+    const data = await resp.json();
+    if (!resp.ok) throw new Error(data.error || `Request failed (${resp.status})`);
+
+    statsEl.textContent = `${data.total_records} records in CSV, ${data.matched} matched to active vehicles, ${data.mismatches.length} mismatches found`;
+    statsEl.className = 'small text-muted';
+
+    renderMismatches(data.mismatches);
+  } catch (err) {
+    statsEl.textContent = 'Error: ' + err.message;
+    statsEl.className = 'small text-danger';
+  } finally {
+    uploadBtn.disabled = false;
+  }
+}
+
+function renderMismatches(mismatches) {
+  document.getElementById('mismatch-placeholder').classList.add('d-none');
+  const wrap = document.getElementById('mismatch-table-wrap');
+  wrap.classList.remove('d-none');
+
+  const tbody = document.getElementById('mismatch-tbody');
+  tbody.innerHTML = '';
+
+  mismatches.forEach(m => {
+    const tr = document.createElement('tr');
+    tr.dataset.vehicleId = m.id;
+    tr.innerHTML = `
+      <td class="font-monospace small">${esc(m.stock_number || ('#' + m.id))}</td>
+      <td><a href="${m.detail_url}" class="fw-semibold">${esc(m.display_name)}</a></td>
+      <td>${esc(m.plate || '—')}</td>
+      <td>${esc(m.impound_date || '—')}</td>
+      <td><span class="badge bg-danger">${m.days_in}d</span></td>
+      <td>
+        <button class="btn btn-sm btn-outline-success py-0 mismatch-action-btn"
+                data-vehicle-id="${m.id}">Mark Released</button>
+        <div class="text-danger small action-error d-none"></div>
+      </td>
+    `;
+    tbody.appendChild(tr);
+  });
+
+  updateMismatchCount(mismatches.length);
+  wireMismatchButtons();
+}
+
+function updateMismatchCount(n) {
+  document.getElementById('badge-mismatch').textContent = n;
+  document.getElementById('summary-mismatch-count').textContent = n;
+}
+
+function wireMismatchButtons() {
+  document.querySelectorAll('.mismatch-action-btn').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const row = btn.closest('tr');
+      const errBox = row.querySelector('.action-error');
+      const vehicleId = btn.dataset.vehicleId;
+
+      btn.disabled = true;
+      errBox.classList.add('d-none');
+
+      try {
+        const resp = await fetch(`/audit/vehicles/${vehicleId}/mark-released`, { method: 'POST' });
+        const data = await resp.json().catch(() => ({}));
+        if (!resp.ok) throw new Error(data.error || `Request failed (${resp.status})`);
+
+        row.remove();
+        const badge = document.getElementById('badge-mismatch');
+        const summary = document.getElementById('summary-mismatch-count');
+        const n = Math.max(0, parseInt(badge.textContent, 10) - 1);
+        badge.textContent = n;
+        summary.textContent = n;
+      } catch (err) {
+        btn.disabled = false;
+        errBox.textContent = err.message;
+        errBox.classList.remove('d-none');
+      }
+    });
+  });
+}
+
+function esc(s) {
+  return String(s == null ? '' : s)
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+  wireActionButtons();
+  document.getElementById('towbook-upload-btn').addEventListener('click', uploadTowbookCsv);
+});
+</script>
+{% endblock %}
