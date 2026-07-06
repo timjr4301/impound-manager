@@ -438,6 +438,11 @@ class Vehicle(db.Model):
         order_by='VehicleDocument.uploaded_at.desc()',
         cascade='all, delete-orphan'
     )
+    charges = db.relationship(
+        'VehicleCharge', back_populates='vehicle',
+        order_by='VehicleCharge.charge_date.desc()',
+        cascade='all, delete-orphan'
+    )
 
     def __repr__(self):
         return f'<Vehicle {self.id}: {self.display_name}>'
@@ -632,7 +637,7 @@ class Vehicle(db.Model):
         _, storage_total, _ = calculate_storage(
             self.impound_date, date.today(), self.daily_storage_rate or 0
         )
-        return (self.tow_fee or 0) + storage_total
+        return (self.tow_fee or 0) + storage_total + self.additional_charges_total
 
     @property
     def total_storage_owed(self):
@@ -641,6 +646,16 @@ class Vehicle(db.Model):
             self.impound_date, date.today(), self.daily_storage_rate or 0
         )
         return storage_total
+
+    @property
+    def additional_charges_total(self):
+        """Sum of vehicle_charges — fees beyond standard tow/storage (admin
+        fee, gate fee, key replacement, etc). Rolls into total_owed, so it's
+        automatically reflected in letters and anywhere else that reads
+        total_owed; the BMV title packet and standalone valuation report
+        compute their own total separately and add this in directly (see
+        titlebot/pdf_gen.py and app.py's valuation_report route)."""
+        return sum(float(c.amount) for c in self.charges)
 
 
 class CertifiedLetter(db.Model):
@@ -1207,6 +1222,26 @@ class VehicleDocument(db.Model):
     @property
     def label(self):
         return 'LKA (BMV 2433)' if self.doc_type == 'LKA' else 'Title Search (BMV 1148)'
+
+
+# ── Additional Charges ───────────────────────────────────────────────────────
+# Free-text fees beyond standard tow/storage (admin fee, gate fee, key
+# replacement, etc). Rolls into Vehicle.total_owed/additional_charges_total,
+# which feeds letters, the BMV title packet, and the standalone valuation
+# report.
+
+class VehicleCharge(db.Model):
+    __tablename__ = 'vehicle_charges'
+
+    id = db.Column(db.Integer, primary_key=True)
+    vehicle_id = db.Column(db.Integer, db.ForeignKey('vehicles.id', ondelete='CASCADE'), nullable=False)
+    label = db.Column(db.String(200), nullable=False)
+    amount = db.Column(db.Numeric(10, 2), nullable=False)
+    charge_date = db.Column(db.Date, nullable=False, default=date.today)
+    added_by = db.Column(db.String(50))
+    added_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+    vehicle = db.relationship('Vehicle', back_populates='charges')
 
 
 # ── Staff Feedback ───────────────────────────────────────────────────────────

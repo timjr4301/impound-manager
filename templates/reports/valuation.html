@@ -107,7 +107,7 @@
   <div class="amount-box">
     <div class="label">Total Amount Owed</div>
     <div class="value" style="color:#dc3545;">${{ '%.2f'|format(total_owed) }}</div>
-    <div style="font-size:9pt;color:#666;">Tow + Storage</div>
+    <div style="font-size:9pt;color:#666;">Tow + Storage{% if vehicle.charges %} + Additional Charges{% endif %}</div>
   </div>
 </div>
 
@@ -127,6 +127,14 @@
     <tr style="font-size:9pt;">
       <td style="color:#666;padding-left:20px;">{{ abbr }} {{ year }} ({{ days }} days)</td>
       <td style="text-align:right;color:#666;">${{ '%.2f'|format(amt) }}</td>
+    </tr>
+    {% endfor %}
+    {% endif %}
+    {% if vehicle.charges %}
+    {% for c in vehicle.charges %}
+    <tr>
+      <td>{{ c.label }} ({{ c.charge_date.strftime('%m/%d/%Y') }})</td>
+      <td style="text-align:right;">${{ '%.2f'|format(c.amount) }}</td>
     </tr>
     {% endfor %}
     {% endif %}

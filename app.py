@@ -7,7 +7,7 @@ from flask import (Flask, render_template, request, redirect, url_for,
 from flask_login import LoginManager, login_required, current_user
 from models import (db, User, Vehicle, CertifiedLetter, TitleFiling,
                     VehicleNote, DamageItem, SyncLog, VehicleDocument, StaffFeedback,
-                    PoliceDepartment,
+                    PoliceDepartment, VehicleCharge,
                     PPI_LETTER1_DAYS, PPI_LETTER2_DAYS, POLICE_LETTER1_DAYS)
 from werkzeug.utils import secure_filename
 
@@ -222,6 +222,9 @@ def run_migrations(app):
 
             if 'staff_feedback' not in existing_tables:
                 StaffFeedback.__table__.create(db.engine)
+
+            if 'vehicle_charges' not in existing_tables:
+                VehicleCharge.__table__.create(db.engine)
 
 
 def parse_quantum_view_csv(content: str):
@@ -1169,7 +1172,7 @@ def create_app():
         storage_days, storage_total, storage_breakdown = calculate_storage(
             vehicle.impound_date, date.today(), vehicle.daily_storage_rate or 0
         )
-        total_owed = (vehicle.tow_fee or 0) + storage_total
+        total_owed = vehicle.total_owed  # tow + storage + additional charges
         total_dmg = sum(d.amount for d in vehicle.damage_items)
         vehicle_val = max(0, (vehicle.effective_nada_value or 0) - total_dmg)
         net = vehicle_val - total_owed
@@ -1512,6 +1515,60 @@ def create_app():
         db.session.delete(item)
         db.session.commit()
         return redirect(url_for('vehicles_detail', vehicle_id=vehicle_id) + '#title-packet')
+
+    # ── Additional Charges ───────────────────────────────────────────────────
+    CHARGES_ROLES = ('heather', 'tina', 'tim', 'brady', 'jim')
+
+    @app.route('/vehicles/<int:vehicle_id>/charges', methods=['POST'])
+    @login_required
+    def vehicle_charges_add(vehicle_id):
+        vehicle = db.get_or_404(Vehicle, vehicle_id)
+        if current_user.role not in CHARGES_ROLES:
+            flash('Permission denied.', 'danger')
+            return redirect(url_for('vehicles_detail', vehicle_id=vehicle_id))
+
+        label = request.form.get('label', '').strip()
+        amount_str = request.form.get('amount', '').strip()
+        date_str = request.form.get('charge_date', '').strip()
+
+        if not label or not amount_str:
+            flash('Label and amount are required.', 'danger')
+            return redirect(url_for('vehicles_detail', vehicle_id=vehicle_id) + '#charges')
+        try:
+            amount = float(amount_str)
+        except ValueError:
+            flash('Invalid amount.', 'danger')
+            return redirect(url_for('vehicles_detail', vehicle_id=vehicle_id) + '#charges')
+
+        try:
+            charge_date = date.fromisoformat(date_str) if date_str else date.today()
+        except ValueError:
+            charge_date = date.today()
+
+        db.session.add(VehicleCharge(
+            vehicle_id=vehicle.id,
+            label=label,
+            amount=amount,
+            charge_date=charge_date,
+            added_by=current_user.display_name or current_user.username,
+            added_at=datetime.utcnow(),
+        ))
+        db.session.commit()
+        flash(f'Charge added: {label} ${amount:.2f}', 'success')
+        return redirect(url_for('vehicles_detail', vehicle_id=vehicle_id) + '#charges')
+
+    @app.route('/charges/<int:charge_id>/delete', methods=['POST'])
+    @login_required
+    def vehicle_charges_delete(charge_id):
+        charge = db.get_or_404(VehicleCharge, charge_id)
+        vehicle_id = charge.vehicle_id
+        if current_user.role not in CHARGES_ROLES:
+            flash('Permission denied.', 'danger')
+            return redirect(url_for('vehicles_detail', vehicle_id=vehicle_id))
+        db.session.delete(charge)
+        db.session.commit()
+        flash('Charge removed.', 'info')
+        return redirect(url_for('vehicles_detail', vehicle_id=vehicle_id) + '#charges')
 
     @app.route('/vehicles/<int:vehicle_id>/damages/auto-fill', methods=['POST'])
     @login_required

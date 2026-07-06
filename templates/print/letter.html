@@ -263,6 +263,16 @@
     {% if letter.effective_letter_kind in ('first_notice', 'second_notice') %}
     <tr><td>Notification Fee:</td><td>${{ '%.2f'|format(vehicle.NOTIFICATION_FEE) }}</td></tr>
     {% endif %}
+    {% if vehicle.charges %}
+    <tr><td colspan="2" style="padding-top:8px;"><em>Additional Charges:</em></td></tr>
+    {% for c in vehicle.charges %}
+    <tr>
+      <td style="padding-left:16px;">{{ c.label }} <span style="font-weight:normal;color:#555;">({{ c.charge_date.strftime('%m/%d/%Y') }})</span></td>
+      <td>${{ '%.2f'|format(c.amount) }}</td>
+    </tr>
+    {% endfor %}
+    <tr><td style="padding-left:16px;">Additional Charges Total:</td><td>${{ '%.2f'|format(vehicle.additional_charges_total) }}</td></tr>
+    {% endif %}
     <tr><td>Total Balance Owed:</td><td>${{ '%.2f'|format(vehicle.total_owed) }}</td></tr>
   </table>
 </div>

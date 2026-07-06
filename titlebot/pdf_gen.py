@@ -151,8 +151,9 @@ def generate_title_packet(vehicle, template_path, filing_date=None):
     # ── Financial summary ─────────────────────────────────────────────────
     nada          = vehicle.effective_nada_value or 3499.0
     tow_fee       = vehicle.tow_fee or 0.0
+    additional_charges = vehicle.additional_charges_total  # admin/gate/key-replacement fees etc.
     vehicle_value = max(0.0, nada - total_damage)
-    owner_payout  = max(0.0, vehicle_value - tow_fee - total_storage_amt)
+    owner_payout  = max(0.0, vehicle_value - tow_fee - total_storage_amt - additional_charges)
     f['Text106']     = f'{vehicle_value:.2f}'
     f['amount paid'] = f'{owner_payout:.2f}'
 
