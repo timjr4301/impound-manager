@@ -1,3 +1,4 @@
+import json
 from flask_sqlalchemy import SQLAlchemy
 from flask_login import UserMixin
 from werkzeug.security import generate_password_hash, check_password_hash
@@ -427,6 +428,14 @@ class Vehicle(db.Model):
         return next((d for d in self.documents if d.doc_type == 'TITLE_SEARCH'), None)
 
     @property
+    def latest_envelope_scan_with_image(self):
+        """Most recent scanned return-envelope image on file, if any."""
+        with_image = [s for s in self.envelope_scans if s.image_data]
+        if not with_image:
+            return None
+        return max(with_image, key=lambda s: s.scan_date or datetime.min)
+
+    @property
     def title_eligible_date(self):
         if self.impound_type == 'PPI':
             l2 = self.letter2
@@ -692,7 +701,10 @@ class EnvelopeScan(db.Model):
     __tablename__ = 'envelope_scans'
 
     id = db.Column(db.Integer, primary_key=True)
-    vehicle_id = db.Column(db.Integer, db.ForeignKey('vehicles.id'), nullable=False)
+    # Nullable so a scan the AI/staff couldn't match to any vehicle can still
+    # be persisted (and shown in the /envelopes Unmatched tab) instead of
+    # being silently dropped the way it was before the Envelope Tab build.
+    vehicle_id = db.Column(db.Integer, db.ForeignKey('vehicles.id'), nullable=True)
     tracking_number = db.Column(db.String(50))
     scan_date = db.Column(db.DateTime, default=datetime.utcnow)
     image_path = db.Column(db.String(500))
@@ -705,13 +717,57 @@ class EnvelopeScan(db.Model):
 
     # DELIVERED | ADDRESS_ISSUE | SERVICE_DISRUPTED | UNKNOWN
     outcome = db.Column(db.String(20))
-    matched_by = db.Column(db.String(20))  # reference_number | tracking_number | stock_number | owner_name | manual
+    matched_by = db.Column(db.String(20))  # reference_number | tracking_number | stock_number | owner_name | manual | unmatched
 
     # Reference #2 as read off the envelope by the scan AI — "AFO" here
     # auto-flags Vehicle.is_afo (see reference_number for Reference #1).
     reference_number_2 = db.Column(db.String(50))
 
+    # Base64 data URL (data:image/jpeg;base64,...) of the scanned envelope,
+    # captured at save time from the same image already sent to Opus for
+    # reading. Stored as JPEG at reduced (~80%) quality rather than PNG/full
+    # quality — envelope photos don't need print-grade fidelity, and at
+    # 650+ vehicles with multiple scans each, full-quality images would bloat
+    # the Postgres row size considerably. See camera capture code for the
+    # actual compression setting.
+    image_data = db.Column(db.Text)
+
+    # Envelope Tab clear workflow — vehicle sold/released/or a manual reason
+    # someone no longer needs this scan surfaced in the working Matched queue.
+    # Cleared scans are never deleted, only hidden from Matched (kept forever
+    # for audit).
+    cleared_at = db.Column(db.DateTime)
+    cleared_by = db.Column(db.String(50))
+    clear_reason = db.Column(db.String(100))  # vehicle_sold | vehicle_released | manual
+
+    # Set when staff explicitly discard an unmatched scan (e.g. a duplicate,
+    # a misfire, junk mail) rather than link it to a vehicle. Distinct from
+    # "cleared", which only applies to scans that did get matched.
+    discarded = db.Column(db.Boolean, default=False)
+
     vehicle = db.relationship('Vehicle', back_populates='envelope_scans')
+
+    @property
+    def ai_read_summary(self):
+        """Best-effort human-readable summary of what the AI extracted off
+        the envelope, for display in the Unmatched tab where there's no
+        vehicle record to show details from instead."""
+        if not self.claude_raw_response:
+            return self.scan_notes or None
+        try:
+            data = json.loads(self.claude_raw_response)
+        except (ValueError, TypeError):
+            return self.scan_notes or None
+        parts = []
+        if data.get('owner_name'):
+            parts.append(f"Owner: {data['owner_name']}")
+        if data.get('reference_number'):
+            parts.append(f"Ref #: {data['reference_number']}")
+        if data.get('tracking_number'):
+            parts.append(f"Tracking: {data['tracking_number']}")
+        if data.get('stock_number'):
+            parts.append(f"Stock #: {data['stock_number']}")
+        return '; '.join(parts) if parts else (self.scan_notes or None)
 
 
 class Invoice(db.Model):

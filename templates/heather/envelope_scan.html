@@ -203,7 +203,10 @@ function captureFrame() {
   canvas.width = video.videoWidth;
   canvas.height = video.videoHeight;
   canvas.getContext('2d').drawImage(video, 0, 0);
-  capturedB64 = canvas.toDataURL('image/jpeg', 0.9);
+  // JPEG at ~80% quality, not PNG/full quality — envelope photos don't need
+  // print fidelity, and this is now persisted to the DB (image_data) rather
+  // than discarded after the AI read, so size matters at 650+ vehicles.
+  capturedB64 = canvas.toDataURL('image/jpeg', 0.8);
 
   const img = document.getElementById('capturedImage');
   img.src = capturedB64;
@@ -234,20 +237,36 @@ function retakePhoto() {
 function updateMatchCard() {
   const select = document.getElementById('cameraVehicleId');
   const confirmCard = document.getElementById('matchConfirm');
+  const saveBtn = document.getElementById('btnMatchSave');
   const opt = select.selectedOptions[0];
 
-  if (!select.value || !opt) {
+  // Show the card once there's a captured image, even with no vehicle
+  // matched/selected — that's what lets Heather explicitly save it as
+  // Unmatched instead of the button being unreachable.
+  if (!capturedB64) {
     confirmCard.style.display = 'none';
     return;
   }
 
   document.getElementById('matchConfirmImg').src = capturedB64 || '';
-  document.getElementById('matchConfirmName').textContent = opt.dataset.display || '—';
-  document.getElementById('matchConfirmPlate').textContent = opt.dataset.plate || '—';
-  document.getElementById('matchConfirmVin').textContent = opt.dataset.vin || '—';
-  document.getElementById('matchConfirmOwner').textContent = opt.dataset.owner || '—';
-  document.getElementById('matchConfirmStock').textContent = opt.dataset.stock || '—';
-  document.getElementById('matchConfirmImpound').textContent = opt.dataset.impound || '—';
+
+  if (!select.value || !opt) {
+    document.getElementById('matchConfirmName').textContent = 'No vehicle identified';
+    document.getElementById('matchConfirmPlate').textContent = '—';
+    document.getElementById('matchConfirmVin').textContent = '—';
+    document.getElementById('matchConfirmOwner').textContent = '—';
+    document.getElementById('matchConfirmStock').textContent = '—';
+    document.getElementById('matchConfirmImpound').textContent = '—';
+    saveBtn.innerHTML = '<i class="bi bi-question-circle"></i> Save as Unmatched';
+  } else {
+    document.getElementById('matchConfirmName').textContent = opt.dataset.display || '—';
+    document.getElementById('matchConfirmPlate').textContent = opt.dataset.plate || '—';
+    document.getElementById('matchConfirmVin').textContent = opt.dataset.vin || '—';
+    document.getElementById('matchConfirmOwner').textContent = opt.dataset.owner || '—';
+    document.getElementById('matchConfirmStock').textContent = opt.dataset.stock || '—';
+    document.getElementById('matchConfirmImpound').textContent = opt.dataset.impound || '—';
+    saveBtn.innerHTML = '<i class="bi bi-check2-circle"></i> This Is Correct — Match & Save';
+  }
   confirmCard.style.display = 'block';
 }
 
@@ -334,11 +353,17 @@ async function processImage() {
 
 async function matchAndSave() {
   const vehicleId = document.getElementById('cameraVehicleId').value;
-  if (!vehicleId) { alert('Select a vehicle first — no automatic match was found.'); return; }
   if (!lastAiResult || (!lastAiResult.tracking_number && !lastAiResult.reference_number
                           && !lastAiResult.stock_number && !lastAiResult.owner_name)) {
     alert('Nothing was read from the envelope to save.');
     return;
+  }
+  if (!vehicleId) {
+    const proceed = confirm(
+      'No vehicle selected — nothing matched automatically. Save this envelope as ' +
+      'Unmatched instead? You can link it to a vehicle later from the Envelopes tab.'
+    );
+    if (!proceed) return;
   }
 
   const btn = document.getElementById('btnMatchSave');
@@ -350,7 +375,7 @@ async function matchAndSave() {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        vehicle_id: vehicleId,
+        vehicle_id: vehicleId || null,
         tracking_number: lastAiResult.tracking_number || null,
         reference_number: lastAiResult.reference_number || null,
         reference_number_2: lastAiResult.reference_number_2 || null,
@@ -363,13 +388,15 @@ async function matchAndSave() {
         delivery_date: lastAiResult.delivery_date || null,
         notes: lastAiResult.notes || null,
         raw: lastAiRaw || null,
+        image: capturedB64 || null,
       }),
     });
     const data = await resp.json();
 
     if (data.ok) {
       const content = document.getElementById('aiResultContent');
-      content.innerHTML += `<br><br>✅ <b>Saved to ${data.vehicle}.</b> Click Retake to scan the next envelope.`;
+      const label = data.unmatched ? 'Saved as Unmatched — link it later from the Envelopes tab.' : `Saved to ${data.vehicle}.`;
+      content.innerHTML += `<br><br>✅ <b>${label}</b> Click Retake to scan the next envelope.`;
       btn.textContent = 'Saved';
     } else {
       alert('Error: ' + data.error);

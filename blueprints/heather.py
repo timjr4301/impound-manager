@@ -346,6 +346,14 @@ def dashboard():
         .scalar()
     )
 
+    from models import EnvelopeScan
+    unmatched_envelope_count = (
+        EnvelopeScan.query
+        .filter(EnvelopeScan.vehicle_id.is_(None))
+        .filter(EnvelopeScan.discarded.isnot(True))
+        .count()
+    )
+
     return render_template('heather/dashboard.html',
         today=today,
         red=red, yellow=yellow, green=green,
@@ -355,6 +363,7 @@ def dashboard():
         bmv_queue=bmv_queue,
         sent_unconfirmed=sent_unconfirmed,
         last_calc=last_calc,
+        unmatched_envelope_count=unmatched_envelope_count,
         can_act=current_user.is_heather,  # Tina can view but not act
         can_snooze=current_user.can_see_all,
         lot_sort=lot_sort,
@@ -1283,68 +1292,12 @@ def envelope_scan_camera():
         return jsonify({'error': str(exc)}), 500
 
 
-@bp.route('/envelope-scan/match-save', methods=['POST'])
-@_heather_required
-def envelope_scan_match_save():
-    """AJAX: one-click save of an AI-read envelope scan to the matched (or manually picked) vehicle."""
-    data = request.get_json() or {}
-    vehicle_id = data.get('vehicle_id')
-    tracking = (data.get('tracking_number') or '').strip()
-    reference = (data.get('reference_number') or '').strip()
-    reference_2 = (data.get('reference_number_2') or '').strip()
-    stock_number = (data.get('stock_number') or '').strip()
-    owner_name = (data.get('owner_name') or '').strip()
-    outcome = (data.get('outcome') or '').strip().upper() or None
-    if outcome not in ('DELIVERED', 'ADDRESS_ISSUE', 'SERVICE_DISRUPTED', 'UNKNOWN'):
-        outcome = outcome or None  # allow unrecognized values through as-is rather than silently drop
-
-    if not vehicle_id:
-        return jsonify({'error': 'A vehicle is required — no identifier matched automatically, so pick one manually.'}), 400
-    if not (tracking or reference or stock_number or owner_name or outcome):
-        return jsonify({'error': 'Nothing was read from the envelope to save.'}), 400
-
-    vehicle = Vehicle.query.get(vehicle_id)
-    if not vehicle:
-        return jsonify({'error': 'Vehicle not found.'}), 404
-
-    is_rts = bool(data.get('is_return_to_sender')) or outcome == 'ADDRESS_ISSUE'
-    is_delivered = bool(data.get('is_delivered')) or outcome == 'DELIVERED'
-    tracking_clean = tracking.replace(' ', '').upper() if tracking else None
-
-    delivery_date = None
-    if is_delivered:
-        raw_date = data.get('delivery_date')
-        try:
-            delivery_date = date.fromisoformat(raw_date) if raw_date else date.today()
-        except (ValueError, TypeError):
-            delivery_date = date.today()
-
-    notes = data.get('notes') or ''
-    if reference and not tracking_clean:
-        notes = f'Matched by reference #{reference}. {notes}'.strip()
-    if owner_name and not (tracking_clean or reference):
-        notes = f'Matched by owner name ({owner_name}). {notes}'.strip()
-
-    scan = EnvelopeScan(
-        vehicle_id=vehicle.id,
-        tracking_number=tracking_clean,
-        scan_date=datetime.utcnow(),
-        scan_notes=notes or None,
-        is_return_to_sender=is_rts,
-        is_delivered=is_delivered,
-        delivery_date=delivery_date,
-        claude_raw_response=data.get('raw'),
-        outcome=outcome,
-        matched_by=data.get('matched_by'),
-        reference_number_2=reference_2 or None,
-    )
-    db.session.add(scan)
-    _apply_afo_flag(vehicle, reference_2, detected_by='envelope-scan')
-
-    # Attach this scan's outcome to the relevant letter: prefer the letter
-    # still missing a tracking number (i.e. this scan is assigning it one),
-    # otherwise fall back to the most recently sent letter that's still
-    # unresolved (no delivery confirmation or RTS yet).
+def _apply_scan_letter_effects(vehicle, tracking_clean, is_rts, is_delivered, delivery_date, outcome, notes):
+    """Attach a scan's read result to the vehicle's letter timeline and flag
+    urgency. Pulled out of envelope_scan_match_save() verbatim so the new
+    /envelopes Link-to-Vehicle action (blueprints/envelopes.py) produces the
+    exact same side effects a normal automatic match would have — this is a
+    refactor, not a change to the matching/effects logic itself."""
     letters = CertifiedLetter.query.filter_by(vehicle_id=vehicle.id).order_by(CertifiedLetter.letter_number.asc()).all()
     target_letter = next((l for l in letters if tracking_clean and not l.tracking_number), None)
     if target_letter is None:
@@ -1377,8 +1330,83 @@ def envelope_scan_match_save():
             created_at=datetime.utcnow(),
         ))
 
+
+@bp.route('/envelope-scan/match-save', methods=['POST'])
+@_heather_required
+def envelope_scan_match_save():
+    """AJAX: one-click save of an AI-read envelope scan to the matched (or
+    manually picked) vehicle — or, if Heather can't identify a vehicle at all,
+    save it unmatched so it surfaces in the /envelopes Unmatched tab instead
+    of being lost."""
+    data = request.get_json() or {}
+    vehicle_id = data.get('vehicle_id')
+    tracking = (data.get('tracking_number') or '').strip()
+    reference = (data.get('reference_number') or '').strip()
+    reference_2 = (data.get('reference_number_2') or '').strip()
+    stock_number = (data.get('stock_number') or '').strip()
+    owner_name = (data.get('owner_name') or '').strip()
+    outcome = (data.get('outcome') or '').strip().upper() or None
+    image = data.get('image') or None
+    if outcome not in ('DELIVERED', 'ADDRESS_ISSUE', 'SERVICE_DISRUPTED', 'UNKNOWN'):
+        outcome = outcome or None  # allow unrecognized values through as-is rather than silently drop
+
+    if not (tracking or reference or stock_number or owner_name or outcome):
+        return jsonify({'error': 'Nothing was read from the envelope to save.'}), 400
+
+    vehicle = None
+    if vehicle_id:
+        vehicle = Vehicle.query.get(vehicle_id)
+        if not vehicle:
+            return jsonify({'error': 'Vehicle not found.'}), 404
+
+    is_rts = bool(data.get('is_return_to_sender')) or outcome == 'ADDRESS_ISSUE'
+    is_delivered = bool(data.get('is_delivered')) or outcome == 'DELIVERED'
+    tracking_clean = tracking.replace(' ', '').upper() if tracking else None
+
+    delivery_date = None
+    if is_delivered:
+        raw_date = data.get('delivery_date')
+        try:
+            delivery_date = date.fromisoformat(raw_date) if raw_date else date.today()
+        except (ValueError, TypeError):
+            delivery_date = date.today()
+
+    notes = data.get('notes') or ''
+    if reference and not tracking_clean:
+        notes = f'Matched by reference #{reference}. {notes}'.strip()
+    if owner_name and not (tracking_clean or reference):
+        notes = f'Matched by owner name ({owner_name}). {notes}'.strip()
+    if not vehicle:
+        if stock_number:
+            notes = f'Stock # on envelope: {stock_number}. {notes}'.strip()
+        notes = f'No vehicle match found — saved unmatched. {notes}'.strip()
+
+    scan = EnvelopeScan(
+        vehicle_id=vehicle.id if vehicle else None,
+        tracking_number=tracking_clean,
+        scan_date=datetime.utcnow(),
+        scan_notes=notes or None,
+        is_return_to_sender=is_rts,
+        is_delivered=is_delivered,
+        delivery_date=delivery_date,
+        claude_raw_response=data.get('raw'),
+        outcome=outcome,
+        matched_by=data.get('matched_by') if vehicle else 'unmatched',
+        reference_number_2=reference_2 or None,
+        image_data=image,
+    )
+    db.session.add(scan)
+
+    if vehicle:
+        _apply_afo_flag(vehicle, reference_2, detected_by='envelope-scan')
+        _apply_scan_letter_effects(vehicle, tracking_clean, is_rts, is_delivered, delivery_date, outcome, notes)
+
     db.session.commit()
-    return jsonify({'ok': True, 'vehicle': vehicle.display_name})
+    return jsonify({
+        'ok': True,
+        'vehicle': vehicle.display_name if vehicle else None,
+        'unmatched': vehicle is None,
+    })
 
 
 # ── Bulk Envelope Upload ─────────────────────────────────────────────────────
@@ -1488,8 +1516,33 @@ def bulk_envelope_scan_process():
             })
 
         vehicle, matched_by = _match_vehicle_from_envelope(result)
+        image_data_url = f'data:{media_type};base64,{image_b64}'
 
         if not vehicle:
+            # Previously this branch returned without ever persisting anything —
+            # the "Not Matched" row only lived in the bulk-upload page's own
+            # summary table and vanished on navigation. Now it's saved as an
+            # unmatched EnvelopeScan so it shows up in the /envelopes Unmatched
+            # tab for later manual linking, same as the single-scan flow.
+            notes = f'Bulk envelope scan ({filename}) — no vehicle match. Status: {status or outcome or "unknown"}.'
+            if owner_name:
+                notes += f' Owner on envelope: {owner_name}.'
+            scan = EnvelopeScan(
+                vehicle_id=None,
+                tracking_number=tracking.replace(' ', '').upper() if tracking else None,
+                scan_date=datetime.utcnow(),
+                scan_notes=notes,
+                is_return_to_sender=outcome == 'ADDRESS_ISSUE',
+                is_delivered=outcome == 'DELIVERED',
+                delivery_date=date.today() if outcome == 'DELIVERED' else None,
+                claude_raw_response=raw,
+                outcome=outcome,
+                matched_by='unmatched',
+                reference_number_2=reference_2 or None,
+                image_data=image_data_url,
+            )
+            db.session.add(scan)
+            db.session.commit()
             return jsonify({
                 'ok': True,
                 'filename': filename,
@@ -1523,6 +1576,7 @@ def bulk_envelope_scan_process():
             outcome=outcome,
             matched_by=matched_by,
             reference_number_2=reference_2 or None,
+            image_data=image_data_url,
         )
         db.session.add(scan)
         _apply_afo_flag(vehicle, reference_2, detected_by='envelope-scan', source='Bulk Envelope Scanner')

@@ -224,6 +224,13 @@
         <i class="bi bi-geo-alt-fill"></i> VIN Snap
       </a>
 
+      {# ── Envelopes tab (heather, tim, brady, jim only) ── #}
+      {% if current_user.role in ('heather', 'tim', 'brady', 'jim') %}
+      <a href="{{ url_for('envelopes.index') }}" class="nav-link text-white px-2">
+        <i class="bi bi-envelope-open-fill"></i> Envelopes
+      </a>
+      {% endif %}
+
       {# ── Chat (all authenticated users) ── #}
       <a href="{{ url_for('chat.index') }}" class="nav-link text-white px-2">
         <i class="bi bi-chat-dots"></i> Chat

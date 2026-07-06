@@ -136,6 +136,24 @@ def run_migrations(app):
                     conn.execute(text('ALTER TABLE envelope_scans ADD COLUMN matched_by VARCHAR(20)'))
                 if 'reference_number_2' not in cols:
                     conn.execute(text('ALTER TABLE envelope_scans ADD COLUMN reference_number_2 VARCHAR(50)'))
+                if 'image_data' not in cols:
+                    conn.execute(text('ALTER TABLE envelope_scans ADD COLUMN image_data TEXT'))
+                if 'cleared_at' not in cols:
+                    conn.execute(text('ALTER TABLE envelope_scans ADD COLUMN cleared_at TIMESTAMP'))
+                if 'cleared_by' not in cols:
+                    conn.execute(text('ALTER TABLE envelope_scans ADD COLUMN cleared_by VARCHAR(50)'))
+                if 'clear_reason' not in cols:
+                    conn.execute(text('ALTER TABLE envelope_scans ADD COLUMN clear_reason VARCHAR(100)'))
+                if 'discarded' not in cols:
+                    conn.execute(text('ALTER TABLE envelope_scans ADD COLUMN discarded BOOLEAN'))
+                # vehicle_id must become nullable so a genuinely-unmatched scan
+                # can be saved and surfaced in the /envelopes Unmatched tab —
+                # safe to run unconditionally on Postgres, a no-op once already
+                # nullable. Postgres-only syntax (SQLite has no ALTER COLUMN),
+                # guarded here since local/test runs may use SQLite even though
+                # production never does.
+                if db.engine.dialect.name == 'postgresql':
+                    conn.execute(text('ALTER TABLE envelope_scans ALTER COLUMN vehicle_id DROP NOT NULL'))
 
             if 'sync_log' not in existing_tables:
                 # Use SQLAlchemy ORM to create the table safely on any DB backend
@@ -442,6 +460,7 @@ def create_app():
     from blueprints.bmv_document_scanner import bp as bmv_scanner_bp
     from blueprints.driver_snap import bp as driver_snap_bp
     from blueprints.audit import bp as audit_bp
+    from blueprints.envelopes import bp as envelopes_bp
     from towbook_import import bp as towbook_bp
 
     app.register_blueprint(auth_bp)
@@ -457,6 +476,7 @@ def create_app():
     app.register_blueprint(bmv_scanner_bp)
     app.register_blueprint(driver_snap_bp)
     app.register_blueprint(audit_bp)
+    app.register_blueprint(envelopes_bp)
 
     # Chat + Invoice Camera registered only when their files exist
     try:

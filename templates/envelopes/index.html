@@ -1,0 +1,341 @@
+{% extends 'base.html' %}
+{% block title %}Envelopes — Impound Manager{% endblock %}
+
+{% block content %}
+<div class="d-flex align-items-center mb-3 gap-2 flex-wrap">
+  <h2 class="h4 mb-0 fw-bold"><i class="bi bi-envelope-open-fill me-2"></i>Envelopes</h2>
+  <small class="text-muted">Scanned return-envelope images, matched to vehicles or awaiting manual review</small>
+</div>
+
+<ul class="nav nav-tabs mb-3" role="tablist">
+  <li class="nav-item">
+    <button class="nav-link active" data-bs-toggle="tab" data-bs-target="#tab-matched" type="button">
+      Matched <span class="badge bg-secondary ms-1" id="count-matched">{{ matched|length }}</span>
+    </button>
+  </li>
+  <li class="nav-item">
+    <button class="nav-link" data-bs-toggle="tab" data-bs-target="#tab-unmatched" type="button">
+      Unmatched <span class="badge bg-warning text-dark ms-1" id="count-unmatched">{{ unmatched|length }}</span>
+    </button>
+  </li>
+  <li class="nav-item">
+    <button class="nav-link" data-bs-toggle="tab" data-bs-target="#tab-cleared" type="button">
+      Cleared <span class="badge bg-secondary ms-1">{{ cleared|length }}</span>
+    </button>
+  </li>
+</ul>
+
+<div class="tab-content">
+
+  {# ══════════════════ MATCHED ══════════════════ #}
+  <div class="tab-pane fade show active" id="tab-matched">
+    {% if matched %}
+    <div class="table-responsive">
+      <table class="table table-sm align-middle">
+        <thead class="table-light">
+          <tr><th>Vehicle</th><th>Outcome</th><th>Date Scanned</th><th>Image</th><th></th></tr>
+        </thead>
+        <tbody>
+        {% for scan in matched %}
+        <tr data-scan-id="{{ scan.id }}">
+          <td>
+            <a href="{{ url_for('vehicles_detail', vehicle_id=scan.vehicle.id) }}" class="fw-semibold">{{ scan.vehicle.display_name }}</a>
+            <div class="small text-muted">Ref# {{ scan.vehicle.invoice_number or scan.vehicle.stock_number or '—' }}</div>
+          </td>
+          <td>
+            {% if scan.outcome == 'DELIVERED' %}<span class="badge bg-success">Delivered</span>
+            {% elif scan.outcome == 'ADDRESS_ISSUE' %}<span class="badge bg-danger">Address Issue</span>
+            {% elif scan.outcome == 'SERVICE_DISRUPTED' %}<span class="badge bg-secondary">Service Disrupted</span>
+            {% else %}<span class="badge bg-light text-dark border">Unknown</span>{% endif %}
+          </td>
+          <td class="small">{{ scan.scan_date.strftime('%m/%d/%Y') if scan.scan_date else '—' }}</td>
+          <td>
+            {% if scan.image_data %}
+            <img src="{{ scan.image_data }}" class="envelope-thumb" data-full="{{ scan.image_data }}"
+                 style="width:60px;height:60px;object-fit:cover;border-radius:4px;cursor:pointer;border:1px solid #dee2e6;" alt="Envelope scan">
+            {% else %}
+            <span class="text-muted small">No image</span>
+            {% endif %}
+          </td>
+          <td>
+            <button class="btn btn-sm btn-outline-secondary py-0 btn-clear" data-scan-id="{{ scan.id }}">Clear</button>
+            <div class="text-danger small action-error d-none"></div>
+          </td>
+        </tr>
+        {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% else %}
+    <div class="text-muted small p-3">No matched envelope scans.</div>
+    {% endif %}
+  </div>
+
+  {# ══════════════════ UNMATCHED ══════════════════ #}
+  <div class="tab-pane fade" id="tab-unmatched">
+    {% if unmatched %}
+    <div class="table-responsive">
+      <table class="table table-sm align-middle">
+        <thead class="table-light">
+          <tr><th>Date Scanned</th><th>Outcome</th><th>AI Read</th><th>Image</th><th></th></tr>
+        </thead>
+        <tbody>
+        {% for scan in unmatched %}
+        <tr data-scan-id="{{ scan.id }}">
+          <td class="small">{{ scan.scan_date.strftime('%m/%d/%Y') if scan.scan_date else '—' }}</td>
+          <td>
+            {% if scan.outcome == 'DELIVERED' %}<span class="badge bg-success">Delivered</span>
+            {% elif scan.outcome == 'ADDRESS_ISSUE' %}<span class="badge bg-danger">Address Issue</span>
+            {% elif scan.outcome == 'SERVICE_DISRUPTED' %}<span class="badge bg-secondary">Service Disrupted</span>
+            {% else %}<span class="badge bg-light text-dark border">Unknown</span>{% endif %}
+          </td>
+          <td class="small">{{ scan.ai_read_summary or '—' }}</td>
+          <td>
+            {% if scan.image_data %}
+            <img src="{{ scan.image_data }}" class="envelope-thumb" data-full="{{ scan.image_data }}"
+                 style="width:60px;height:60px;object-fit:cover;border-radius:4px;cursor:pointer;border:1px solid #dee2e6;" alt="Envelope scan">
+            {% else %}
+            <span class="text-muted small">No image</span>
+            {% endif %}
+          </td>
+          <td class="text-nowrap">
+            <button class="btn btn-sm btn-outline-primary py-0 btn-link-vehicle" data-scan-id="{{ scan.id }}">Link to Vehicle</button>
+            <button class="btn btn-sm btn-outline-secondary py-0 btn-discard" data-scan-id="{{ scan.id }}">Discard</button>
+            <div class="text-danger small action-error d-none"></div>
+          </td>
+        </tr>
+        {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% else %}
+    <div class="text-muted small p-3">No unmatched envelope scans.</div>
+    {% endif %}
+  </div>
+
+  {# ══════════════════ CLEARED ══════════════════ #}
+  <div class="tab-pane fade" id="tab-cleared">
+    {% if cleared %}
+    <div class="table-responsive">
+      <table class="table table-sm align-middle">
+        <thead class="table-light">
+          <tr><th>Vehicle</th><th>Clear Reason</th><th>Cleared By</th><th>Cleared Date</th><th>Image</th></tr>
+        </thead>
+        <tbody>
+        {% for scan in cleared %}
+        <tr>
+          <td>
+            {% if scan.vehicle %}
+            <a href="{{ url_for('vehicles_detail', vehicle_id=scan.vehicle.id) }}">{{ scan.vehicle.display_name }}</a>
+            {% else %}—{% endif %}
+          </td>
+          <td class="small">{{ {'vehicle_sold': 'Vehicle Sold', 'vehicle_released': 'Vehicle Released', 'manual': 'Manual'}.get(scan.clear_reason, scan.clear_reason or '—') }}</td>
+          <td class="small">{{ scan.cleared_by or '—' }}</td>
+          <td class="small">{{ scan.cleared_at.strftime('%m/%d/%Y') if scan.cleared_at else '—' }}</td>
+          <td>
+            {% if scan.image_data %}
+            <img src="{{ scan.image_data }}" class="envelope-thumb" data-full="{{ scan.image_data }}"
+                 style="width:60px;height:60px;object-fit:cover;border-radius:4px;cursor:pointer;border:1px solid #dee2e6;" alt="Envelope scan">
+            {% else %}
+            <span class="text-muted small">No image</span>
+            {% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% else %}
+    <div class="text-muted small p-3">No cleared envelope scans yet.</div>
+    {% endif %}
+  </div>
+
+</div>
+
+{# ── Full-size image modal ── #}
+<div class="modal fade" id="imageModal" tabindex="-1">
+  <div class="modal-dialog modal-lg modal-dialog-centered">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title">Scanned Envelope</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body text-center">
+        <img id="imageModalImg" src="" style="max-width:100%;border-radius:6px;" alt="Full-size envelope scan">
+      </div>
+    </div>
+  </div>
+</div>
+
+{# ── Clear modal ── #}
+<div class="modal fade" id="clearModal" tabindex="-1">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title">Clear Envelope Scan</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <label class="form-label fw-semibold mb-1">Reason</label>
+        <select id="clearReasonSelect" class="form-select">
+          <option value="vehicle_sold">Vehicle Sold</option>
+          <option value="vehicle_released">Vehicle Released</option>
+          <option value="manual">Manual</option>
+        </select>
+        <div class="text-danger small mt-2 d-none" id="clearModalError"></div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+        <button type="button" class="btn btn-primary" id="clearModalConfirmBtn">Clear</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+{# ── Link to Vehicle modal ── #}
+<div class="modal fade" id="linkModal" tabindex="-1">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title">Link to Vehicle</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <label class="form-label fw-semibold mb-1">Search</label>
+        <input type="text" id="linkVehicleSearch" class="form-control mb-2" placeholder="Type plate, VIN, stock #, or name...">
+        <select id="linkVehicleSelect" class="form-select" size="10">
+          {% for v in active_vehicles %}
+          <option value="{{ v.id }}" data-search="{{ (v.display_name ~ ' ' ~ (v.plate or '') ~ ' ' ~ (v.vin or '') ~ ' ' ~ (v.stock_number or '') ~ ' ' ~ (v.owner_name or '')) | lower }}">
+            {{ v.display_name }} ({{ v.plate or v.vin or '#' ~ v.id }})
+          </option>
+          {% endfor %}
+        </select>
+        <div class="text-danger small mt-2 d-none" id="linkModalError"></div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+        <button type="button" class="btn btn-primary" id="linkModalConfirmBtn">Link</button>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+let activeScanId = null;
+
+document.addEventListener('DOMContentLoaded', () => {
+  document.querySelectorAll('.envelope-thumb').forEach(img => {
+    img.addEventListener('click', () => {
+      document.getElementById('imageModalImg').src = img.dataset.full;
+      new bootstrap.Modal(document.getElementById('imageModal')).show();
+    });
+  });
+
+  document.querySelectorAll('.btn-clear').forEach(btn => {
+    btn.addEventListener('click', () => {
+      activeScanId = btn.dataset.scanId;
+      document.getElementById('clearModalError').classList.add('d-none');
+      new bootstrap.Modal(document.getElementById('clearModal')).show();
+    });
+  });
+
+  document.getElementById('clearModalConfirmBtn').addEventListener('click', async () => {
+    const reason = document.getElementById('clearReasonSelect').value;
+    const errEl = document.getElementById('clearModalError');
+    try {
+      const resp = await fetch(`/envelopes/${activeScanId}/clear`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ reason }),
+      });
+      const data = await resp.json();
+      if (!resp.ok) throw new Error(data.error || 'Request failed');
+
+      document.querySelector(`#tab-matched tr[data-scan-id="${activeScanId}"]`)?.remove();
+      decrementBadge('count-matched');
+      bootstrap.Modal.getInstance(document.getElementById('clearModal')).hide();
+      location.reload();  // simplest way to move the row into Cleared with full data
+    } catch (err) {
+      errEl.textContent = err.message;
+      errEl.classList.remove('d-none');
+    }
+  });
+
+  document.querySelectorAll('.btn-link-vehicle').forEach(btn => {
+    btn.addEventListener('click', () => {
+      activeScanId = btn.dataset.scanId;
+      document.getElementById('linkModalError').classList.add('d-none');
+      document.getElementById('linkVehicleSearch').value = '';
+      filterVehicleSelect();
+      new bootstrap.Modal(document.getElementById('linkModal')).show();
+    });
+  });
+
+  document.getElementById('linkVehicleSearch').addEventListener('input', filterVehicleSelect);
+
+  document.getElementById('linkModalConfirmBtn').addEventListener('click', async () => {
+    const select = document.getElementById('linkVehicleSelect');
+    const vehicleId = select.value;
+    const errEl = document.getElementById('linkModalError');
+    if (!vehicleId) {
+      errEl.textContent = 'Select a vehicle first.';
+      errEl.classList.remove('d-none');
+      return;
+    }
+    try {
+      const resp = await fetch(`/envelopes/${activeScanId}/link`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ vehicle_id: vehicleId }),
+      });
+      const data = await resp.json();
+      if (!resp.ok) throw new Error(data.error || 'Request failed');
+
+      document.querySelector(`#tab-unmatched tr[data-scan-id="${activeScanId}"]`)?.remove();
+      decrementBadge('count-unmatched');
+      bootstrap.Modal.getInstance(document.getElementById('linkModal')).hide();
+      location.reload();  // simplest way to show the row in Matched with full vehicle data
+    } catch (err) {
+      errEl.textContent = err.message;
+      errEl.classList.remove('d-none');
+    }
+  });
+
+  document.querySelectorAll('.btn-discard').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const row = btn.closest('tr');
+      const errBox = row.querySelector('.action-error');
+      const scanId = btn.dataset.scanId;
+      btn.disabled = true;
+      try {
+        const resp = await fetch(`/envelopes/${scanId}/discard`, { method: 'POST' });
+        const data = await resp.json();
+        if (!resp.ok) throw new Error(data.error || 'Request failed');
+        row.remove();
+        decrementBadge('count-unmatched');
+      } catch (err) {
+        btn.disabled = false;
+        errBox.textContent = err.message;
+        errBox.classList.remove('d-none');
+      }
+    });
+  });
+});
+
+function decrementBadge(id) {
+  const el = document.getElementById(id);
+  if (!el) return;
+  const n = parseInt(el.textContent, 10);
+  if (!isNaN(n)) el.textContent = Math.max(0, n - 1);
+}
+
+function filterVehicleSelect() {
+  const q = document.getElementById('linkVehicleSearch').value.toLowerCase().trim();
+  document.querySelectorAll('#linkVehicleSelect option').forEach(opt => {
+    opt.style.display = (!q || opt.dataset.search.includes(q)) ? '' : 'none';
+  });
+}
+</script>
+{% endblock %}
