@@ -915,6 +915,72 @@
         </div>
         {% endif %}
 
+        {# ── Extended 5-letter system: POLICE Owner Notices + Lienholder Notices
+             (letter_number 3-6) — only appear once their trigger condition has
+             created them (see letter_triggers.py); nothing to show otherwise. ── #}
+        {% set extra_letters = vehicle.letters | selectattr('letter_number', 'in', [3, 4, 5, 6]) | sort(attribute='letter_number') | list %}
+        {% for xl in extra_letters %}
+        <hr>
+        <div class="mb-3">
+          <div class="d-flex align-items-center gap-2 mb-2">
+            {% if xl.sent_date %}
+              <span class="badge bg-success"><i class="bi bi-check-lg"></i> Sent</span>
+            {% elif xl.is_overdue %}
+              <span class="badge bg-danger"><i class="bi bi-exclamation-triangle"></i> Overdue</span>
+            {% elif xl.is_due_today %}
+              <span class="badge bg-warning text-dark">Due Today</span>
+            {% else %}
+              <span class="badge bg-light text-dark border">Pending</span>
+            {% endif %}
+            <strong>{{ xl.display_title }}{% if xl.recipient_type == 'lienholder' %} (Lienholder){% endif %}</strong>
+            <a href="{{ url_for('print_letter', letter_id=xl.id) }}" class="btn btn-outline-secondary btn-sm ms-auto py-0" target="_blank">
+              <i class="bi bi-printer"></i> Print Letter
+            </a>
+          </div>
+
+          <dl class="row small ms-1 mb-2">
+            <dt class="col-sm-4 text-muted">Due By</dt>
+            <dd class="col-sm-8 {% if xl.is_overdue %}text-danger fw-semibold{% endif %}">
+              {{ xl.due_date|mdY }}
+              {% if xl.is_overdue %}<small class="text-danger">({{ xl.days_overdue }} days overdue)</small>{% endif %}
+            </dd>
+            {% if xl.sent_date %}
+            <dt class="col-sm-4 text-muted">Sent</dt>
+            <dd class="col-sm-8">{{ xl.sent_date|mdY }}</dd>
+            {% if xl.tracking_number %}
+            <dt class="col-sm-4 text-muted">Tracking #</dt>
+            <dd class="col-sm-8 font-monospace">{{ xl.tracking_number }}</dd>
+            {% endif %}
+            {% if xl.delivery_confirmed_date %}
+            <dt class="col-sm-4 text-muted">Delivered</dt>
+            <dd class="col-sm-8 text-success"><i class="bi bi-check-circle-fill me-1"></i>{{ xl.delivery_confirmed_date|mdY }}</dd>
+            {% endif %}
+            {% endif %}
+          </dl>
+
+          {% if not xl.sent_date and vehicle.status == 'ACTIVE' and vehicle.possible_release %}
+          <span class="badge bg-secondary">Blocked — verify Possible Release first</span>
+          {% elif not xl.sent_date and vehicle.status == 'ACTIVE' %}
+          <a href="{{ url_for('letters_mark_sent', letter_id=xl.id) }}"
+             class="btn btn-sm {% if xl.is_overdue %}btn-danger{% elif xl.is_due_today %}btn-warning{% else %}btn-outline-primary{% endif %}">
+            <i class="bi bi-send"></i> Mark as Sent
+          </a>
+          {% elif xl.sent_date and not xl.delivery_confirmed_date and vehicle.status == 'ACTIVE' %}
+          <form method="POST" action="{{ url_for('letters_confirm_delivery', letter_id=xl.id) }}" class="d-inline-flex gap-2 align-items-center">
+            <input type="date" name="delivery_date" class="form-control form-control-sm" style="width:160px" value="{{ today.isoformat() }}">
+            <button type="submit" class="btn btn-sm btn-outline-success">
+              <i class="bi bi-check2"></i> Confirm Delivery
+            </button>
+          </form>
+          {% endif %}
+        </div>
+        {% endfor %}
+
+        {% if vehicle.impound_type == 'POLICE' and vehicle.bmv_stage != 'COMPLETE' %}
+        <hr>
+        <p class="text-muted small ms-1">1st/2nd Owner Notice (and Lienholder Notices, if applicable) will appear once BMV Search is marked complete.</p>
+        {% endif %}
+
         {# ── Restart Letter Clock Modal ── #}
         {% if vehicle.status == 'ACTIVE' and current_user.is_heather %}
         {% set restart_target = vehicle.letter2 or vehicle.letter1 %}

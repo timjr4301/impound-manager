@@ -5,11 +5,45 @@ GET  /api/import-towbook/status last import result
 """
 import csv, io, re
 from datetime import datetime, date
-from flask import Blueprint, request, jsonify
+from flask import Blueprint, request, jsonify, current_app
 from flask_login import login_required, current_user
-from models import db, Vehicle, SyncLog
+from models import db, Vehicle, SyncLog, PoliceDepartment
 
 bp = Blueprint('towbook_import', __name__, url_prefix='/api/import-towbook')
+
+_DEPT_GENERIC_WORDS_RE = re.compile(
+    r'\b(apd|gpd|mpd|rpd|wpd|police department|police dept\.?|police|pd|'
+    r"sheriff'?s?\s*office|sheriff|dept\.?|department)\b",
+    re.IGNORECASE,
+)
+
+
+def _normalize_dept_name(name):
+    """Strip department-code prefixes (GPD/MPD/RPD/WPD/APD) and generic
+    words (Police, Dept, Sheriff, etc.) so 'GPD Gahanna Police' and 'Gahanna'
+    both normalize to 'gahanna' for fuzzy matching."""
+    n = _DEPT_GENERIC_WORDS_RE.sub(' ', name or '')
+    n = re.sub(r'[^a-z0-9]+', ' ', n.lower()).strip()
+    return n
+
+
+def _match_police_department(account_value):
+    """Fuzzy-match a Towbook 'Account' field value (the requesting police
+    department, for police impounds) against PoliceDepartment.name.
+    Case-insensitive, ignores department-code prefixes and generic words.
+    Returns the PoliceDepartment or None if nothing matches."""
+    target = _normalize_dept_name(account_value)
+    if not target:
+        return None
+    depts = PoliceDepartment.query.filter_by(active=True).all()
+    for d in depts:
+        if _normalize_dept_name(d.name) == target:
+            return d
+    for d in depts:
+        norm_name = _normalize_dept_name(d.name)
+        if norm_name and (target in norm_name or norm_name in target):
+            return d
+    return None
 
 # ── Task string parser ────────────────────────────────────────────────────────
 # Handles concatenated strings like "2 Overdue7 Due Next1 Due soon"
@@ -118,6 +152,7 @@ def _do_import():
 
     inserted = updated = skipped = 0
     errors = []
+    dept_unmatched = []      # police impound rows whose Account field didn't fuzzy-match any department
     csv_stock_numbers = []   # collect every stock # seen in this CSV
 
     for row_idx, row in enumerate(reader):
@@ -181,6 +216,7 @@ def _do_import():
                     existing.status = 'RELEASED'
                 existing.updated_at = datetime.utcnow()
                 updated += 1
+                vehicle_for_dept_match = existing
             else:
                 if not impound_date:
                     skipped += 1
@@ -194,6 +230,17 @@ def _do_import():
                 )
                 db.session.add(v)
                 inserted += 1
+                vehicle_for_dept_match = v
+
+            # Police department fee lookup: Towbook's Account field carries
+            # the requesting department name for POLICE impounds. Fuzzy-match
+            # it against police_departments.name; log (don't fail) on a miss.
+            if vehicle_for_dept_match.impound_type == 'POLICE' and fields.get('account'):
+                dept = _match_police_department(fields['account'])
+                if dept:
+                    vehicle_for_dept_match.police_department_id = dept.id
+                else:
+                    dept_unmatched.append({'row': row_idx + 3, 'stock': stock, 'account': fields['account']})
 
         except Exception as exc:
             errors.append({'row': row_idx + 3, 'stock': stock or '?', 'error': str(exc)})
@@ -255,6 +302,7 @@ def _do_import():
         'skipped': skipped,
         'possible_releases_flagged': possible_release_count,
         'errors': errors,
+        'department_unmatched': dept_unmatched,
         'urgency': urgency_counts,
         'imported_at': datetime.utcnow().isoformat(),
     }

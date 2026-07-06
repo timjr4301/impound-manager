@@ -3,7 +3,7 @@ Admin blueprint — user management (Tim/Jim only).
 """
 from flask import Blueprint, render_template, request, redirect, url_for, flash, jsonify
 from flask_login import login_required, current_user
-from models import db, User
+from models import db, User, PoliceDepartment
 from permissions import has_permission
 
 bp = Blueprint('admin', __name__, url_prefix='/admin')
@@ -15,6 +15,20 @@ def _admin_required(f):
     def decorated(*args, **kwargs):
         if not has_permission(current_user, 'all_access'):
             flash('Admin access required.', 'danger')
+            return redirect(url_for('dashboard'))
+        return f(*args, **kwargs)
+    return login_required(decorated)
+
+
+def _tim_only_required(f):
+    """Stricter than _admin_required (which also allows jim/lawrence/brady) —
+    the police department rate table is the source of truth for letter fee
+    amounts, so only Tim can edit it."""
+    from functools import wraps
+    @wraps(f)
+    def decorated(*args, **kwargs):
+        if current_user.role != 'tim':
+            flash('This page is Tim-only.', 'danger')
             return redirect(url_for('dashboard'))
         return f(*args, **kwargs)
     return login_required(decorated)
@@ -135,3 +149,68 @@ def users_list_json():
         'display_name': u.display_name or u.username,
         'role': u.role,
     } for u in users])
+
+
+# ── Police Department Rate Table ────────────────────────────────────────────
+# Source of truth for POLICE-impound letter fee amounts (Vehicle.effective_tow_rate
+# / effective_storage_rate look this up via Vehicle.police_department_id).
+
+@bp.route('/departments')
+@_tim_only_required
+def departments():
+    depts = PoliceDepartment.query.order_by(PoliceDepartment.name).all()
+    return render_template('admin/departments.html', departments=depts)
+
+
+@bp.route('/departments/new', methods=['POST'])
+@_tim_only_required
+def departments_new():
+    name = request.form.get('name', '').strip()
+    if not name:
+        flash('Department name is required.', 'danger')
+        return redirect(url_for('admin.departments'))
+
+    def _num(field):
+        raw = request.form.get(field, '').strip()
+        return float(raw) if raw else None
+
+    dept = PoliceDepartment(
+        name=name,
+        tow_rate=_num('tow_rate'),
+        storage_rate=_num('storage_rate'),
+        admin_fee=_num('admin_fee'),
+        active=True,
+    )
+    db.session.add(dept)
+    db.session.commit()
+    flash(f'Department "{name}" added.', 'success')
+    return redirect(url_for('admin.departments'))
+
+
+@bp.route('/departments/<int:dept_id>/edit', methods=['POST'])
+@_tim_only_required
+def departments_edit(dept_id):
+    dept = db.get_or_404(PoliceDepartment, dept_id)
+
+    def _num(field):
+        raw = request.form.get(field, '').strip()
+        return float(raw) if raw else None
+
+    dept.name = request.form.get('name', dept.name).strip() or dept.name
+    dept.tow_rate = _num('tow_rate')
+    dept.storage_rate = _num('storage_rate')
+    dept.admin_fee = _num('admin_fee')
+    db.session.commit()
+    flash(f'"{dept.name}" updated.', 'success')
+    return redirect(url_for('admin.departments'))
+
+
+@bp.route('/departments/<int:dept_id>/toggle', methods=['POST'])
+@_tim_only_required
+def departments_toggle(dept_id):
+    dept = db.get_or_404(PoliceDepartment, dept_id)
+    dept.active = not dept.active
+    db.session.commit()
+    state = 'activated' if dept.active else 'deactivated'
+    flash(f'"{dept.name}" {state}.', 'success')
+    return redirect(url_for('admin.departments'))

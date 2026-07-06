@@ -7,6 +7,7 @@ from flask import (Flask, render_template, request, redirect, url_for,
 from flask_login import LoginManager, login_required, current_user
 from models import (db, User, Vehicle, CertifiedLetter, TitleFiling,
                     VehicleNote, DamageItem, SyncLog, VehicleDocument, StaffFeedback,
+                    PoliceDepartment,
                     PPI_LETTER1_DAYS, PPI_LETTER2_DAYS, POLICE_LETTER1_DAYS)
 from werkzeug.utils import secure_filename
 
@@ -36,6 +37,40 @@ def run_migrations(app):
         existing_tables = inspector.get_table_names()
 
         with db.engine.begin() as conn:
+            # police_departments must exist before the vehicles.police_department_id
+            # FK column below can be added. db.create_all() (called right before
+            # run_migrations, see bottom of this file) already creates the table
+            # itself from the model, so this only needs to seed it — checked by
+            # row count rather than table existence, since create_all() means the
+            # (empty) table is always already present by the time we get here.
+            if 'police_departments' not in existing_tables:
+                PoliceDepartment.__table__.create(db.engine)
+                existing_tables.append('police_departments')
+
+            dept_count = conn.execute(text('SELECT COUNT(*) FROM police_departments')).scalar()
+            if dept_count == 0:
+                seed_rows = [
+                    ('APD Airport Police',      155.00, 20.00, 25.00),
+                    ('Blendon Twp Police',      211.00, 29.00, 25.00),
+                    ('GPD Gahanna Police',      211.42, 29.00, 25.00),
+                    ('Grandview Heights PD',    200.00, 25.00, 25.00),
+                    ('Licking County Sheriff',  211.00, 29.00, 25.00),
+                    ('Madison Township PD',     130.00, 18.00, 25.00),
+                    ('MPD Minerva Park Police', 215.00, 35.00, 25.00),
+                    ('New Albany Police',       200.00, 25.00, 25.00),
+                    ('Ohio State Patrol',       211.00, 29.00, 25.00),
+                    ('Pataskala Police Dept',   211.42, 29.00, 25.00),
+                    ('RPD Reynoldsburg Police', 211.00, 29.00, 25.00),
+                    ('WPD Whitehall Police',    155.00, 20.00, 25.00),
+                    ('County Towing Storage',   170.50, 29.00, 40.92),
+                ]
+                for name, tow, storage, admin in seed_rows:
+                    conn.execute(
+                        text('INSERT INTO police_departments (name, tow_rate, storage_rate, admin_fee, active) '
+                             'VALUES (:name, :tow, :storage, :admin, TRUE)'),
+                        {'name': name, 'tow': tow, 'storage': storage, 'admin': admin},
+                    )
+
             if 'vehicles' in existing_tables:
                 cols = {c['name'] for c in inspector.get_columns('vehicles')}
                 new_cols = [
@@ -116,6 +151,7 @@ def run_migrations(app):
                     ('last_location_lng',       'FLOAT'),
                     ('last_location_at',        'TIMESTAMP'),
                     ('last_location_by',        'VARCHAR(100)'),
+                    ('police_department_id',    'INTEGER REFERENCES police_departments(id)'),
                 ]
                 for col_name, col_type in new_cols:
                     if col_name not in cols:
@@ -127,6 +163,28 @@ def run_migrations(app):
                     conn.execute(text('ALTER TABLE certified_letters ADD COLUMN return_to_sender BOOLEAN'))
                 if 'reference_number_2' not in cols:
                     conn.execute(text('ALTER TABLE certified_letters ADD COLUMN reference_number_2 VARCHAR(50)'))
+                if 'recipient_type' not in cols:
+                    conn.execute(text("ALTER TABLE certified_letters ADD COLUMN recipient_type VARCHAR(20) DEFAULT 'owner'"))
+                if 'letter_kind' not in cols:
+                    conn.execute(text('ALTER TABLE certified_letters ADD COLUMN letter_kind VARCHAR(20)'))
+                # Backfill letter_kind on pre-existing letter_number 1/2 rows
+                # (created before the 5-letter system existed) so their print
+                # content routes correctly. Safe to re-run — only touches
+                # rows where letter_kind is still NULL.
+                conn.execute(text("""
+                    UPDATE certified_letters SET letter_kind = 'notice_of_lien'
+                    WHERE letter_kind IS NULL AND letter_number = 1
+                      AND vehicle_id IN (SELECT id FROM vehicles WHERE impound_type = 'POLICE')
+                """))
+                conn.execute(text("""
+                    UPDATE certified_letters SET letter_kind = 'first_notice'
+                    WHERE letter_kind IS NULL AND letter_number = 1
+                      AND vehicle_id IN (SELECT id FROM vehicles WHERE impound_type = 'PPI')
+                """))
+                conn.execute(text("""
+                    UPDATE certified_letters SET letter_kind = 'second_notice'
+                    WHERE letter_kind IS NULL AND letter_number = 2
+                """))
 
             if 'envelope_scans' in existing_tables:
                 cols = {c['name'] for c in inspector.get_columns('envelope_scans')}
@@ -946,6 +1004,7 @@ def create_app():
         tow_str  = form.get('tow_fee', '').strip()
         rate_str = form.get('daily_storage_rate', '').strip()
         nada_str = form.get('nada_value', '').strip()
+        dept_str = form.get('police_department_id', '').strip()
         fields = dict(
             vin=form.get('vin', '').strip() or None,
             plate=form.get('plate', '').strip() or None,
@@ -956,6 +1015,7 @@ def create_app():
             color=form.get('color', '').strip() or None,
             storage_location=form.get('storage_location', '').strip() or None,
             police_report_number=form.get('police_report_number', '').strip() or None,
+            police_department_id=int(dept_str) if dept_str.isdigit() else None,
             owner_name=form.get('owner_name', '').strip() or None,
             owner_address=form.get('owner_address', '').strip() or None,
             lienholder_name=form.get('lienholder_name', '').strip() or None,
@@ -1010,8 +1070,13 @@ def create_app():
                 vehicle_id=vehicle.id,
                 letter_number=1,
                 due_date=letter1_due,
+                letter_kind='notice_of_lien' if impound_type == 'POLICE' else 'first_notice',
+                recipient_type='owner',
                 created_at=datetime.utcnow(),
             ))
+            db.session.flush()
+            import letter_triggers
+            letter_triggers.on_vehicle_created(vehicle, letter1_due)
             db.session.commit()
 
             label = 'Letter 1' if impound_type == 'PPI' else 'Notification Letter'
@@ -1049,7 +1114,8 @@ def create_app():
             db.session.commit()
             flash(f'{vehicle.display_name} updated.', 'success')
             return redirect(url_for('vehicles_detail', vehicle_id=vehicle.id))
-        return render_template('vehicles/edit.html', vehicle=vehicle)
+        police_departments = PoliceDepartment.query.filter_by(active=True).order_by(PoliceDepartment.name).all()
+        return render_template('vehicles/edit.html', vehicle=vehicle, police_departments=police_departments)
 
     @app.route('/vehicles/<int:vehicle_id>/release', methods=['POST'])
     @login_required
@@ -1271,11 +1337,19 @@ def create_app():
                     vehicle_id=vehicle.id,
                     letter_number=2,
                     due_date=letter2_due,
+                    letter_kind='second_notice',
+                    recipient_type='owner',
                     created_at=datetime.utcnow(),
                 ))
                 flash(f'Letter 1 sent. Letter 2 due by {letter2_due.strftime("%m/%d/%Y")}.', 'success')
             else:
                 flash(f'{letter.label} marked as sent for {vehicle.display_name}.', 'success')
+
+            # 5-letter system: unlocks POLICE's 2nd Owner Notice (letter_number
+            # 4, once its 1st Owner Notice — letter_number 3 — is sent) and
+            # either impound type's 2nd Lienholder Notice (letter_number 6).
+            import letter_triggers
+            letter_triggers.on_letter_sent(vehicle, letter)
 
             vehicle.updated_at = datetime.utcnow()
             db.session.commit()
@@ -1358,9 +1432,22 @@ def create_app():
     @login_required
     def print_letter(letter_id):
         letter = db.get_or_404(CertifiedLetter, letter_id)
+        vehicle = letter.vehicle
+
+        # Ghost vehicles: hard block on ALL letter generation, no exceptions —
+        # this is stricter than before (previously only the mark-sent action
+        # was blocked; print/view was not).
+        if vehicle.possible_release:
+            flash(
+                f'{vehicle.display_name} is flagged Possible Release (ghost vehicle) — '
+                'letter generation is blocked until this is verified/resolved.',
+                'danger',
+            )
+            return redirect(url_for('vehicles_detail', vehicle_id=vehicle.id))
+
         return render_template('print/letter.html',
             letter=letter,
-            vehicle=letter.vehicle,
+            vehicle=vehicle,
             today=date.today(),
             company_name=app.config['COMPANY_NAME'],
             company_address=app.config['COMPANY_ADDRESS'],

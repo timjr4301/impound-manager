@@ -335,6 +335,64 @@ class Vehicle(db.Model):
         An expired or never-set snooze counts as not-snoozed."""
         return db.or_(cls.snoozed_until.is_(None), cls.snoozed_until < date.today())
 
+    # Requesting police department for POLICE impounds — drives tow/storage
+    # fee lookup on the letter templates. PPI impounds never set this; their
+    # fees are the hardcoded PUCO caps (see effective_tow_rate below).
+    police_department_id = db.Column(db.Integer, db.ForeignKey('police_departments.id'))
+    police_department = db.relationship('PoliceDepartment', back_populates='vehicles')
+
+    # PUCO fee caps for PPI impounds — hardcoded, unlike POLICE rates which
+    # vary by department and live in the police_departments table.
+    PPI_TOW_RATE = 129.00
+    PPI_STORAGE_RATE = 17.00
+    NOTIFICATION_FEE = 25.00  # flat per-letter fee cited on Owner/Lienholder notices
+
+    @property
+    def effective_tow_rate(self):
+        if self.impound_type == 'PPI':
+            return self.PPI_TOW_RATE
+        if self.police_department and self.police_department.tow_rate is not None:
+            return float(self.police_department.tow_rate)
+        return None
+
+    @property
+    def effective_storage_rate(self):
+        if self.impound_type == 'PPI':
+            return self.PPI_STORAGE_RATE
+        if self.police_department and self.police_department.storage_rate is not None:
+            return float(self.police_department.storage_rate)
+        return None
+
+    @property
+    def rate_pending(self):
+        """True when a POLICE impound has no department (or no rate on that
+        department) assigned — letters show '[RATE PENDING]' instead of a
+        dollar figure, and Tim needs to manually assign/fix the department."""
+        return self.impound_type == 'POLICE' and self.effective_tow_rate is None
+
+    # ── Letter numbering scheme (5-letter system, added on top of the
+    # original 2-letter PPI/POLICE pipeline) ───────────────────────────────
+    # letter_number 1 and 2 are the ORIGINAL letters — task_engine.py and
+    # title_eligible_date/stoplight_color/next_action_label below all read
+    # letter_number 1/2 ONLY and are untouched by this system; only their
+    # printed CONTENT changed (see CertifiedLetter.letter_kind):
+    #   PPI:    1 = "1st Owner Notice" (Tim's "Letter 2"), 2 = "2nd Owner
+    #           Notice" (Tim's "Letter 3") — same creation/due-date logic
+    #           as always.
+    #   POLICE: 1 = "Notice of Lien" (Tim's "Letter 1") — same creation/
+    #           due-date logic as always.
+    # letter_number 3-6 are NEW and only ever created by letter_triggers.py —
+    # nothing in task_engine.py or the older due-date properties looks at
+    # them, so they can't regress anything that already worked:
+    #   3 = POLICE 1st Owner Notice (Tim's "Letter 2" for POLICE — PPI has no
+    #       letter_number 3; its "Letter 2" is already letter_number 1)
+    #   4 = POLICE 2nd Owner Notice (Tim's "Letter 3" for POLICE)
+    #   5 = 1st Lienholder Notice, both impound types (Tim's "Letter 4") —
+    #       created alongside whichever letter is that vehicle's "Letter 2"
+    #       (letter_number 1 for PPI, letter_number 3 for POLICE)
+    #   6 = 2nd Lienholder Notice, both impound types (Tim's "Letter 5") —
+    #       created alongside whichever letter is that vehicle's "Letter 3"
+    #       (letter_number 2 for PPI, letter_number 4 for POLICE)
     letters = db.relationship(
         'CertifiedLetter', back_populates='vehicle',
         order_by='CertifiedLetter.letter_number',
@@ -607,7 +665,36 @@ class CertifiedLetter(db.Model):
     # to auto-flag Vehicle.is_afo when a scanned return envelope shows it.
     reference_number_2 = db.Column(db.String(50))
 
+    # 5-letter system fields — see the letter_number numbering note on
+    # Vehicle above. recipient_type/letter_kind drive which print content
+    # renders; letter_number alone still drives due-date/task_engine logic
+    # exactly as before for numbers 1/2, and is otherwise just a sequence id.
+    recipient_type = db.Column(db.String(20), default='owner')  # owner | lienholder
+    letter_kind = db.Column(db.String(20))  # notice_of_lien | first_notice | second_notice
+
     vehicle = db.relationship('Vehicle', back_populates='letters')
+
+    @property
+    def effective_letter_kind(self):
+        """letter_kind with a defensive fallback for any letter_number 1/2 row
+        that somehow predates the run_migrations() backfill (which normally
+        sets this on every boot) — infers the same way that backfill does,
+        so the print template never renders a blank body."""
+        if self.letter_kind:
+            return self.letter_kind
+        if self.letter_number == 1:
+            return 'notice_of_lien' if self.vehicle.impound_type == 'POLICE' else 'first_notice'
+        if self.letter_number == 2:
+            return 'second_notice'
+        return None
+
+    @property
+    def display_title(self):
+        return {
+            'notice_of_lien': 'NOTICE OF LIEN',
+            'first_notice': 'FIRST NOTICE',
+            'second_notice': 'SECOND NOTICE',
+        }.get(self.effective_letter_kind)
 
     @property
     def is_overdue(self):
@@ -640,6 +727,22 @@ class CertifiedLetter(db.Model):
         if not self.tracking_number:
             return None
         return self.tracking_number.replace(' ', '').replace('-', '').upper()
+
+
+class PoliceDepartment(db.Model):
+    """Source of truth for POLICE-impound tow/storage/admin fee rates,
+    looked up via Vehicle.police_department_id. PPI impounds never use this —
+    their rates are the hardcoded PUCO caps on Vehicle."""
+    __tablename__ = 'police_departments'
+
+    id = db.Column(db.Integer, primary_key=True)
+    name = db.Column(db.String(100), nullable=False)
+    tow_rate = db.Column(db.Numeric(10, 2))
+    storage_rate = db.Column(db.Numeric(10, 2))
+    admin_fee = db.Column(db.Numeric(10, 2))
+    active = db.Column(db.Boolean, default=True)
+
+    vehicles = db.relationship('Vehicle', back_populates='police_department')
 
 
 class TitleFiling(db.Model):

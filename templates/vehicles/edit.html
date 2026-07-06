@@ -71,6 +71,22 @@
               <input type="text" class="form-control" id="police_report_number" name="police_report_number"
                 value="{{ vehicle.police_report_number or '' }}">
             </div>
+            <div class="col-12">
+              <label for="police_department_id" class="form-label fw-semibold">
+                Requesting Police Department
+                {% if vehicle.rate_pending %}<span class="badge bg-danger ms-1">RATE PENDING — assign a department</span>{% endif %}
+              </label>
+              <select class="form-select" id="police_department_id" name="police_department_id">
+                <option value="">— none assigned —</option>
+                {% for d in police_departments %}
+                <option value="{{ d.id }}" {% if vehicle.police_department_id == d.id %}selected{% endif %}>
+                  {{ d.name }} (tow ${{ '%.2f'|format(d.tow_rate) if d.tow_rate is not none else '—' }} /
+                  storage ${{ '%.2f'|format(d.storage_rate) if d.storage_rate is not none else '—' }}/day)
+                </option>
+                {% endfor %}
+              </select>
+              <div class="form-text">Sets the tow/storage rate shown on this vehicle's letters.</div>
+            </div>
             {% endif %}
             <div class="col-12">
               <label for="notes" class="form-label fw-semibold">Notes</label>

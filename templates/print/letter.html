@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <title>{{ letter.label }} — {{ vehicle.display_name }}</title>
+  <title>{{ letter.display_title or letter.label }} — {{ vehicle.display_name }}</title>
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; }
     body {
@@ -20,30 +20,46 @@
       padding: 8px 12px; font-size: 10pt;
       font-family: Arial, sans-serif; margin-bottom: 20px;
     }
-    .letterhead { margin-bottom: 32px; }
+    .letterhead { margin-bottom: 24px; }
     .letterhead .company { font-size: 16pt; font-weight: bold; }
     .letterhead .address { font-size: 10pt; color: #333; margin-top: 2px; }
-    .letter-date { margin-bottom: 24px; }
+    .letter-date { margin-bottom: 16px; }
     .via-certified {
       font-weight: bold; text-transform: uppercase;
-      font-size: 10pt; margin-bottom: 20px;
+      font-size: 10pt; margin-bottom: 16px;
       letter-spacing: .05em;
     }
-    .addressee { margin-bottom: 28px; }
-    .re-line { margin-bottom: 24px; }
+    .info-box {
+      border: 1px solid #999; padding: 10px 16px; margin-bottom: 24px;
+      background: #fafafa; font-size: 10.5pt;
+    }
+    .info-box table { width: 100%; border-collapse: collapse; }
+    .info-box td { padding: 1px 8px 1px 0; vertical-align: top; }
+    .info-box td:first-child, .info-box td:nth-child(3) { font-weight: bold; color: #333; white-space: nowrap; }
+    .addressee { margin-bottom: 24px; }
+    .addressee .cc-line { margin-top: 10px; font-size: 10.5pt; }
+    .re-line { margin-bottom: 20px; }
     .re-line strong { display: inline-block; min-width: 80px; }
     .body-text { margin-bottom: 16px; text-align: justify; }
-    .vehicle-box {
-      border: 1px solid #999; padding: 12px 16px; margin: 20px 0;
-      background: #fafafa;
+    .fee-box {
+      border: 1px solid #999; padding: 10px 16px; margin: 20px 0;
+      background: #fafafa; font-size: 11pt;
     }
-    .vehicle-box table { width: 100%; border-collapse: collapse; font-size: 11pt; }
-    .vehicle-box td { padding: 2px 8px 2px 0; vertical-align: top; }
-    .vehicle-box td:first-child { font-weight: bold; width: 140px; color: #333; }
-    .signature-block { margin-top: 48px; }
+    .fee-box table { width: 100%; border-collapse: collapse; }
+    .fee-box td { padding: 2px 8px 2px 0; }
+    .fee-box td:first-child { color: #333; }
+    .fee-box td:last-child { text-align: right; font-weight: bold; }
+    .rate-pending { color: #b00; font-weight: bold; }
+    .reclaim-paragraph {
+      font-weight: bold; margin: 20px 0; text-align: justify;
+      border: 1px solid #000; padding: 10px 14px;
+    }
+    .recipient-block { margin-top: 24px; font-size: 11pt; }
+    .recipient-block .line { margin-top: 14px; border-bottom: 1px solid #000; width: 320px; padding-bottom: 2px; }
+    .signature-block { margin-top: 40px; }
     .signature-line { border-bottom: 1px solid #000; width: 280px; margin-top: 40px; }
-    .second-notice {
-      text-align: center; font-size: 14pt; font-weight: bold;
+    .letter-title-banner {
+      text-align: center; font-size: 15pt; font-weight: bold;
       text-transform: uppercase; letter-spacing: .1em;
       border: 2px solid #000; padding: 8px; margin-bottom: 24px;
     }
@@ -69,15 +85,15 @@
 <div class="disclaimer">
   <strong>DRAFT — For office use only.</strong>
   Have your attorney verify this language meets current Ohio statutory requirements
-  before sending to vehicle owners. Ohio statutes governing this notice:
-  {% if vehicle.impound_type == 'PPI' %}ORC §4513.62{% else %}ORC §4513.61{% endif %}.
+  before sending to vehicle owners or lienholders. Ohio statutes governing this notice:
+  ORC §4513.60, §4513.61, §4513.601, §4513.66.
 </div>
 
 {# ── Letterhead ── #}
 <div class="letterhead">
   <div class="company">{{ company_name }}</div>
   <div class="address">{{ company_address }}</div>
-  <div class="address">Tel: {{ company_phone }}</div>
+  <div class="address">Tel: {{ company_phone }} &bull; PUCO #133356-P</div>
 </div>
 
 {# ── Date ── #}
@@ -90,17 +106,56 @@
   — Return Receipt Requested
 </div>
 
+{# ── Info box: PUCO#, Ref#/Invoice#, VIN, Year/Make/Model, towed from, date towed, market value ── #}
+<div class="info-box">
+  <table>
+    <tr>
+      <td>Invoice / Ref #:</td><td>{{ vehicle.invoice_number or '—' }}</td>
+      <td>VIN:</td><td>{{ vehicle.vin or '—' }}</td>
+    </tr>
+    <tr>
+      <td>Year/Make/Model:</td>
+      <td>
+        {% set ymm = [] %}
+        {% if vehicle.year %}{% set _ = ymm.append(vehicle.year|string) %}{% endif %}
+        {% if vehicle.make %}{% set _ = ymm.append(vehicle.make) %}{% endif %}
+        {% if vehicle.model_name %}{% set _ = ymm.append(vehicle.model_name) %}{% endif %}
+        {{ ymm|join(' ') or '—' }}
+      </td>
+      <td>Plate:</td><td>{{ vehicle.plate or '—' }}{% if vehicle.plate %} ({{ vehicle.plate_state }}){% endif %}</td>
+    </tr>
+    <tr>
+      <td>Towed From:</td><td>{{ vehicle.storage_location or '—' }}</td>
+      <td>Date Towed:</td><td>{{ vehicle.impound_date|mdY }}</td>
+    </tr>
+    {% if vehicle.effective_nada_value %}
+    <tr>
+      <td>Vehicle Value:</td><td>${{ '%.2f'|format(vehicle.effective_nada_value) }}</td>
+      <td></td><td></td>
+    </tr>
+    {% endif %}
+  </table>
+</div>
+
 {# ── Addressee ── #}
 <div class="addressee">
-  {% if vehicle.owner_name %}
-  {{ vehicle.owner_name }}<br>
-  {% else %}
-  [REGISTERED OWNER NAME]<br>
+  {% if letter.effective_letter_kind == 'notice_of_lien' %}
+  TO: {{ vehicle.owner_name or '[REGISTERED OWNER NAME]' }}<br>
+  {% if vehicle.owner_address %}{{ vehicle.owner_address | replace('\n', '<br>') | safe }}{% else %}[OWNER ADDRESS]{% endif %}
+  {% if vehicle.lienholder_name %}
+  <div class="cc-line">
+    CC: {{ vehicle.lienholder_name }}<br>
+    {% if vehicle.lienholder_address %}{{ vehicle.lienholder_address }}<br>{% endif %}
+    {{ [vehicle.lienholder_city, vehicle.lienholder_state, vehicle.lienholder_zip] | select | join(', ') }}
+  </div>
   {% endif %}
-  {% if vehicle.owner_address %}
-  {{ vehicle.owner_address | replace('\n', '<br>') | safe }}
+  {% elif letter.recipient_type == 'lienholder' %}
+  {{ vehicle.lienholder_name or '[LIENHOLDER NAME]' }}<br>
+  {% if vehicle.lienholder_address %}{{ vehicle.lienholder_address }}<br>{% endif %}
+  {{ [vehicle.lienholder_city, vehicle.lienholder_state, vehicle.lienholder_zip] | select | join(', ') }}
   {% else %}
-  [OWNER ADDRESS — obtain from BMV registration records]
+  {% if vehicle.owner_name %}{{ vehicle.owner_name }}<br>{% else %}[REGISTERED OWNER NAME]<br>{% endif %}
+  {% if vehicle.owner_address %}{{ vehicle.owner_address | replace('\n', '<br>') | safe }}{% else %}[OWNER ADDRESS — obtain from BMV registration records]{% endif %}
   {% endif %}
 </div>
 
@@ -113,114 +168,126 @@
   {% if vehicle.vin %}&bull; VIN: {{ vehicle.vin }}{% endif %}
 </div>
 
-{# ── Second notice banner (Letter 2 only, PPI only — POLICE impounds only ever get one notification letter) ── #}
-{% if letter.letter_number == 2 and vehicle.impound_type == 'PPI' %}
-<div class="second-notice">Second and Final Notice</div>
-{% endif %}
+{# ── Title banner ── #}
+<div class="letter-title-banner">{{ letter.display_title or letter.label }}</div>
 
 {# ── Salutation ── #}
 <p class="body-text">
+  {% if letter.effective_letter_kind == 'notice_of_lien' %}
+  Dear Registered Owner and Lienholder:
+  {% elif letter.recipient_type == 'lienholder' %}
+  Dear {% if vehicle.lienholder_name %}{{ vehicle.lienholder_name }}{% else %}Lienholder{% endif %}:
+  {% else %}
   Dear {% if vehicle.owner_name %}{{ vehicle.owner_name }}{% else %}Vehicle Owner{% endif %}:
-</p>
-
-{# ── Body copy ── #}
-{% if vehicle.impound_type == 'PPI' and letter.letter_number == 1 %}
-
-<p class="body-text">
-  This letter serves as your official notice that the motor vehicle described below
-  was removed from private property on <strong>{{ vehicle.impound_date|mdY }}</strong>
-  pursuant to Ohio Revised Code §4513.62 and is currently being stored at:
-</p>
-<p class="body-text" style="margin-left:24px;">
-  <strong>{{ storage_address }}</strong>
-</p>
-<p class="body-text">
-  To reclaim your vehicle, you must contact us at <strong>{{ company_phone }}</strong>
-  and pay all applicable towing and storage fees.
-  <strong>Storage fees accrue daily and must be paid in full prior to release.</strong>
-</p>
-<p class="body-text">
-  If this vehicle is not claimed within <strong>thirty (30) days</strong> of the date of this
-  notice, it will be deemed abandoned and {{ company_name }} will initiate proceedings
-  to obtain an Ohio certificate of title by abandonment pursuant to ORC §4513.62.
-  You will forfeit all ownership rights to this vehicle.
-</p>
-
-{% elif vehicle.impound_type == 'PPI' and letter.letter_number == 2 %}
-
-<p class="body-text">
-  This is your <strong>SECOND AND FINAL NOTICE</strong>. The motor vehicle described below,
-  previously noticed by certified letter dated
-  {% if vehicle.letter1 and vehicle.letter1.sent_date %}
-  <strong>{{ vehicle.letter1.sent_date|mdY }}</strong>,
   {% endif %}
-  remains unclaimed at:
-</p>
-<p class="body-text" style="margin-left:24px;">
-  <strong>{{ storage_address }}</strong>
-</p>
-<p class="body-text">
-  You are hereby notified that {{ company_name }} will proceed with the title by
-  abandonment process pursuant to Ohio Revised Code §4513.62.
-  <strong>You have thirty (30) days from the date of this notice to claim your vehicle
-  before title proceedings are finalized.</strong>
-</p>
-<p class="body-text">
-  To claim your vehicle, contact us immediately at <strong>{{ company_phone }}</strong>.
-  All towing and storage charges must be paid in full at time of release.
-  Failure to respond will result in permanent loss of your ownership rights.
 </p>
 
-{% elif vehicle.impound_type == 'POLICE' %}
+{# ── Body copy — branches by letter_kind + recipient_type ── #}
+{% if letter.effective_letter_kind == 'notice_of_lien' %}
 
 <p class="body-text">
-  This letter serves as your official notice pursuant to Ohio Revised Code §4513.61
-  that the motor vehicle described below was impounded on
+  This letter serves as official notice, pursuant to Ohio Revised Code §4513.60,
+  §4513.61, and §4513.66, that the motor vehicle described below was impounded on
   <strong>{{ vehicle.impound_date|mdY }}</strong>
-  {% if vehicle.police_report_number %}
-  (Police Report No. <strong>{{ vehicle.police_report_number }}</strong>)
+  {% if vehicle.police_report_number %}(Police Report No. <strong>{{ vehicle.police_report_number }}</strong>){% endif %}
+  by order of a law enforcement agency, which has determined that the vehicle is
+  not subject to a criminal hold. The vehicle is currently being stored at:
+</p>
+<p class="body-text" style="margin-left:24px;"><strong>{{ storage_address }}</strong></p>
+<p class="body-text">
+  {{ company_name }} claims a possessory lien against this vehicle for towing and
+  storage charges incurred, as set forth below. You have <strong>sixty (60) days</strong>
+  from receipt of this notice to reclaim the vehicle before title-by-abandonment
+  proceedings may be initiated pursuant to ORC §4513.61 and §4513.66.
+</p>
+
+{% elif letter.effective_letter_kind == 'first_notice' %}
+
+<p class="body-text">
+  This is your <strong>FIRST NOTICE</strong>, sent pursuant to Ohio Revised Code
+  §4513.60, §4513.61, §4513.601, and §4513.66, that the motor vehicle described
+  below is being held at:
+</p>
+<p class="body-text" style="margin-left:24px;"><strong>{{ storage_address }}</strong></p>
+<p class="body-text">
+  {% if letter.recipient_type == 'lienholder' %}
+  As lienholder of record, you are entitled to reclaim this vehicle upon payment
+  of all towing and storage charges and presentation of proof of your lien
+  interest. If you do not intend to reclaim the vehicle, you may waive your
+  lien interest by notifying {{ company_name }} in writing.
+  {% else %}
+  You must contact {{ company_name }} at <strong>{{ company_phone }}</strong> and
+  pay all applicable towing and storage fees to reclaim this vehicle.
   {% endif %}
-  and is currently being stored at:
+  <strong>Storage fees accrue daily and must be paid in full prior to release.</strong>
+  If the vehicle is not claimed within sixty (60) days of impound, it will be
+  deemed abandoned and {{ company_name }} will initiate proceedings to obtain
+  an Ohio certificate of title by abandonment.
 </p>
-<p class="body-text" style="margin-left:24px;">
-  <strong>{{ storage_address }}</strong>
-</p>
+
+{% elif letter.effective_letter_kind == 'second_notice' %}
+
 <p class="body-text">
-  To reclaim your vehicle, you must contact us at <strong>{{ company_phone }}</strong>
-  and pay all applicable towing and storage fees.
+  This is your <strong>SECOND AND FINAL NOTICE</strong>, sent pursuant to Ohio
+  Revised Code §4513.60, §4513.61, §4513.601, and §4513.66. The motor vehicle
+  described below, previously noticed by certified letter, remains unclaimed at:
 </p>
+<p class="body-text" style="margin-left:24px;"><strong>{{ storage_address }}</strong></p>
 <p class="body-text">
-  If this vehicle is not claimed within <strong>thirty (30) days</strong> of the date of
-  this notice, it will be deemed abandoned and title by abandonment proceedings will be
-  initiated pursuant to ORC §4513.61. You will forfeit all ownership rights to this vehicle.
+  {% if letter.recipient_type == 'lienholder' %}
+  As lienholder of record, you have <strong>thirty (30) days</strong> from the
+  date of this notice to reclaim the vehicle or notify {{ company_name }} in
+  writing of your intent to waive your lien interest, before title-by-abandonment
+  proceedings are finalized.
+  {% else %}
+  You have <strong>thirty (30) days</strong> from the date of this notice to
+  claim your vehicle before {{ company_name }} finalizes title-by-abandonment
+  proceedings. Contact us immediately at <strong>{{ company_phone }}</strong>.
+  All towing and storage charges must be paid in full at time of release.
+  {% endif %}
+  Failure to respond will result in permanent loss of ownership/lien rights to
+  this vehicle.
 </p>
 
 {% endif %}
 
-{# ── Vehicle description box ── #}
-<div class="vehicle-box">
+{# ── Fee line ── #}
+<div class="fee-box">
   <table>
-    <tr>
-      <td>Year / Make / Model:</td>
-      <td>
-        {% set ymm = [] %}
-        {% if vehicle.year %}{% set _ = ymm.append(vehicle.year|string) %}{% endif %}
-        {% if vehicle.make %}{% set _ = ymm.append(vehicle.make) %}{% endif %}
-        {% if vehicle.model_name %}{% set _ = ymm.append(vehicle.model_name) %}{% endif %}
-        {{ ymm|join(' ') or '—' }}
-      </td>
-    </tr>
-    <tr><td>Color:</td><td>{{ vehicle.color or '—' }}</td></tr>
-    <tr><td>VIN:</td><td>{{ vehicle.vin or '—' }}</td></tr>
-    <tr><td>License Plate:</td>
-        <td>{{ vehicle.plate or '—' }}{% if vehicle.plate %} ({{ vehicle.plate_state }}){% endif %}</td>
-    </tr>
-    <tr><td>Impound Date:</td><td>{{ vehicle.impound_date|mdY }}</td></tr>
-    <tr><td>Storage Location:</td><td>{{ vehicle.storage_location or storage_address }}</td></tr>
+    {% if vehicle.rate_pending %}
+    <tr><td colspan="2" class="rate-pending">[RATE PENDING — police department not yet assigned; contact Tim]</td></tr>
+    {% else %}
+    <tr><td>Tow Rate:</td><td>${{ '%.2f'|format(vehicle.effective_tow_rate) }}</td></tr>
+    <tr><td>Storage Rate (per day):</td><td>${{ '%.2f'|format(vehicle.effective_storage_rate) }}</td></tr>
+    {% endif %}
+    {% if letter.effective_letter_kind in ('first_notice', 'second_notice') %}
+    <tr><td>Notification Fee:</td><td>${{ '%.2f'|format(vehicle.NOTIFICATION_FEE) }}</td></tr>
+    {% endif %}
+    <tr><td>Total Balance Owed:</td><td>${{ '%.2f'|format(vehicle.total_owed) }}</td></tr>
   </table>
 </div>
 
-<p class="body-text">
+{# ── Reclaim paragraph — required on all 5 letters, verbatim ── #}
+<p class="reclaim-paragraph">
+  The owner or lienholder of the motor vehicle may reclaim this vehicle upon payment of
+  expenses or charges incurred in its removal and storage, and presentation of proof of
+  ownership, which may be evidenced by a certificate of title or memorandum certificate of
+  title to the motor vehicle.
+</p>
+
+{# ── Owner/Lienholder name blocks — all letters except Notice of Lien, which already shows both above ── #}
+{% if letter.effective_letter_kind != 'notice_of_lien' %}
+<div class="recipient-block">
+  <div>Registered owner's name: {% if vehicle.owner_name %}{{ vehicle.owner_name }}{% endif %}</div>
+  <div class="line"></div>
+  {% if vehicle.lienholder_name %}
+  <div style="margin-top:20px;">Lienholder's name: {{ vehicle.lienholder_name }}</div>
+  <div class="line"></div>
+  {% endif %}
+</div>
+{% endif %}
+
+<p class="body-text" style="margin-top:24px;">
   If you have any questions regarding this notice, please contact our office
   at <strong>{{ company_phone }}</strong> during normal business hours.
 </p>
@@ -230,6 +297,9 @@
   <div class="signature-line"></div>
   <div style="margin-top:6px;">{{ company_name }}</div>
   <div style="font-size:10pt; color:#555;">Authorized Representative</div>
+  <div style="font-size:9pt; color:#777; margin-top:10px;">
+    {{ company_address }} &bull; PUCO #133356-P &bull; {{ company_phone }}
+  </div>
 </div>
 
 </body>

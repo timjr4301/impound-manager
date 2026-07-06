@@ -527,6 +527,11 @@ def bmv_complete(vehicle_id):
     vehicle.heather_complete_date = date.today()
     vehicle.updated_at = datetime.utcnow()
 
+    # 5-letter system: POLICE impounds' 1st Owner/Lienholder Notice
+    # (letter_number 3/5) unlock once BMV search is complete.
+    import letter_triggers
+    letter_triggers.on_bmv_complete(vehicle)
+
     if vehicle.file_complete_for_tina:
         vehicle.tina_stage = 'QUEUED'
         db.session.add(VehicleNote(
