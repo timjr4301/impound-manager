@@ -217,6 +217,32 @@ def lookup_by_tracking_number(tracking_number, trans_id):
     return packages[0] if packages else None
 
 
+def fetch_pod(tracking_number, trans_id):
+    """Request the signed Proof of Delivery document for an already-delivered
+    package (returnPOD=true on the same Track API endpoint -- no new UPS
+    product, no new OAuth scope). Returns (pod_b64, pod_type), or (None, None)
+    if UPS doesn't have it ready yet -- POD can lag real delivery by 7-10
+    days, so a None result here is the normal/expected case for a recently-
+    delivered package, not an error. Raises on a genuine API/network failure,
+    same as the other lookup functions -- callers are expected to catch."""
+    resp = requests.get(
+        f'{_BASE}/api/track/v1/details/{tracking_number}',
+        headers=_headers(trans_id),
+        params={'locale': 'en_US', 'returnPOD': 'true'},
+        timeout=20,
+    )
+    resp.raise_for_status()
+    data = resp.json()
+    shipments = (data.get('trackResponse', {}) or {}).get('shipment', []) or []
+    for shipment in shipments:
+        for pkg in shipment.get('package', []) or []:
+            pod = (pkg.get('deliveryInformation') or {}).get('pod') or {}
+            content = pod.get('content')
+            if content:
+                return content, 'application/pdf'  # UPS POD documents are PDF; no format field in the response
+    return None, None
+
+
 def lookup_by_reference(reference_number, trans_id, from_date=None, to_date=None):
     """
     Returns a list of parsed package dicts shipped under this reference number

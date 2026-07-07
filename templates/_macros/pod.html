@@ -1,0 +1,77 @@
+{% macro pod_section(letter) %}
+{% if letter.delivery_confirmed_date %}
+  {% if letter.pod_image_data %}
+  <div class="mt-2">
+    {% if letter.pod_image_type == 'application/pdf' %}
+    <a href="data:{{ letter.pod_image_type }};base64,{{ letter.pod_image_data }}" target="_blank"
+       class="btn btn-sm btn-outline-success">
+      <i class="bi bi-file-earmark-check"></i> View Signed POD
+    </a>
+    {% else %}
+    <button type="button" class="btn btn-sm btn-outline-success"
+            data-pod-src="data:{{ letter.pod_image_type or 'image/gif' }};base64,{{ letter.pod_image_data }}"
+            data-pod-label="Signed POD — {{ letter.label }}" onclick="showPodImage(this)">
+      <i class="bi bi-file-earmark-check"></i> View Signed POD
+    </button>
+    {% endif %}
+  </div>
+  {% else %}
+  <div class="mt-2 d-flex align-items-center gap-2 flex-wrap">
+    <span class="text-muted small"><i class="bi bi-hourglass-split"></i> Delivered — signed POD not yet
+      available from UPS (can take 7-10 days).</span>
+    <form method="POST" action="{{ url_for('letters_fetch_pod', letter_id=letter.id) }}" class="d-inline">
+      <button type="submit" class="btn btn-sm btn-outline-secondary">Fetch POD</button>
+    </form>
+  </div>
+  {% endif %}
+{% endif %}
+{% if letter.tracking_number_2 %}
+  {% if letter.pod_image_data_2 %}
+  <div class="mt-2">
+    {% if letter.pod_image_type_2 == 'application/pdf' %}
+    <a href="data:{{ letter.pod_image_type_2 }};base64,{{ letter.pod_image_data_2 }}" target="_blank"
+       class="btn btn-sm btn-outline-success">
+      <i class="bi bi-file-earmark-check"></i> View 2nd Party Signed POD
+    </a>
+    {% else %}
+    <button type="button" class="btn btn-sm btn-outline-success"
+            data-pod-src="data:{{ letter.pod_image_type_2 or 'image/gif' }};base64,{{ letter.pod_image_data_2 }}"
+            data-pod-label="Signed POD (2nd party) — {{ letter.label }}" onclick="showPodImage(this)">
+      <i class="bi bi-file-earmark-check"></i> View 2nd Party Signed POD
+    </button>
+    {% endif %}
+  </div>
+  {% else %}
+  <div class="mt-2 d-flex align-items-center gap-2 flex-wrap">
+    <span class="text-muted small"><i class="bi bi-hourglass-split"></i> 2nd party label sent — signed POD
+      not yet available (or not yet delivered).</span>
+    <form method="POST" action="{{ url_for('letters_fetch_pod', letter_id=letter.id) }}" class="d-inline">
+      <button type="submit" class="btn btn-sm btn-outline-secondary">Fetch POD</button>
+    </form>
+  </div>
+  {% endif %}
+{% endif %}
+{% endmacro %}
+
+{% macro pod_modal() %}
+<div class="modal fade" id="podImageModal" tabindex="-1">
+  <div class="modal-dialog modal-lg modal-dialog-centered">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title" id="podImageModalLabel"></h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body text-center">
+        <img id="podImageModalImg" src="" style="max-width:100%;border-radius:6px;" alt="Signed POD preview">
+      </div>
+    </div>
+  </div>
+</div>
+<script>
+function showPodImage(btn) {
+  document.getElementById('podImageModalImg').src = btn.dataset.podSrc;
+  document.getElementById('podImageModalLabel').textContent = btn.dataset.podLabel;
+  new bootstrap.Modal(document.getElementById('podImageModal')).show();
+}
+</script>
+{% endmacro %}

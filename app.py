@@ -179,6 +179,14 @@ def run_migrations(app):
                     conn.execute(text('ALTER TABLE certified_letters ADD COLUMN letter_kind VARCHAR(20)'))
                 if 'tracking_number_2' not in cols:
                     conn.execute(text('ALTER TABLE certified_letters ADD COLUMN tracking_number_2 VARCHAR(50)'))
+                if 'pod_image_data' not in cols:
+                    conn.execute(text('ALTER TABLE certified_letters ADD COLUMN pod_image_data TEXT'))
+                if 'pod_image_type' not in cols:
+                    conn.execute(text('ALTER TABLE certified_letters ADD COLUMN pod_image_type VARCHAR(20)'))
+                if 'pod_image_data_2' not in cols:
+                    conn.execute(text('ALTER TABLE certified_letters ADD COLUMN pod_image_data_2 TEXT'))
+                if 'pod_image_type_2' not in cols:
+                    conn.execute(text('ALTER TABLE certified_letters ADD COLUMN pod_image_type_2 VARCHAR(20)'))
                 # Backfill letter_kind on pre-existing letter_number 1/2 rows
                 # (created before the 5-letter system existed) so their print
                 # content routes correctly. Safe to re-run — only touches
@@ -1578,6 +1586,26 @@ def create_app():
         flash(f'{message} Tracking: {tracking_number}', 'success')
         return redirect(url_for('letters_mark_sent', letter_id=letter.id) + f'?label={label_b64}')
 
+    def _try_fetch_pod(letter, tracking_number, which, trans_id):
+        """Best-effort POD pull for one tracking number on a letter -- swallows
+        all errors (network, missing creds, UPS not ready yet). Returns True if
+        a new POD was actually stored, so callers can decide whether to commit/
+        flash. 'which' is 'primary' or '2nd'; never raises."""
+        import ups_api
+        try:
+            pod_b64, pod_type = ups_api.fetch_pod(tracking_number, trans_id=trans_id)
+        except Exception:
+            return False
+        if not pod_b64:
+            return False
+        if which == 'primary':
+            letter.pod_image_data = pod_b64
+            letter.pod_image_type = pod_type
+        else:
+            letter.pod_image_data_2 = pod_b64
+            letter.pod_image_type_2 = pod_type
+        return True
+
     @app.route('/letters/<int:letter_id>/confirm-delivery', methods=['POST'])
     @login_required
     def letters_confirm_delivery(letter_id):
@@ -1586,6 +1614,8 @@ def create_app():
         letter.delivery_confirmed_date = (
             date.fromisoformat(confirmed_str) if confirmed_str else date.today()
         )
+        if letter.tracking_number and not letter.pod_image_data:
+            _try_fetch_pod(letter, letter.tracking_number, 'primary', trans_id=f'pod-confirm-{letter.id}')
         db.session.commit()
         flash('Delivery confirmation recorded.', 'success')
         return redirect(url_for('vehicles_detail', vehicle_id=letter.vehicle_id))
@@ -1594,8 +1624,20 @@ def create_app():
     @login_required
     def letters_refresh_tracking(letter_id):
         """Query UPS directly for this letter's tracking number instead of
-        waiting on a manual Quantum View CSV import."""
+        waiting on a manual Quantum View CSV import. Also opportunistically
+        attempts a POD pull for both the primary and (if present) 2nd-party
+        tracking number once either is confirmed delivered."""
         letter = db.get_or_404(CertifiedLetter, letter_id)
+        vehicle = letter.vehicle
+
+        if vehicle.possible_release:
+            flash(
+                f'{vehicle.display_name} is flagged Possible Release — verify it\'s '
+                'still on the lot before pulling UPS tracking for any letter.',
+                'danger',
+            )
+            return redirect(url_for('vehicles_detail', vehicle_id=vehicle.id))
+
         if not letter.tracking_number:
             flash('This letter has no tracking number yet.', 'danger')
             return redirect(url_for('vehicles_detail', vehicle_id=letter.vehicle_id))
@@ -1616,9 +1658,78 @@ def create_app():
             letter.return_to_sender = True
         elif pkg['is_delivered'] and pkg['delivered_date']:
             letter.delivery_confirmed_date = datetime.strptime(pkg['delivered_date'], '%Y%m%d').date()
+
+        if letter.delivery_confirmed_date and not letter.pod_image_data:
+            _try_fetch_pod(letter, letter.tracking_number, 'primary', trans_id=f'pod-auto-{letter.id}')
+
+        if letter.tracking_number_2 and not letter.pod_image_data_2:
+            try:
+                pkg2 = ups_api.lookup_by_tracking_number(letter.tracking_number_2, trans_id=f'refresh2-{letter.id}')
+            except Exception:
+                pkg2 = None
+            if pkg2 and pkg2['is_delivered']:
+                _try_fetch_pod(letter, letter.tracking_number_2, '2nd', trans_id=f'pod-auto-{letter.id}-2nd')
+
         db.session.commit()
         flash(f'UPS status: {letter.ups_status}', 'success')
         return redirect(url_for('vehicles_detail', vehicle_id=letter.vehicle_id))
+
+    @app.route('/letters/<int:letter_id>/fetch-pod', methods=['POST'])
+    @login_required
+    def letters_fetch_pod(letter_id):
+        """Manual retry for pulling the signed POD from UPS -- the document can
+        lag real delivery by 7-10 days, so this lets staff re-check once it's
+        likely ready instead of waiting on a background job (none exists;
+        UPS Phase 2 auto-polling is explicitly parked). Attempts whichever of
+        the letter's tracking numbers are delivered but still missing a POD."""
+        letter = db.get_or_404(CertifiedLetter, letter_id)
+        vehicle = letter.vehicle
+
+        if vehicle.possible_release:
+            flash(
+                f'{vehicle.display_name} is flagged Possible Release — verify it\'s '
+                'still on the lot before pulling documents for any letter.',
+                'danger',
+            )
+            return redirect(url_for('vehicles_detail', vehicle_id=vehicle.id))
+
+        import ups_api
+        fetched_any = False
+        pending = []
+
+        if letter.tracking_number and letter.delivery_confirmed_date and not letter.pod_image_data:
+            if _try_fetch_pod(letter, letter.tracking_number, 'primary', trans_id=f'pod-manual-{letter.id}'):
+                fetched_any = True
+            else:
+                pending.append('primary')
+
+        if letter.tracking_number_2 and not letter.pod_image_data_2:
+            try:
+                pkg2 = ups_api.lookup_by_tracking_number(letter.tracking_number_2, trans_id=f'pod-check-{letter.id}')
+            except Exception as exc:
+                flash(f'UPS lookup failed for the 2nd tracking number: {exc}', 'warning')
+                pkg2 = None
+            if pkg2 and pkg2['is_delivered']:
+                if _try_fetch_pod(letter, letter.tracking_number_2, '2nd', trans_id=f'pod-manual-{letter.id}-2nd'):
+                    fetched_any = True
+                else:
+                    pending.append('2nd party')
+            elif pkg2 and not pkg2['is_delivered']:
+                pending.append('2nd party (not yet delivered)')
+
+        if fetched_any:
+            db.session.commit()
+            flash('Signed POD retrieved and saved.', 'success')
+        elif pending:
+            flash(
+                f'Delivered, but the signed POD isn\'t available from UPS yet for: '
+                f'{", ".join(pending)} (can take 7-10 days). Check back later.',
+                'info',
+            )
+        else:
+            flash('Nothing to fetch — no delivered tracking number on this letter is missing a POD.', 'info')
+
+        return redirect(url_for('vehicles_detail', vehicle_id=vehicle.id))
 
     # ── Title Filing ───────────────────────────────────────────────────────────
 

@@ -1,5 +1,6 @@
 {% extends 'base.html' %}
 {% from '_macros/snooze.html' import snooze_button, snooze_modal %}
+{% from '_macros/pod.html' import pod_section, pod_modal %}
 {% block title %}{{ vehicle.display_name }} — Impound Manager{% endblock %}
 
 {% block content %}
@@ -949,6 +950,7 @@ function showGeneralDocImage(btn) {
         {% endif %}
       </div>
       <div class="card-body">
+        {{ pod_modal() }}
 
         {# ── Letter 1 ── #}
         {% set l1 = vehicle.letter1 %}
@@ -1017,6 +1019,7 @@ function showGeneralDocImage(btn) {
           </form>
           {% endif %}
           {% endif %}
+          {{ pod_section(l1) }}
           {% else %}
           <p class="text-muted small ms-1">Letter not yet created.</p>
           {% endif %}
@@ -1093,6 +1096,7 @@ function showGeneralDocImage(btn) {
           </form>
           {% endif %}
           {% endif %}
+          {{ pod_section(l2) }}
           {% else %}
           <p class="text-muted small ms-1">Will be created when Letter 1 is marked sent.</p>
           {% endif %}
@@ -1167,6 +1171,7 @@ function showGeneralDocImage(btn) {
           </form>
           {% endif %}
           {% endif %}
+          {{ pod_section(xl) }}
         </div>
         {% endfor %}
 

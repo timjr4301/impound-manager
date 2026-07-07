@@ -733,6 +733,16 @@ class CertifiedLetter(db.Model):
     # to auto-flag Vehicle.is_afo when a scanned return envelope shows it.
     reference_number_2 = db.Column(db.String(50))
 
+    # Signed Proof of Delivery, pulled from UPS's Track API (returnPOD=true)
+    # once available -- lags real delivery by ~7-10 days, so these stay NULL
+    # for a while after delivery_confirmed_date is set. One pair per tracking
+    # number on this row (primary + 2nd party), same split as tracking_number/
+    # tracking_number_2.
+    pod_image_data = db.Column(db.Text)
+    pod_image_type = db.Column(db.String(20))
+    pod_image_data_2 = db.Column(db.Text)
+    pod_image_type_2 = db.Column(db.String(20))
+
     # 5-letter system fields — see the letter_number numbering note on
     # Vehicle above. recipient_type/letter_kind drive which print content
     # renders; letter_number alone still drives due-date/task_engine logic
