@@ -1133,6 +1133,10 @@ def create_app():
         if not current_user.can_edit_vehicles:
             flash('Permission denied.', 'danger')
             return redirect(url_for('vehicles_detail', vehicle_id=vehicle_id))
+        blocked_reason = vehicle.release_to_customer_blocked_reason
+        if blocked_reason:
+            flash(f'Cannot release {vehicle.display_name} — {blocked_reason}', 'danger')
+            return redirect(url_for('vehicles_detail', vehicle_id=vehicle_id))
         vehicle.status = 'PENDING_PICKUP'
         vehicle.pending_pickup_since = datetime.utcnow()
         vehicle.updated_at = datetime.utcnow()

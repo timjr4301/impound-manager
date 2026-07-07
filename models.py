@@ -541,6 +541,27 @@ class Vehicle(db.Model):
         return None
 
     @property
+    def release_to_customer_blocked_reason(self):
+        """Hard-stop for /vehicles/<id>/release (paid customer pickup) — not
+        Tina's sale/junk disposal flow in tina.py, which by definition only
+        runs after title-by-abandonment and doesn't need this check.
+
+        None means release is allowed. An owner who shows up and pays right
+        away can always take their vehicle — the notice letters exist to
+        establish abandonment when the owner does NOT come forward, so they
+        don't matter yet if a required letter simply isn't due. This only
+        blocks once a required letter has actually missed its due date
+        without being sent, and title hasn't been filed as the alternative
+        legal path."""
+        if self.title_filing:
+            return None
+        overdue = [l for l in self.letters if l.is_overdue]
+        if overdue:
+            names = ', '.join(l.label for l in overdue)
+            return f'Overdue, unsent letter(s): {names}. Send them or file for title before releasing.'
+        return None
+
+    @property
     def days_in_storage(self):
         return (date.today() - self.impound_date).days
 
