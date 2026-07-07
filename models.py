@@ -4,6 +4,8 @@ from flask_login import UserMixin
 from werkzeug.security import generate_password_hash, check_password_hash
 from datetime import date, datetime, timedelta
 
+from task_engine import letter_delivery_date, TASK3_DELAY_DAYS
+
 db = SQLAlchemy()
 
 # Ohio BMV title-by-abandonment deadlines
@@ -592,9 +594,14 @@ class Vehicle(db.Model):
                 return f'{prefix}Send Letter 1 by {due.strftime("%m/%d/%Y")}'
             if not l2 or not l2.sent_date:
                 if l2:
-                    due = l2.due_date
-                    prefix = 'OVERDUE: ' if today > due else ''
-                    return f'{prefix}Send Letter 2 by {due.strftime("%m/%d/%Y")}'
+                    delivery_date = letter_delivery_date(l1)
+                    if not delivery_date:
+                        return 'Awaiting delivery confirmation of Letter 1'
+                    due = delivery_date + timedelta(days=TASK3_DELAY_DAYS)
+                    if today >= due:
+                        prefix = 'OVERDUE: ' if today > due else ''
+                        return f'{prefix}2nd Letter Due'
+                    return f'2nd letter available in {(due - today).days} days'
             elig = self.title_eligible_date
             if elig:
                 if today >= elig:
@@ -630,10 +637,14 @@ class Vehicle(db.Model):
                     return 'yellow'
                 return 'green'
             if not l2 or not l2.sent_date:
-                if l2 and today > l2.due_date:
-                    return 'red'
-                elif l2 and (l2.due_date - today).days <= 3:
-                    return 'yellow'
+                if l2:
+                    delivery_date = letter_delivery_date(l1)
+                    if delivery_date:
+                        due = delivery_date + timedelta(days=TASK3_DELAY_DAYS)
+                        if today >= due:
+                            return 'red'
+                        elif (due - today).days <= 3:
+                            return 'yellow'
                 return 'green'
         elif self.impound_type == 'POLICE':
             if not l1 or not l1.sent_date:

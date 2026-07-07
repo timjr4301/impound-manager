@@ -13,7 +13,8 @@ Task 2 — 1st Notice Letter
   regardless of Task 1 state (backfill assumption: BMV was done offline).
 
 Task 3 — 2nd Notice Letter
-  Opens 10 days after Task 2 delivery confirmed OR return-to-sender.
+  Opens 30 days after Task 2 (Letter 1) delivery confirmed OR return-to-sender.
+  Does not exist at all until Letter 1's delivery/RTS date is known.
   Locked until Task 2 complete.
 
 Task 4 — Ready to File
@@ -26,13 +27,15 @@ Task 5 — No Record Found URGENT
 from datetime import date, timedelta
 
 TASK2_OPEN_DAYS     = 5     # Task 2 not available before this many days from impound
-TASK3_DELAY_DAYS    = 10    # Task 3 opens this many days after delivery/attempt
+TASK3_DELAY_DAYS    = 30    # Task 3 opens this many days after Letter 1 delivery/attempt
 TASK4_DELAY_DAYS    = 45    # Task 4 opens this many days after letter2 sent
 YELLOW_WARN_DAYS    = 3     # Flag YELLOW this many days before a deadline
 
 
-def _letter_delivery_date(l1):
-    """Return the date that counts as 'delivered or attempted' for Task 3 timing."""
+def letter_delivery_date(l1):
+    """Return the date that counts as 'delivered or attempted' for Task 3 timing.
+    Public (no leading underscore) — models.py's next_action_label/stoplight_color
+    reuse this so the 2nd-notice countdown agrees everywhere it's shown."""
     if not l1:
         return None
     if l1.delivery_confirmed_date:
@@ -90,7 +93,7 @@ def compute_task(v, today: date) -> dict:
     task1_done = bool(v.heather_complete or (v.bmv_stage == 'COMPLETE'))
     letter1_sent = bool(l1 and l1.sent_date)
     letter2_sent = bool(l2 and l2.sent_date)
-    delivery_date = _letter_delivery_date(l1)
+    delivery_date = letter_delivery_date(l1)
     l1_due = v.letter_clock_start + timedelta(days=TASK2_OPEN_DAYS)
 
     # ── TASK 4: Ready to File ─────────────────────────────────────────────────
@@ -127,7 +130,7 @@ def compute_task(v, today: date) -> dict:
                     task_due=task3_open,
                     urgency='RED',
                     locked=False,
-                    action=f'Send 2nd notice letter NOW — available since {task3_open.strftime("%m/%d/%Y")}',
+                    action=f'2nd Letter Due — available since {task3_open.strftime("%m/%d/%Y")}',
                 )
             elif days_to_open <= YELLOW_WARN_DAYS:
                 return dict(
@@ -136,7 +139,7 @@ def compute_task(v, today: date) -> dict:
                     task_due=task3_open,
                     urgency='YELLOW',
                     locked=True,
-                    action=f'2nd notice available in {days_to_open}d (delivery: {delivery_date.strftime("%m/%d/%Y")})',
+                    action=f'2nd letter available in {days_to_open} days (delivery: {delivery_date.strftime("%m/%d/%Y")})',
                 )
             else:
                 return dict(
