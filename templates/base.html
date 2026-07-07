@@ -231,6 +231,13 @@
       </a>
       {% endif %}
 
+      {# ── UPS Reference Lookup (same access as Heather actions generally) ── #}
+      {% if current_user.is_heather %}
+      <a href="{{ url_for('heather.ups_lookup') }}" class="nav-link text-white px-2">
+        <i class="bi bi-search"></i> UPS Lookup
+      </a>
+      {% endif %}
+
       {# ── Chat (all authenticated users) ── #}
       <a href="{{ url_for('chat.index') }}" class="nav-link text-white px-2">
         <i class="bi bi-chat-dots"></i> Chat

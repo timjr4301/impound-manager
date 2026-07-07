@@ -1,0 +1,104 @@
+{% extends 'base.html' %}
+{% block title %}UPS Reference Lookup{% endblock %}
+
+{% block content %}
+<h4 class="mb-3"><i class="bi bi-search me-2"></i>UPS Reference-Number Lookup</h4>
+<p class="text-muted small">
+  Look up UPS shipment history directly by invoice/stock number — for a letter that was
+  mailed via ups.com without going through "Create UPS Label" here, or to backfill
+  tracking on an older vehicle instead of running the manual Quantum View CSV import.
+</p>
+
+<div class="card mb-4">
+  <div class="card-body">
+    <form method="GET" action="{{ url_for('heather.ups_lookup') }}" class="row g-2 align-items-end">
+      <div class="col-md-5">
+        <label class="form-label small text-muted mb-1">Invoice / Stock Number</label>
+        <input type="text" name="reference" class="form-control" value="{{ reference }}"
+               placeholder="e.g. 726603" autofocus>
+      </div>
+      <div class="col-md-3">
+        <label class="form-label small text-muted mb-1">Search back this many days</label>
+        <input type="number" name="days_back" class="form-control" value="{{ days_back }}" min="1" max="365">
+      </div>
+      <div class="col-md-2">
+        <button type="submit" class="btn btn-primary w-100"><i class="bi bi-search"></i> Look Up</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+{% if error %}
+<div class="alert alert-danger">{{ error }}</div>
+{% endif %}
+
+{% if reference and not error %}
+  {% if vehicle %}
+  <div class="alert alert-light border small">
+    Matched vehicle: <a href="{{ url_for('vehicles_detail', vehicle_id=vehicle.id) }}">
+      <strong>{{ vehicle.display_name }}</strong></a>
+    {% if vehicle.plate %} · {{ vehicle.plate }}{% endif %}
+  </div>
+  {% else %}
+  <div class="alert alert-light border small text-muted">
+    No vehicle in this system matches invoice/stock number "{{ reference }}" — you can still
+    view UPS's shipment history below, just nothing to attach it to.
+  </div>
+  {% endif %}
+
+  {% if packages %}
+  <div class="card">
+    <div class="card-header">{{ packages|length }} package(s) found for reference "{{ reference }}"</div>
+    <div class="table-responsive">
+      <table class="table table-sm mb-0 align-middle">
+        <thead>
+          <tr class="text-muted small">
+            <th>Tracking #</th>
+            <th>Status</th>
+            <th>Delivered</th>
+            <th>RTS?</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for pkg in packages %}
+          <tr>
+            <td class="font-monospace">{{ pkg.tracking_number or '—' }}</td>
+            <td>
+              {{ pkg.status_description or '—' }}
+              {% if pkg.exception_description %}<br><span class="text-danger small">{{ pkg.exception_description }}</span>{% endif %}
+            </td>
+            <td>
+              {% if pkg.delivered_date %}{{ pkg.delivered_date[:4] }}-{{ pkg.delivered_date[4:6] }}-{{ pkg.delivered_date[6:8] }}{% else %}—{% endif %}
+            </td>
+            <td>
+              {% if pkg.is_rts %}<span class="badge bg-danger">RTS</span>{% else %}—{% endif %}
+            </td>
+            <td>
+              {% if vehicle and open_letters %}
+              <form method="POST" action="{{ url_for('heather.ups_lookup_attach') }}" class="d-flex gap-1">
+                <input type="hidden" name="tracking_number" value="{{ pkg.tracking_number }}">
+                <input type="hidden" name="status_description" value="{{ pkg.status_description }}">
+                <input type="hidden" name="reference" value="{{ reference }}">
+                <select name="letter_id" class="form-select form-select-sm" style="width:auto;">
+                  {% for l in open_letters %}
+                  <option value="{{ l.id }}">{{ l.label }}</option>
+                  {% endfor %}
+                </select>
+                <button type="submit" class="btn btn-outline-primary btn-sm">Attach</button>
+              </form>
+              {% elif vehicle %}
+              <span class="text-muted small">All letters already tracked</span>
+              {% endif %}
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+  {% elif not error %}
+  <div class="alert alert-warning">No UPS shipments found for reference "{{ reference }}" in the last {{ days_back }} days.</div>
+  {% endif %}
+{% endif %}
+{% endblock %}

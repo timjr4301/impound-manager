@@ -53,6 +53,27 @@
     </div>
     {% endif %}
 
+    {% if label_b64 %}
+    <div class="card shadow-sm mb-4 border-success">
+      <div class="card-header bg-success bg-opacity-10 fw-semibold">
+        <i class="bi bi-check-circle-fill text-success me-1"></i> UPS Label Created — Tracking {{ letter.tracking_number }}
+      </div>
+      <div class="card-body text-center">
+        <img src="data:image/gif;base64,{{ label_b64 }}" class="img-fluid border" style="max-width:4in;" alt="UPS shipping label">
+        <div class="mt-2">
+          <button onclick="window.print()" class="btn btn-outline-primary btn-sm"><i class="bi bi-printer"></i> Print Label</button>
+        </div>
+      </div>
+    </div>
+    {% elif ups_configured and not letter.tracking_number %}
+    <form method="POST" action="{{ url_for('letters_create_ups_label', letter_id=letter.id) }}" class="mb-4">
+      <button type="submit" class="btn btn-outline-primary w-100">
+        <i class="bi bi-upc-scan"></i> Create UPS Label &amp; Mark Sent
+      </button>
+      <div class="form-text">Creates a real UPS shipping label via your account, auto-fills the tracking number below, and marks this letter sent — no need to create the label on ups.com by hand.</div>
+    </form>
+    {% endif %}
+
     <form method="POST" action="{{ url_for('letters_mark_sent', letter_id=letter.id) }}">
       <div class="card shadow-sm">
         <div class="card-body">
@@ -62,10 +83,10 @@
                    value="{{ today.isoformat() }}" required>
           </div>
           <div class="mb-3">
-            <label for="tracking_number" class="form-label fw-semibold">USPS Tracking Number</label>
+            <label for="tracking_number" class="form-label fw-semibold">UPS Tracking Number</label>
             <input type="text" class="form-control font-monospace" id="tracking_number" name="tracking_number"
-                   placeholder="9400 1000 0000 0000 0000 00">
-            <div class="form-text">From the certified mail receipt (optional but recommended).</div>
+                   value="{{ letter.tracking_number or '' }}" placeholder="1Z1234560123456789">
+            <div class="form-text">From the UPS shipping label (optional but recommended) — or use "Create UPS Label" above to fill this in automatically.</div>
           </div>
           <div class="mb-3">
             <label for="reference_number_2" class="form-label fw-semibold">Reference #2 <span class="text-muted fw-normal">(optional)</span></label>

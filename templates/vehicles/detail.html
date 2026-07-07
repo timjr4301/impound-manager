@@ -963,11 +963,16 @@ function showGeneralDocImage(btn) {
             <dd class="col-sm-8">{{ l1.sent_date|mdY }}</dd>
             {% if l1.tracking_number %}
             <dt class="col-sm-4 text-muted">Tracking #</dt>
-            <dd class="col-sm-8 font-monospace">{{ l1.tracking_number }}</dd>
+            <dd class="col-sm-8 font-monospace">
+              {{ l1.tracking_number }}{% if l1.ups_status %} <span class="text-muted small">({{ l1.ups_status }})</span>{% endif %}
+            </dd>
             {% endif %}
             {% if l1.delivery_confirmed_date %}
             <dt class="col-sm-4 text-muted">Delivered</dt>
             <dd class="col-sm-8 text-success"><i class="bi bi-check-circle-fill me-1"></i>{{ l1.delivery_confirmed_date|mdY }}</dd>
+            {% elif l1.return_to_sender %}
+            <dt class="col-sm-4 text-muted">Status</dt>
+            <dd class="col-sm-8 text-danger"><i class="bi bi-exclamation-triangle-fill me-1"></i>Return to Sender</dd>
             {% endif %}
             {% endif %}
           </dl>
@@ -986,6 +991,11 @@ function showGeneralDocImage(btn) {
               <i class="bi bi-check2"></i> Confirm Delivery
             </button>
           </form>
+          {% if l1.tracking_number %}
+          <form method="POST" action="{{ url_for('letters_refresh_tracking', letter_id=l1.id) }}" class="d-inline">
+            <button type="submit" class="btn btn-sm btn-outline-secondary"><i class="bi bi-arrow-repeat"></i> Refresh from UPS</button>
+          </form>
+          {% endif %}
           {% endif %}
           {% else %}
           <p class="text-muted small ms-1">Letter not yet created.</p>
@@ -1029,11 +1039,16 @@ function showGeneralDocImage(btn) {
             <dd class="col-sm-8">{{ l2.sent_date|mdY }}</dd>
             {% if l2.tracking_number %}
             <dt class="col-sm-4 text-muted">Tracking #</dt>
-            <dd class="col-sm-8 font-monospace">{{ l2.tracking_number }}</dd>
+            <dd class="col-sm-8 font-monospace">
+              {{ l2.tracking_number }}{% if l2.ups_status %} <span class="text-muted small">({{ l2.ups_status }})</span>{% endif %}
+            </dd>
             {% endif %}
             {% if l2.delivery_confirmed_date %}
             <dt class="col-sm-4 text-muted">Delivered</dt>
             <dd class="col-sm-8 text-success"><i class="bi bi-check-circle-fill me-1"></i>{{ l2.delivery_confirmed_date|mdY }}</dd>
+            {% elif l2.return_to_sender %}
+            <dt class="col-sm-4 text-muted">Status</dt>
+            <dd class="col-sm-8 text-danger"><i class="bi bi-exclamation-triangle-fill me-1"></i>Return to Sender</dd>
             {% endif %}
             {% endif %}
           </dl>
@@ -1052,6 +1067,11 @@ function showGeneralDocImage(btn) {
               <i class="bi bi-check2"></i> Confirm Delivery
             </button>
           </form>
+          {% if l2.tracking_number %}
+          <form method="POST" action="{{ url_for('letters_refresh_tracking', letter_id=l2.id) }}" class="d-inline">
+            <button type="submit" class="btn btn-sm btn-outline-secondary"><i class="bi bi-arrow-repeat"></i> Refresh from UPS</button>
+          </form>
+          {% endif %}
           {% endif %}
           {% else %}
           <p class="text-muted small ms-1">Will be created when Letter 1 is marked sent.</p>
@@ -1093,11 +1113,16 @@ function showGeneralDocImage(btn) {
             <dd class="col-sm-8">{{ xl.sent_date|mdY }}</dd>
             {% if xl.tracking_number %}
             <dt class="col-sm-4 text-muted">Tracking #</dt>
-            <dd class="col-sm-8 font-monospace">{{ xl.tracking_number }}</dd>
+            <dd class="col-sm-8 font-monospace">
+              {{ xl.tracking_number }}{% if xl.ups_status %} <span class="text-muted small">({{ xl.ups_status }})</span>{% endif %}
+            </dd>
             {% endif %}
             {% if xl.delivery_confirmed_date %}
             <dt class="col-sm-4 text-muted">Delivered</dt>
             <dd class="col-sm-8 text-success"><i class="bi bi-check-circle-fill me-1"></i>{{ xl.delivery_confirmed_date|mdY }}</dd>
+            {% elif xl.return_to_sender %}
+            <dt class="col-sm-4 text-muted">Status</dt>
+            <dd class="col-sm-8 text-danger"><i class="bi bi-exclamation-triangle-fill me-1"></i>Return to Sender</dd>
             {% endif %}
             {% endif %}
           </dl>
@@ -1116,6 +1141,11 @@ function showGeneralDocImage(btn) {
               <i class="bi bi-check2"></i> Confirm Delivery
             </button>
           </form>
+          {% if xl.tracking_number %}
+          <form method="POST" action="{{ url_for('letters_refresh_tracking', letter_id=xl.id) }}" class="d-inline">
+            <button type="submit" class="btn btn-sm btn-outline-secondary"><i class="bi bi-arrow-repeat"></i> Refresh from UPS</button>
+          </form>
+          {% endif %}
           {% endif %}
         </div>
         {% endfor %}

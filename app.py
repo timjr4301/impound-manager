@@ -1362,6 +1362,46 @@ def create_app():
 
     # ── Letters ────────────────────────────────────────────────────────────────
 
+    def _finalize_letter_sent(letter, sent_date, tracking_number=None,
+                               reference_number_2=None, notes=None, ups_status=None):
+        """Shared by the manual mark-sent form and the in-app UPS label route:
+        stamps the letter sent, spawns PPI's Letter 2, and fires letter_triggers."""
+        letter.sent_date = sent_date
+        if tracking_number is not None:
+            letter.tracking_number = tracking_number or None
+        if reference_number_2 is not None:
+            letter.reference_number_2 = reference_number_2 or None
+        if ups_status is not None:
+            letter.ups_status = ups_status
+        if notes is not None:
+            letter.notes = notes or letter.notes
+
+        vehicle = letter.vehicle
+
+        if vehicle.impound_type == 'PPI' and letter.letter_number == 1:
+            letter2_due = sent_date + timedelta(days=PPI_LETTER2_DAYS)
+            db.session.add(CertifiedLetter(
+                vehicle_id=vehicle.id,
+                letter_number=2,
+                due_date=letter2_due,
+                letter_kind='second_notice',
+                recipient_type='owner',
+                created_at=datetime.utcnow(),
+            ))
+            message = f'Letter 1 sent. Letter 2 due by {letter2_due.strftime("%m/%d/%Y")}.'
+        else:
+            message = f'{letter.label} marked as sent for {vehicle.display_name}.'
+
+        # 5-letter system: unlocks POLICE's 2nd Owner Notice (letter_number
+        # 4, once its 1st Owner Notice — letter_number 3 — is sent) and
+        # either impound type's 2nd Lienholder Notice (letter_number 6).
+        import letter_triggers
+        letter_triggers.on_letter_sent(vehicle, letter)
+
+        vehicle.updated_at = datetime.utcnow()
+        db.session.commit()
+        return message
+
     @app.route('/letters/<int:letter_id>/mark-sent', methods=['GET', 'POST'])
     @login_required
     def letters_mark_sent(letter_id):
@@ -1386,39 +1426,85 @@ def create_app():
         if request.method == 'POST':
             sent_str = request.form.get('sent_date', '').strip()
             sent_date = date.fromisoformat(sent_str) if sent_str else date.today()
-
-            letter.sent_date = sent_date
-            letter.tracking_number = request.form.get('tracking_number', '').strip() or None
-            letter.reference_number_2 = request.form.get('reference_number_2', '').strip() or None
-            letter.notes = request.form.get('notes', '').strip() or letter.notes
-
-            vehicle = letter.vehicle
-
-            if vehicle.impound_type == 'PPI' and letter.letter_number == 1:
-                letter2_due = sent_date + timedelta(days=PPI_LETTER2_DAYS)
-                db.session.add(CertifiedLetter(
-                    vehicle_id=vehicle.id,
-                    letter_number=2,
-                    due_date=letter2_due,
-                    letter_kind='second_notice',
-                    recipient_type='owner',
-                    created_at=datetime.utcnow(),
-                ))
-                flash(f'Letter 1 sent. Letter 2 due by {letter2_due.strftime("%m/%d/%Y")}.', 'success')
-            else:
-                flash(f'{letter.label} marked as sent for {vehicle.display_name}.', 'success')
-
-            # 5-letter system: unlocks POLICE's 2nd Owner Notice (letter_number
-            # 4, once its 1st Owner Notice — letter_number 3 — is sent) and
-            # either impound type's 2nd Lienholder Notice (letter_number 6).
-            import letter_triggers
-            letter_triggers.on_letter_sent(vehicle, letter)
-
-            vehicle.updated_at = datetime.utcnow()
-            db.session.commit()
+            message = _finalize_letter_sent(
+                letter, sent_date,
+                tracking_number=request.form.get('tracking_number', '').strip(),
+                reference_number_2=request.form.get('reference_number_2', '').strip(),
+                notes=request.form.get('notes', '').strip(),
+            )
+            flash(message, 'success')
             return redirect(url_for('dashboard'))
 
-        return render_template('letters/mark_sent.html', letter=letter, today=date.today())
+        import ups_api
+        return render_template('letters/mark_sent.html', letter=letter, today=date.today(),
+                                ups_configured=ups_api.is_configured(),
+                                label_b64=request.args.get('label'))
+
+    @app.route('/letters/<int:letter_id>/create-ups-label', methods=['POST'])
+    @login_required
+    def letters_create_ups_label(letter_id):
+        """In-app UPS label creation — replaces hand-typing a tracking number
+        after mailing at a UPS Store. Auto-logs the tracking number and marks
+        the letter sent in the same step."""
+        letter = db.get_or_404(CertifiedLetter, letter_id)
+        vehicle = letter.vehicle
+
+        if not current_user.is_heather:
+            flash('Permission denied.', 'danger')
+            return redirect(url_for('vehicles_detail', vehicle_id=vehicle.id))
+
+        if vehicle.possible_release:
+            flash(
+                f'{vehicle.display_name} is flagged Possible Release — verify it\'s '
+                'still on the lot before sending any letter.',
+                'danger',
+            )
+            return redirect(url_for('vehicles_detail', vehicle_id=vehicle.id))
+
+        if vehicle.vin_check_blocked:
+            flash(
+                f'{vehicle.display_name} has a VIN mismatch from field photo verification — '
+                'resolve it before sending any letter.',
+                'danger',
+            )
+            return redirect(url_for('vehicles_detail', vehicle_id=vehicle.id))
+
+        if letter.recipient_type == 'lienholder':
+            name, address, city, state, zip_code = (
+                vehicle.lienholder_name, vehicle.lienholder_address,
+                vehicle.lienholder_city, vehicle.lienholder_state, vehicle.lienholder_zip,
+            )
+        else:
+            name, address, city, state, zip_code = (
+                vehicle.owner_name, vehicle.owner_address,
+                vehicle.owner_city, vehicle.owner_state, vehicle.owner_zip,
+            )
+
+        if not name or not address:
+            flash(
+                f'No {letter.recipient_type} name/address on file for {vehicle.display_name} — '
+                'add it on the vehicle edit form before creating a label.',
+                'danger',
+            )
+            return redirect(url_for('vehicles_detail', vehicle_id=vehicle.id))
+
+        reference = (vehicle.invoice_number or vehicle.stock_number or f'VEH{vehicle.id}')[:35]
+
+        import ups_api
+        try:
+            tracking_number, label_b64 = ups_api.create_label(
+                reference, name, address, city, state, zip_code,
+                trans_id=f'letter-{letter.id}',
+            )
+        except Exception as exc:
+            flash(f'UPS API error: {exc}', 'danger')
+            return redirect(url_for('letters_mark_sent', letter_id=letter.id))
+
+        message = _finalize_letter_sent(
+            letter, date.today(), tracking_number=tracking_number, ups_status='Label Created',
+        )
+        flash(f'{message} Tracking: {tracking_number}', 'success')
+        return redirect(url_for('letters_mark_sent', letter_id=letter.id) + f'?label={label_b64}')
 
     @app.route('/letters/<int:letter_id>/confirm-delivery', methods=['POST'])
     @login_required
@@ -1430,6 +1516,36 @@ def create_app():
         )
         db.session.commit()
         flash('Delivery confirmation recorded.', 'success')
+        return redirect(url_for('vehicles_detail', vehicle_id=letter.vehicle_id))
+
+    @app.route('/letters/<int:letter_id>/refresh-tracking', methods=['POST'])
+    @login_required
+    def letters_refresh_tracking(letter_id):
+        """Query UPS directly for this letter's tracking number instead of
+        waiting on a manual Quantum View CSV import."""
+        letter = db.get_or_404(CertifiedLetter, letter_id)
+        if not letter.tracking_number:
+            flash('This letter has no tracking number yet.', 'danger')
+            return redirect(url_for('vehicles_detail', vehicle_id=letter.vehicle_id))
+
+        import ups_api
+        try:
+            pkg = ups_api.lookup_by_tracking_number(letter.tracking_number, trans_id=f'refresh-{letter.id}')
+        except Exception as exc:
+            flash(f'UPS API error: {exc}', 'danger')
+            return redirect(url_for('vehicles_detail', vehicle_id=letter.vehicle_id))
+
+        if not pkg:
+            flash(f'UPS has no record for tracking number {letter.tracking_number}.', 'info')
+            return redirect(url_for('vehicles_detail', vehicle_id=letter.vehicle_id))
+
+        letter.ups_status = pkg['status_description'] or letter.ups_status
+        if pkg['is_rts']:
+            letter.return_to_sender = True
+        elif pkg['is_delivered'] and pkg['delivered_date']:
+            letter.delivery_confirmed_date = datetime.strptime(pkg['delivered_date'], '%Y%m%d').date()
+        db.session.commit()
+        flash(f'UPS status: {letter.ups_status}', 'success')
         return redirect(url_for('vehicles_detail', vehicle_id=letter.vehicle_id))
 
     # ── Title Filing ───────────────────────────────────────────────────────────

@@ -664,122 +664,20 @@ def daily_intake():
     )
 
 
-# ── UPS Notices ────────────────────────────────────────────────────────────────
-
-def _ups_get_token():
-    """Fetch a short-lived OAuth2 token from UPS."""
-    import requests as _req
-    client_id = os.environ.get('UPS_CLIENT_ID', '')
-    client_secret = os.environ.get('UPS_CLIENT_SECRET', '')
-    if not client_id or not client_secret:
-        raise RuntimeError('UPS_CLIENT_ID / UPS_CLIENT_SECRET not configured')
-    resp = _req.post(
-        'https://onlinetools.ups.com/security/v1/oauth/token',
-        data={'grant_type': 'client_credentials'},
-        auth=(client_id, client_secret),
-        timeout=15,
-    )
-    resp.raise_for_status()
-    return resp.json()['access_token']
-
+# ── UPS Notices (legacy free-form VehicleNotice flow) ──────────────────────────
+# Label creation itself now lives in the shared ups_api module (also used by
+# the live 5-letter CertifiedLetter pipeline's UPS routes in app.py).
 
 def _ups_create_label(vehicle, notice_number, recipient_name, recipient_address,
                       recipient_city, recipient_state, recipient_zip):
     """Call UPS Ship API and return (tracking_number, label_b64_gif)."""
-    import requests as _req
-    account_number = os.environ.get('UPS_ACCOUNT_NUMBER', '81Y7X1')
-    token = _ups_get_token()
-
-    company_name = current_app.config.get('COMPANY_NAME', 'Broad & James Towing')
-    company_address = current_app.config.get('COMPANY_ADDRESS', '3201 E Broad St')
-
-    shipper_line = '4301 E 5th Ave'
-    shipper_city = 'Columbus'
-    shipper_state = 'OH'
-    shipper_zip = '43219'
-
+    import ups_api
     reference = (vehicle.call_number or vehicle.plate or f'VEH{vehicle.id}')[:35]
-
-    payload = {
-        'ShipmentRequest': {
-            'Shipment': {
-                'Shipper': {
-                    'Name': company_name,
-                    'ShipperNumber': account_number,
-                    'Address': {
-                        'AddressLine': [shipper_line],
-                        'City': shipper_city,
-                        'StateProvinceCode': shipper_state,
-                        'PostalCode': shipper_zip,
-                        'CountryCode': 'US',
-                    },
-                },
-                'ShipTo': {
-                    'Name': recipient_name,
-                    'Address': {
-                        'AddressLine': [recipient_address or ''],
-                        'City': recipient_city or '',
-                        'StateProvinceCode': (recipient_state or 'OH')[:2],
-                        'PostalCode': recipient_zip or '',
-                        'CountryCode': 'US',
-                    },
-                },
-                'ShipFrom': {
-                    'Name': company_name,
-                    'Address': {
-                        'AddressLine': [shipper_line],
-                        'City': shipper_city,
-                        'StateProvinceCode': shipper_state,
-                        'PostalCode': shipper_zip,
-                        'CountryCode': 'US',
-                    },
-                },
-                'Service': {'Code': '03', 'Description': 'UPS Ground'},
-                'Package': {
-                    'PackagingType': {'Code': '02', 'Description': 'Customer Supplied Package'},
-                    'Dimensions': {
-                        'UnitOfMeasurement': {'Code': 'IN'},
-                        'Length': '9', 'Width': '6', 'Height': '1',
-                    },
-                    'PackageWeight': {
-                        'UnitOfMeasurement': {'Code': 'LBS'},
-                        'Weight': '0.1',
-                    },
-                    'ReferenceNumber': {'Value': reference},
-                },
-                'PaymentInformation': {
-                    'ShipmentCharge': {
-                        'Type': '01',
-                        'BillShipper': {'AccountNumber': account_number},
-                    },
-                },
-            },
-            'LabelSpecification': {
-                'LabelImageFormat': {'Code': 'GIF', 'Description': 'GIF'},
-            },
-        },
-    }
-
-    resp = _req.post(
-        'https://onlinetools.ups.com/api/shipments/v1801/ship',
-        json=payload,
-        headers={
-            'Authorization': f'Bearer {token}',
-            'Content-Type': 'application/json',
-            'transId': f'notice-{vehicle.id}-{notice_number}',
-            'transactionSrc': 'impound-manager',
-        },
-        timeout=20,
+    return ups_api.create_label(
+        reference, recipient_name, recipient_address,
+        recipient_city, recipient_state, recipient_zip,
+        trans_id=f'notice-{vehicle.id}-{notice_number}',
     )
-    resp.raise_for_status()
-    data = resp.json()
-    results = data['ShipmentResponse']['ShipmentResults']
-    pkg = results['PackageResults']
-    if isinstance(pkg, list):
-        pkg = pkg[0]
-    tracking = pkg['TrackingNumber']
-    label_b64 = pkg['ShippingLabel']['GraphicImage']
-    return tracking, label_b64
 
 
 @bp.route('/notices')
@@ -869,9 +767,8 @@ def notices(vehicle_id):
         .all()
     )
     next_notice_number = len(notices) + 1
-    ups_configured = bool(
-        os.environ.get('UPS_CLIENT_ID') and os.environ.get('UPS_CLIENT_SECRET')
-    )
+    import ups_api
+    ups_configured = ups_api.is_configured()
     label_b64 = request.args.get('label')
     prefill = None
     if request.args.get('prefill_type'):
@@ -989,6 +886,67 @@ def send_notice(vehicle_id):
     except Exception as exc:
         flash(f'UPS API error: {exc}', 'danger')
         return redirect(url_for('heather.notices', vehicle_id=vehicle.id))
+
+
+# ── UPS Reference-Number Lookup ─────────────────────────────────────────────
+# Live replacement for the manual Quantum View CSV import (ups_tracking_attach.py)
+# — looks up shipment history for an invoice/reference number directly against
+# UPS, for legacy shipments not created through create-ups-label.
+
+@bp.route('/ups-lookup')
+@_heather_required
+def ups_lookup():
+    import ups_api
+    reference = request.args.get('reference', '').strip()
+    days_back = int(request.args.get('days_back', 90) or 90)
+    packages = []
+    error = None
+    vehicle = None
+
+    if reference:
+        vehicle = (
+            Vehicle.query
+            .filter(db.or_(Vehicle.invoice_number == reference, Vehicle.stock_number == reference))
+            .first()
+        )
+        if not ups_api.is_configured():
+            error = 'UPS_CLIENT_ID / UPS_CLIENT_SECRET not configured in Render.'
+        else:
+            from_date = (date.today() - timedelta(days=days_back)).strftime('%Y%m%d')
+            to_date = date.today().strftime('%Y%m%d')
+            try:
+                packages = ups_api.lookup_by_reference(
+                    reference, trans_id=f'lookup-{reference}',
+                    from_date=from_date, to_date=to_date,
+                )
+            except Exception as exc:
+                error = f'UPS API error: {exc}'
+
+    open_letters = []
+    if vehicle:
+        open_letters = [l for l in vehicle.letters if not l.tracking_number]
+
+    return render_template('heather/ups_lookup.html',
+                           reference=reference, days_back=days_back,
+                           packages=packages, error=error, vehicle=vehicle,
+                           open_letters=open_letters)
+
+
+@bp.route('/ups-lookup/attach', methods=['POST'])
+@_heather_required
+def ups_lookup_attach():
+    from models import CertifiedLetter
+    letter_id = request.form.get('letter_id', type=int)
+    tracking_number = request.form.get('tracking_number', '').strip()
+    status_description = request.form.get('status_description', '').strip()
+    reference = request.form.get('reference', '').strip()
+
+    letter = db.get_or_404(CertifiedLetter, letter_id)
+    letter.tracking_number = tracking_number or None
+    letter.ups_status = status_description or letter.ups_status
+    db.session.commit()
+    flash(f'Tracking {tracking_number} attached to {letter.label} for {letter.vehicle.display_name}.', 'success')
+    return redirect(url_for('heather.ups_lookup', reference=reference))
 
 
 @bp.route('/letters')
