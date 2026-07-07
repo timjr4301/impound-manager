@@ -147,6 +147,14 @@ class Vehicle(db.Model):
     lienholder_state = db.Column(db.String(2))
     lienholder_zip = db.Column(db.String(10))
 
+    # 2nd Owner / 2nd Lienholder — fixed second slots only, capped at two of
+    # each (no 3rd-party option). Blank by default; unblocks Build B's 2nd
+    # Owner/2nd Lienholder letters and Print Label auto-address.
+    owner_2_name = db.Column(db.String(100))
+    owner_2_address = db.Column(db.Text)
+    lienholder_2_name = db.Column(db.String(100))
+    lienholder_2_address = db.Column(db.Text)
+
     # Financial
     tow_fee = db.Column(db.Float)
     daily_storage_rate = db.Column(db.Float)

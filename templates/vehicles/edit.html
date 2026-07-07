@@ -110,6 +110,20 @@
               <textarea class="form-control" id="owner_address" name="owner_address" rows="3"
                 placeholder="123 Main St&#10;Columbus, OH 43215">{{ vehicle.owner_address or '' }}</textarea>
             </div>
+            <div class="col-12">
+              <hr class="my-2">
+              <div class="text-uppercase text-muted fw-semibold mb-2" style="font-size:.7rem;">2nd Owner (optional)</div>
+            </div>
+            <div class="col-12">
+              <label for="owner_2_name" class="form-label fw-semibold">2nd Owner Name</label>
+              <input type="text" class="form-control" id="owner_2_name" name="owner_2_name"
+                value="{{ vehicle.owner_2_name or '' }}" placeholder="Optional">
+            </div>
+            <div class="col-12">
+              <label for="owner_2_address" class="form-label fw-semibold">2nd Owner Address</label>
+              <textarea class="form-control" id="owner_2_address" name="owner_2_address" rows="3"
+                placeholder="Optional">{{ vehicle.owner_2_address or '' }}</textarea>
+            </div>
           </div>
         </div>
       </div>
@@ -142,6 +156,20 @@
               <label for="lienholder_zip" class="form-label fw-semibold">ZIP</label>
               <input type="text" class="form-control" id="lienholder_zip" name="lienholder_zip"
                 value="{{ vehicle.lienholder_zip or '' }}" maxlength="10">
+            </div>
+            <div class="col-12">
+              <hr class="my-2">
+              <div class="text-uppercase text-muted fw-semibold mb-2" style="font-size:.7rem;">2nd Lienholder (optional)</div>
+            </div>
+            <div class="col-12">
+              <label for="lienholder_2_name" class="form-label fw-semibold">2nd Lienholder Name</label>
+              <input type="text" class="form-control" id="lienholder_2_name" name="lienholder_2_name"
+                value="{{ vehicle.lienholder_2_name or '' }}" placeholder="Optional">
+            </div>
+            <div class="col-12">
+              <label for="lienholder_2_address" class="form-label fw-semibold">2nd Lienholder Address</label>
+              <input type="text" class="form-control" id="lienholder_2_address" name="lienholder_2_address"
+                value="{{ vehicle.lienholder_2_address or '' }}" placeholder="Optional">
             </div>
           </div>
         </div>

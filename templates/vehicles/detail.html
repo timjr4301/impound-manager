@@ -701,6 +701,14 @@ function showGeneralDocImage(btn) {
         {% else %}
           <span class="text-muted fst-italic">Not recorded — add via Edit to enable letter printing.</span>
         {% endif %}
+        {% if vehicle.owner_2_name or vehicle.owner_2_address %}
+        <hr class="my-2">
+        <div class="text-uppercase text-muted fw-semibold" style="font-size:.7rem;">2nd Owner</div>
+        <div class="fw-semibold">{{ vehicle.owner_2_name or '—' }}</div>
+        {% if vehicle.owner_2_address %}
+        <div class="text-muted" style="white-space:pre-line;">{{ vehicle.owner_2_address }}</div>
+        {% endif %}
+        {% endif %}
       </div>
     </div>
 
@@ -723,6 +731,12 @@ function showGeneralDocImage(btn) {
           {% if csz_parts %}<div class="text-muted">{{ csz_parts|join(', ') }}</div>{% endif %}
         {% else %}
           <span class="text-muted fst-italic">Not recorded — add via Edit.</span>
+        {% endif %}
+        {% if vehicle.lienholder_2_name or vehicle.lienholder_2_address %}
+        <hr class="my-2">
+        <div class="text-uppercase text-muted fw-semibold" style="font-size:.7rem;">2nd Lienholder</div>
+        <div class="fw-semibold">{{ vehicle.lienholder_2_name or '—' }}</div>
+        {% if vehicle.lienholder_2_address %}<div class="text-muted">{{ vehicle.lienholder_2_address }}</div>{% endif %}
         {% endif %}
       </div>
     </div>
