@@ -9,7 +9,7 @@ from flask import (Flask, render_template, request, redirect, url_for,
 from flask_login import LoginManager, login_required, current_user
 from models import (db, User, Vehicle, CertifiedLetter, TitleFiling,
                     VehicleNote, DamageItem, SyncLog, VehicleDocument, StaffFeedback,
-                    PoliceDepartment, VehicleCharge, GeneralDocument,
+                    PoliceDepartment, VehicleCharge, GeneralDocument, VehicleDamagePhoto,
                     PPI_LETTER1_DAYS, PPI_LETTER2_DAYS, POLICE_LETTER1_DAYS)
 from werkzeug.utils import secure_filename
 
@@ -76,6 +76,14 @@ def run_migrations(app):
                              'VALUES (:name, :tow, :storage, :admin, TRUE)'),
                         {'name': name, 'tow': tow, 'storage': storage, 'admin': admin},
                     )
+
+            # Bulk-upload damage photo library (vehicle_damage_photos) — separate
+            # table from the older driver-wizard damage_photos table, see
+            # VehicleDamagePhoto's docstring in models.py. Self-heals on boot
+            # so a fresh/local DB matches what's already live in Render.
+            if 'vehicle_damage_photos' not in existing_tables:
+                VehicleDamagePhoto.__table__.create(db.engine)
+                existing_tables.append('vehicle_damage_photos')
 
             if 'vehicles' in existing_tables:
                 cols = {c['name'] for c in inspector.get_columns('vehicles')}
@@ -545,6 +553,7 @@ def create_app():
     from blueprints.driver_snap import bp as driver_snap_bp
     from blueprints.audit import bp as audit_bp
     from blueprints.envelopes import bp as envelopes_bp
+    from blueprints.damage_photos import bp as damage_photos_bp
     from towbook_import import bp as towbook_bp
 
     app.register_blueprint(auth_bp)
@@ -561,6 +570,7 @@ def create_app():
     app.register_blueprint(driver_snap_bp)
     app.register_blueprint(audit_bp)
     app.register_blueprint(envelopes_bp)
+    app.register_blueprint(damage_photos_bp)
 
     # Chat + Invoice Camera registered only when their files exist
     try:

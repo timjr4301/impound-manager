@@ -1,0 +1,115 @@
+{% extends 'base.html' %}
+{% block title %}Damage Photos — Bulk Upload{% endblock %}
+
+{% block content %}
+<div class="d-flex align-items-center justify-content-between mb-3 flex-wrap gap-2">
+  <h4 class="mb-0 d-flex align-items-center gap-2">
+    <i class="bi bi-images fs-4"></i>
+    Damage Photos — Bulk Upload
+  </h4>
+</div>
+
+<div class="card mb-4">
+  <div class="card-body">
+    <p class="small text-muted">
+      Drop one or more <strong>ZIP files</strong> exported from Towbook
+      (named <code>call_XXXXXX_files.zip</code>) — the call number is parsed
+      automatically and photos are matched to the right vehicle. Loose image
+      files (jpg/jpeg/png/webp) are also accepted as a fallback; enter a
+      Call Number below so they can be attached.
+    </p>
+    <form method="POST" action="{{ url_for('damage_photos.bulk_upload') }}"
+          enctype="multipart/form-data">
+      <div class="row g-2 align-items-end">
+        <div class="col-md-8">
+          <label class="form-label small text-muted mb-1">ZIP files and/or loose images</label>
+          <input type="file" name="files" class="form-control" multiple required
+                 accept=".zip,.jpg,.jpeg,.png,.webp,image/*">
+        </div>
+        <div class="col-md-3">
+          <label class="form-label small text-muted mb-1">Call Number <span class="text-muted">(loose images only)</span></label>
+          <input type="text" name="call_number" class="form-control" placeholder="e.g. 123456">
+        </div>
+        <div class="col-md-1">
+          <button type="submit" class="btn btn-primary w-100">
+            <i class="bi bi-upload"></i>
+          </button>
+        </div>
+      </div>
+    </form>
+  </div>
+</div>
+
+{% if results %}
+
+{% if results.matched %}
+<div class="alert alert-success">
+  <strong>Matched</strong> — {{ results.total_photos }} photo{{ '' if results.total_photos == 1 else 's' }}
+  attached to {{ results.total_vehicles }} vehicle{{ '' if results.total_vehicles == 1 else 's' }}.
+</div>
+<div class="card mb-4">
+  <div class="card-body p-0">
+    <table class="table table-sm align-middle mb-0">
+      <thead>
+        <tr class="text-muted small">
+          <th>Vehicle</th>
+          <th>Call #</th>
+          <th>Photos Added</th>
+          <th>Source File(s)</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for entry in results.matched %}
+        <tr>
+          <td class="small">{{ entry.vehicle.display_name }}</td>
+          <td class="small">{{ entry.vehicle.call_number or '—' }}</td>
+          <td class="small">{{ entry.added }}</td>
+          <td class="small text-muted">{{ entry.sources | join(', ') }}</td>
+          <td class="text-end">
+            <a href="{{ url_for('vehicles_detail', vehicle_id=entry.vehicle.id) }}#damage-photos"
+               class="btn btn-sm btn-outline-primary py-0">View Vehicle</a>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endif %}
+
+{% if results.unmatched %}
+<div class="alert alert-warning">
+  <strong>Unmatched ZIPs</strong> — call number not found in system.
+</div>
+<div class="card mb-4">
+  <div class="card-body p-0">
+    <table class="table table-sm align-middle mb-0">
+      <thead>
+        <tr class="text-muted small">
+          <th>Filename</th>
+          <th>Parsed Call #</th>
+          <th>Reason</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for u in results.unmatched %}
+        <tr>
+          <td class="small">{{ u.filename }}</td>
+          <td class="small">{{ u.call_number or '—' }}</td>
+          <td class="small text-muted">{{ u.reason }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endif %}
+
+{% if not results.matched and not results.unmatched %}
+<div class="alert alert-info">Nothing was processed.</div>
+{% endif %}
+
+{% endif %}
+
+{% endblock %}

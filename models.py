@@ -96,6 +96,14 @@ class User(UserMixin, db.Model):
     def can_use_general_documents(self):
         return self.role in ('heather', 'tina', 'tim', 'brady', 'jim')
 
+    @property
+    def can_use_damage_photos(self):
+        return self.role in ('tim', 'heather', 'tina', 'brady', 'jim')
+
+    @property
+    def can_assess_damage(self):
+        return self.role in ('tina', 'tim', 'brady', 'jim')
+
 
 class Vehicle(db.Model):
     __tablename__ = 'vehicles'
@@ -442,6 +450,25 @@ class Vehicle(db.Model):
         order_by='DamageReport.created_at',
         cascade='all, delete-orphan'
     )
+    damage_photos = db.relationship(
+        'VehicleDamagePhoto', back_populates='vehicle',
+        order_by='VehicleDamagePhoto.uploaded_at.desc()',
+        cascade='all, delete-orphan'
+    )
+
+    @property
+    def latest_damage_assessment(self):
+        """Most recent damage-photo row carrying a parsed AI assessment, or None."""
+        candidates = [p for p in self.damage_photos if p.ai_items_json]
+        if not candidates:
+            return None
+        latest = max(candidates, key=lambda p: p.uploaded_at or datetime.min)
+        try:
+            data = json.loads(latest.ai_items_json)
+        except (TypeError, ValueError):
+            return None
+        data.setdefault('items', [])
+        return data
     notices = db.relationship(
         'VehicleNotice', back_populates='vehicle',
         order_by='VehicleNotice.notice_number',
@@ -1328,6 +1355,32 @@ class GeneralDocument(db.Model):
     uploaded_at = db.Column(db.DateTime, default=datetime.utcnow)
 
     vehicle = db.relationship('Vehicle', back_populates='general_documents')
+
+
+# ── Damage Photos (bulk upload + AI damage assessment) ──────────────────────
+# A photo library attached directly to a vehicle — fed by the bulk ZIP
+# importer (/damage-photos/bulk) and single-photo upload on the vehicle
+# detail page, and used as the input for the Opus vision damage assessment.
+# Deliberately named vehicle_damage_photos, NOT damage_photos: that table
+# name is already taken by the older DamagePhoto model (report_id FK to
+# damage_reports, used by the driver-facing damage_docs wizard) — a
+# completely different schema/purpose. Confirmed with Tim before building.
+
+class VehicleDamagePhoto(db.Model):
+    __tablename__ = 'vehicle_damage_photos'
+
+    id = db.Column(db.Integer, primary_key=True)
+    vehicle_id = db.Column(db.Integer, db.ForeignKey('vehicles.id'), nullable=False, index=True)
+    image_data = db.Column(db.Text, nullable=False)   # raw base64, no data-URI prefix (image_type carries the mime)
+    image_type = db.Column(db.String(20), default='image/jpeg')
+    caption = db.Column(db.String(200))
+    original_filename = db.Column(db.String(200))
+    ai_assessment = db.Column(db.Text)     # AI summary text (most recent assessment run)
+    ai_items_json = db.Column(db.Text)     # full AI JSON (overall_condition/summary/items)
+    uploaded_by = db.Column(db.String(50))  # current_user.username, for own-upload delete checks
+    uploaded_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+    vehicle = db.relationship('Vehicle', back_populates='damage_photos')
 
 
 # ── Staff Feedback ───────────────────────────────────────────────────────────

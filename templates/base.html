@@ -231,6 +231,13 @@
       </a>
       {% endif %}
 
+      {# ── Damage Photos bulk upload (tim, heather, tina, brady, jim) ── #}
+      {% if current_user.can_use_damage_photos %}
+      <a href="{{ url_for('damage_photos.bulk_upload') }}" class="nav-link text-white px-2">
+        <i class="bi bi-images"></i> Photo Upload
+      </a>
+      {% endif %}
+
       {# ── UPS Reference Lookup (same access as Heather actions generally) ── #}
       {% if current_user.is_heather %}
       <a href="{{ url_for('heather.ups_lookup') }}" class="nav-link text-white px-2">

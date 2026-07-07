@@ -1484,6 +1484,207 @@ function showGeneralDocImage(btn) {
     </div>
     {% endif %}
 
+    {# ── Damage Photos (bulk-uploaded / single-uploaded, AI assessment) ── #}
+    {% if current_user.can_use_damage_photos %}
+    <div class="card shadow-sm mb-3" id="damage-photos">
+      <div class="card-header fw-semibold d-flex justify-content-between align-items-center">
+        <span><i class="bi bi-images me-1"></i> Damage Photos
+          <span class="badge bg-dark ms-1">{{ vehicle.damage_photos|length }}</span>
+        </span>
+        {% if current_user.can_assess_damage %}
+        <form method="POST" action="{{ url_for('damage_photos.assess_damage', vehicle_id=vehicle.id) }}" class="mb-0">
+          <button type="submit" class="btn btn-sm btn-primary py-0" {% if not vehicle.damage_photos %}disabled{% endif %}>
+            <i class="bi bi-robot"></i> Assess Damage
+          </button>
+        </form>
+        {% endif %}
+      </div>
+      <div class="card-body">
+
+        {% if vehicle.damage_photos %}
+        <div class="row row-cols-2 row-cols-md-4 g-2 mb-3">
+          {% for photo in vehicle.damage_photos %}
+          <div class="col">
+            <div class="position-relative">
+              <img src="data:{{ photo.image_type or 'image/jpeg' }};base64,{{ photo.image_data }}"
+                   class="img-fluid rounded" style="cursor:pointer;aspect-ratio:1;object-fit:cover;width:100%;"
+                   onclick="showDamagePhoto(this)"
+                   data-photo-src="data:{{ photo.image_type or 'image/jpeg' }};base64,{{ photo.image_data }}"
+                   data-photo-label="{{ photo.original_filename or 'Photo' }}{% if photo.caption %} — {{ photo.caption }}{% endif %}"
+                   alt="Damage photo">
+              {% if current_user.role == 'tim' or current_user.username == photo.uploaded_by %}
+              <form method="POST" action="{{ url_for('damage_photos.delete_photo', photo_id=photo.id) }}"
+                    class="position-absolute top-0 end-0 m-1"
+                    onsubmit="return confirm('Delete this photo?');">
+                <button type="submit" class="btn btn-sm btn-danger py-0 px-1" title="Delete" style="line-height:1;">
+                  <i class="bi bi-x"></i>
+                </button>
+              </form>
+              {% endif %}
+            </div>
+            <div class="small text-muted text-truncate mt-1" style="font-size:.7rem;" title="{{ photo.original_filename }}">
+              {{ photo.original_filename or '—' }}
+            </div>
+            <div class="text-muted" style="font-size:.65rem;">
+              {{ photo.uploaded_at.strftime('%m/%d/%Y') if photo.uploaded_at else '' }}
+            </div>
+          </div>
+          {% endfor %}
+        </div>
+        {% else %}
+        <p class="small text-muted mb-3">No damage photos uploaded yet.</p>
+        {% endif %}
+
+        <form method="POST" action="{{ url_for('damage_photos.upload_single', vehicle_id=vehicle.id) }}"
+              enctype="multipart/form-data" class="row g-2 align-items-end">
+          <div class="col-md-6">
+            <label class="form-label small text-muted mb-1">Photo (camera or file)</label>
+            <input type="file" name="file" accept="image/*" capture="environment" class="form-control form-control-sm" required>
+          </div>
+          <div class="col-md-4">
+            <label class="form-label small text-muted mb-1">Caption (optional)</label>
+            <input type="text" name="caption" class="form-control form-control-sm" placeholder="e.g. Left rear quarter panel">
+          </div>
+          <div class="col-md-2">
+            <button type="submit" class="btn btn-primary btn-sm w-100">Upload</button>
+          </div>
+        </form>
+
+        {% if vehicle.latest_damage_assessment %}
+        {% set assess = vehicle.latest_damage_assessment %}
+        <hr class="my-3">
+        <div id="assessment-results">
+          <div class="d-flex align-items-center gap-2 mb-2">
+            {% if assess['overall_condition'] == 'good' %}
+            <span class="badge bg-success" style="font-size:.75rem;">GOOD</span>
+            {% elif assess['overall_condition'] == 'fair' %}
+            <span class="badge bg-warning text-dark" style="font-size:.75rem;">FAIR</span>
+            {% elif assess['overall_condition'] == 'poor' %}
+            <span class="badge text-white" style="font-size:.75rem;background-color:#fd7e14;">POOR</span>
+            {% elif assess['overall_condition'] == 'salvage' %}
+            <span class="badge bg-danger" style="font-size:.75rem;">SALVAGE</span>
+            {% else %}
+            <span class="badge bg-secondary" style="font-size:.75rem;">UNKNOWN</span>
+            {% endif %}
+            <span class="small text-muted fw-semibold">AI Damage Assessment</span>
+          </div>
+          <p class="small">{{ assess['summary'] }}</p>
+
+          {% if assess['items'] %}
+          <form method="POST" action="{{ url_for('damage_photos.add_to_bmv', vehicle_id=vehicle.id) }}" id="assessForm">
+          <div class="table-responsive">
+            <table class="table table-sm align-middle">
+              <thead>
+                <tr class="text-muted small">
+                  <th></th><th>Category</th><th>Location</th><th>Severity</th>
+                  <th>Description</th><th>Est. Cost</th><th>Confidence</th>
+                </tr>
+              </thead>
+              <tbody>
+                {% for item in assess['items'] %}
+                <tr>
+                  <td>
+                    <input type="checkbox" class="form-check-input assess-check"
+                           {% if item.confidence in ('high', 'med') %}checked{% endif %}
+                           data-preset="{{ item.preset }}" data-label="{{ item.label or '' }}"
+                           data-location="{{ item.location or '' }}" data-severity="{{ item.severity or '' }}"
+                           data-description="{{ item.description or '' }}" data-confidence="{{ item.confidence or '' }}">
+                  </td>
+                  <td class="small">{{ item.label if (item.preset == 'CUSTOM' and item.label) else item.preset }}</td>
+                  <td class="small">{{ item.location or '—' }}</td>
+                  <td class="small text-capitalize">{{ item.severity or '—' }}</td>
+                  <td class="small">{{ item.description or '—' }}</td>
+                  <td style="width:110px;">
+                    <input type="number" class="form-control form-control-sm assess-cost" value="{{ item.estimated_cost or 0 }}">
+                  </td>
+                  <td>
+                    {% if item.confidence == 'high' %}<span class="badge bg-success">high</span>
+                    {% elif item.confidence == 'med' %}<span class="badge bg-warning text-dark">med</span>
+                    {% else %}<span class="badge bg-secondary"><i class="bi bi-exclamation-triangle-fill"></i> low</span>
+                    {% endif %}
+                  </td>
+                </tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          </div>
+          <div class="d-flex justify-content-between align-items-center">
+            <div class="fw-semibold small">Total (checked): $<span id="assessTotal">0</span></div>
+            <div>
+              <input type="hidden" name="items_json" id="assessItemsJson">
+              <button type="submit" class="btn btn-sm btn-success">
+                <i class="bi bi-plus-lg"></i> Add Checked Items to BMV Damage Items
+              </button>
+            </div>
+          </div>
+          </form>
+          {% endif %}
+        </div>
+        {% endif %}
+
+      </div>
+    </div>
+
+    <div class="modal fade" id="damagePhotoModal" tabindex="-1">
+      <div class="modal-dialog modal-lg modal-dialog-centered">
+        <div class="modal-content">
+          <div class="modal-header">
+            <h5 class="modal-title" id="damagePhotoModalLabel"></h5>
+            <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+          </div>
+          <div class="modal-body text-center">
+            <img id="damagePhotoModalImg" src="" style="max-width:100%;border-radius:6px;" alt="Damage photo">
+          </div>
+        </div>
+      </div>
+    </div>
+    <script>
+    function showDamagePhoto(el) {
+      document.getElementById('damagePhotoModalImg').src = el.dataset.photoSrc;
+      document.getElementById('damagePhotoModalLabel').textContent = el.dataset.photoLabel;
+      new bootstrap.Modal(document.getElementById('damagePhotoModal')).show();
+    }
+    function recalcAssessTotal() {
+      let total = 0;
+      document.querySelectorAll('.assess-check').forEach(function(cb) {
+        if (cb.checked) {
+          const row = cb.closest('tr');
+          const cost = parseFloat(row.querySelector('.assess-cost').value) || 0;
+          total += cost;
+        }
+      });
+      const totalEl = document.getElementById('assessTotal');
+      if (totalEl) totalEl.textContent = total.toFixed(2);
+    }
+    document.querySelectorAll('.assess-check, .assess-cost').forEach(function(el) {
+      el.addEventListener('input', recalcAssessTotal);
+      el.addEventListener('change', recalcAssessTotal);
+    });
+    recalcAssessTotal();
+    const assessForm = document.getElementById('assessForm');
+    if (assessForm) {
+      assessForm.addEventListener('submit', function() {
+        const items = [];
+        document.querySelectorAll('.assess-check').forEach(function(cb) {
+          if (cb.checked) {
+            const row = cb.closest('tr');
+            items.push({
+              preset: cb.dataset.preset,
+              label: cb.dataset.label,
+              location: cb.dataset.location,
+              severity: cb.dataset.severity,
+              description: cb.dataset.description,
+              confidence: cb.dataset.confidence,
+              estimated_cost: parseFloat(row.querySelector('.assess-cost').value) || 0,
+            });
+          }
+        });
+        document.getElementById('assessItemsJson').value = JSON.stringify(items);
+      });
+    }
+    </script>
+    {% endif %}
+
     {# ── Notes / Activity Log ── #}
     <div class="card shadow-sm">
       <div class="card-header fw-semibold">
