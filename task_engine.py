@@ -6,11 +6,8 @@ Task 1 — BMV Search
   If No Record Found: triggers Task 5 URGENT.
 
 Task 2 — 1st Notice Letter
-  Opens day 5 from impound. NOT before.
-  Locked until Task 1 complete.
+  Unlocks day 1, same trigger as Task 1 — NOT gated behind Task 1 completion.
   Due by day 5. OVERDUE if no letter sent and days_held > 5.
-  For historical/Towbook vehicles: if days_held > 5 and no letter, show as Task 2 OVERDUE
-  regardless of Task 1 state (backfill assumption: BMV was done offline).
 
 Task 3 — 2nd Notice Letter
   Opens 30 days after Task 2 (Letter 1) delivery confirmed OR return-to-sender.
@@ -26,7 +23,7 @@ Task 5 — No Record Found URGENT
 """
 from datetime import date, timedelta
 
-TASK2_OPEN_DAYS     = 5     # Task 2 not available before this many days from impound
+TASK2_OPEN_DAYS     = 5     # Letter 1 due by this many days from impound (unlocked from day 1)
 TASK3_DELAY_DAYS    = 30    # Task 3 opens this many days after Letter 1 delivery/attempt
 TASK4_DELAY_DAYS    = 45    # Task 4 opens this many days after letter2 sent
 YELLOW_WARN_DAYS    = 3     # Flag YELLOW this many days before a deadline
@@ -81,15 +78,11 @@ def compute_task(v, today: date) -> dict:
     except Exception:
         l1 = l2 = None
 
-    # days_held gates both Task 1 (BMV Search) and Task 2 (Letter 1) below, and
-    # follows letter_clock_start — impound_date unless Heather has restarted the
-    # letter clock (e.g. address fixed post-RTS, resending Letter 1). Restarting
-    # resets task1_done's own completion flag untouched, so a restart never
-    # reopens a BMV search that's already done — it only re-gates when the
-    # (re)sent letter becomes due.
-    days_held = (today - v.letter_clock_start).days
-
     # ── Derived flags ─────────────────────────────────────────────────────────
+    # l1_due follows letter_clock_start — impound_date unless Heather has
+    # restarted the letter clock (e.g. address fixed post-RTS, resending
+    # Letter 1). Restarting leaves task1_done's own flag untouched, so a
+    # restart never reopens a BMV search that's already done.
     task1_done = bool(v.heather_complete or (v.bmv_stage == 'COMPLETE'))
     letter1_sent = bool(l1 and l1.sent_date)
     letter2_sent = bool(l2 and l2.sent_date)
@@ -161,11 +154,14 @@ def compute_task(v, today: date) -> dict:
                 action='Waiting for USPS delivery confirmation or return-to-sender',
             )
 
-    # ── TASK 2: 1st Notice Letter ─────────────────────────────────────────────
-    # Backfill rule: vehicles with days_held >= 5 + no letter → Task 2 overdue
-    # (regardless of Task 1 completion — historical vehicles assumed BMV was done offline)
-    if days_held >= TASK2_OPEN_DAYS:
-        days_overdue = (today - l1_due).days
+    # ── TASK 1 & 2: BMV Search + 1st Notice Letter — unlock together, day 1 ───
+    # Both actionable immediately on impound; the letter is never gated behind
+    # BMV search completion. Day 5 (TASK2_OPEN_DAYS) is the letter's DUE date,
+    # not an unlock gate. Each still clears only via its own real action
+    # (BMV marked complete / letter1.sent_date set) — this is not a checkbox.
+    days_overdue = (today - l1_due).days
+    if task1_done:
+        # BMV done — letter is the outstanding item.
         if days_overdue > 0:
             return dict(
                 task_num=2,
@@ -175,38 +171,34 @@ def compute_task(v, today: date) -> dict:
                 locked=False,
                 action=f'Send 1st notice letter ASAP — overdue {days_overdue}d (due {l1_due.strftime("%m/%d/%Y")})',
             )
-        else:
-            days_left = abs(days_overdue)
-            return dict(
-                task_num=2,
-                task_label='1st Notice Letter',
-                task_due=l1_due,
-                urgency='YELLOW' if days_left <= YELLOW_WARN_DAYS else 'GREEN',
-                locked=False,
-                action=f'Send 1st notice letter by {l1_due.strftime("%m/%d/%Y")}',
-            )
-
-    # ── TASK 1: BMV Search (days_held < 5, letter not sent) ──────────────────
-    days_until_task2 = (l1_due - today).days
-    if task1_done:
-        urgency = 'YELLOW' if days_until_task2 <= YELLOW_WARN_DAYS else 'GREEN'
+        days_left = abs(days_overdue)
         return dict(
             task_num=2,
             task_label='1st Notice Letter',
             task_due=l1_due,
-            urgency=urgency,
-            locked=True,
-            action=f'BMV complete. Letter 1 opens in {days_until_task2}d on {l1_due.strftime("%m/%d/%Y")}',
+            urgency='YELLOW' if days_left <= YELLOW_WARN_DAYS else 'GREEN',
+            locked=False,
+            action=f'Send 1st notice letter by {l1_due.strftime("%m/%d/%Y")}',
         )
     else:
-        urgency = 'YELLOW' if days_held >= (TASK2_OPEN_DAYS - YELLOW_WARN_DAYS) else 'GREEN'
+        # BMV not done — Task 1 shown, but letter is independently unlocked too.
+        if days_overdue > 0:
+            return dict(
+                task_num=1,
+                task_label='BMV Search',
+                task_due=l1_due,
+                urgency='RED',
+                locked=False,
+                action=f'Complete BMV search — 1st notice letter also overdue {days_overdue}d (due {l1_due.strftime("%m/%d/%Y")}, can be sent now)',
+            )
+        days_left = abs(days_overdue)
         return dict(
             task_num=1,
             task_label='BMV Search',
             task_due=l1_due,
-            urgency=urgency,
+            urgency='YELLOW' if days_left <= YELLOW_WARN_DAYS else 'GREEN',
             locked=False,
-            action=f'Complete BMV search — letter 1 due in {days_until_task2}d',
+            action=f'Complete BMV search — letter 1 due {l1_due.strftime("%m/%d/%Y")} ({days_left}d), can be sent now',
         )
 
 
