@@ -2,6 +2,7 @@ import base64
 import csv
 import io
 import os
+import re
 from datetime import date, datetime, timedelta
 from flask import (Flask, render_template, request, redirect, url_for,
                    flash, send_file, jsonify, g)
@@ -29,6 +30,10 @@ try:
     _APScheduler = BackgroundScheduler
 except ImportError:
     _APScheduler = None
+
+# Holds a 2nd-party UPS label GIF just long enough to redirect-then-render on
+# mark_sent.html — see letters_create_ups_label for why this stays in-memory.
+_pending_label_2_cache = {}
 
 
 def run_migrations(app):
@@ -172,6 +177,8 @@ def run_migrations(app):
                     conn.execute(text("ALTER TABLE certified_letters ADD COLUMN recipient_type VARCHAR(20) DEFAULT 'owner'"))
                 if 'letter_kind' not in cols:
                     conn.execute(text('ALTER TABLE certified_letters ADD COLUMN letter_kind VARCHAR(20)'))
+                if 'tracking_number_2' not in cols:
+                    conn.execute(text('ALTER TABLE certified_letters ADD COLUMN tracking_number_2 VARCHAR(50)'))
                 # Backfill letter_kind on pre-existing letter_number 1/2 rows
                 # (created before the 5-letter system existed) so their print
                 # content routes correctly. Safe to re-run — only touches
@@ -1450,14 +1457,32 @@ def create_app():
         import ups_api
         return render_template('letters/mark_sent.html', letter=letter, today=date.today(),
                                 ups_configured=ups_api.is_configured(),
-                                label_b64=request.args.get('label'))
+                                label_b64=request.args.get('label'),
+                                label_2_b64=_pending_label_2_cache.pop(letter_id, None))
+
+    def _parse_city_state_zip(address_text):
+        """Best-effort parse of a trailing 'City, ST ZIP' line out of a freeform
+        address blob. Used for owner_2/lienholder_2, which (unlike the primary
+        owner/lienholder) have no separate city/state/zip columns — mirrors the
+        same lenient blank-if-unparseable behavior the primary owner flow already
+        has when its own city/state/zip haven't been populated by the BMV scanner."""
+        if not address_text:
+            return '', '', ''
+        last_line = address_text.strip().splitlines()[-1].strip()
+        m = re.match(r'^(.*?),?\s+([A-Za-z]{2})\s+(\d{5}(?:-\d{4})?)$', last_line)
+        if m:
+            return m.group(1).strip(), m.group(2).upper(), m.group(3)
+        return '', '', ''
 
     @app.route('/letters/<int:letter_id>/create-ups-label', methods=['POST'])
     @login_required
     def letters_create_ups_label(letter_id):
         """In-app UPS label creation — replaces hand-typing a tracking number
         after mailing at a UPS Store. Auto-logs the tracking number and marks
-        the letter sent in the same step."""
+        the letter sent in the same step. Also creates a second label when the
+        vehicle has a 2nd owner/lienholder on file for this letter's recipient_type
+        (a genuinely separate certified-mail piece for the second co-owner/
+        co-lienholder, not a second copy of the first)."""
         letter = db.get_or_404(CertifiedLetter, letter_id)
         vehicle = letter.vehicle
 
@@ -1486,11 +1511,13 @@ def create_app():
                 vehicle.lienholder_name, vehicle.lienholder_address,
                 vehicle.lienholder_city, vehicle.lienholder_state, vehicle.lienholder_zip,
             )
+            name_2, address_2 = vehicle.lienholder_2_name, vehicle.lienholder_2_address
         else:
             name, address, city, state, zip_code = (
                 vehicle.owner_name, vehicle.owner_address,
                 vehicle.owner_city, vehicle.owner_state, vehicle.owner_zip,
             )
+            name_2, address_2 = vehicle.owner_2_name, vehicle.owner_2_address
 
         if not name or not address:
             flash(
@@ -1512,9 +1539,42 @@ def create_app():
             flash(f'UPS API error: {exc}', 'danger')
             return redirect(url_for('letters_mark_sent', letter_id=letter.id))
 
+        tracking_number_2, label_2_b64 = None, None
+        if name_2:
+            if not address_2:
+                flash(
+                    f'Primary label created, but no address on file for the 2nd '
+                    f'{letter.recipient_type} ({name_2}) — add it on the vehicle edit '
+                    'form to print their label too.',
+                    'warning',
+                )
+            else:
+                city_2, state_2, zip_2 = _parse_city_state_zip(address_2)
+                try:
+                    tracking_number_2, label_2_b64 = ups_api.create_label(
+                        reference, name_2, address_2, city_2, state_2, zip_2,
+                        trans_id=f'letter-{letter.id}-2nd',
+                    )
+                except Exception as exc:
+                    flash(
+                        f'Primary label created, but the 2nd {letter.recipient_type} '
+                        f'label failed: {exc}',
+                        'warning',
+                    )
+
         message = _finalize_letter_sent(
             letter, date.today(), tracking_number=tracking_number, ups_status='Label Created',
         )
+        if tracking_number_2:
+            letter.tracking_number_2 = tracking_number_2
+            db.session.commit()
+            message += f' 2nd label tracking: {tracking_number_2}.'
+        if label_2_b64:
+            # In-memory only, keyed by letter id, popped on next render — relies
+            # on this app's confirmed single gunicorn worker (render.yaml -w 1,
+            # same assumption the Wally chat fix already depends on). Avoids
+            # doubling the query-string size of the existing label redirect.
+            _pending_label_2_cache[letter.id] = label_2_b64
         flash(f'{message} Tracking: {tracking_number}', 'success')
         return redirect(url_for('letters_mark_sent', letter_id=letter.id) + f'?label={label_b64}')
 

@@ -115,6 +115,11 @@ def create_label(reference, recipient_name, recipient_address, recipient_city,
                         'Weight': '0.1',
                     },
                     'ReferenceNumber': {'Value': (reference or '')[:35]},
+                    'PackageServiceOptions': {
+                        # DCISType 2 = Signature Required. Hard requirement: no
+                        # signature on the label means no signed POD to fetch later.
+                        'DeliveryConfirmation': {'DCISType': '2'},
+                    },
                 },
                 'PaymentInformation': {
                     'ShipmentCharge': {

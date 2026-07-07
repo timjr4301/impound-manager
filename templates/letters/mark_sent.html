@@ -65,6 +65,19 @@
         </div>
       </div>
     </div>
+    {% if label_2_b64 %}
+    <div class="card shadow-sm mb-4 border-success">
+      <div class="card-header bg-success bg-opacity-10 fw-semibold">
+        <i class="bi bi-check-circle-fill text-success me-1"></i> 2nd {{ letter.recipient_type|capitalize }} Label Created — Tracking {{ letter.tracking_number_2 }}
+      </div>
+      <div class="card-body text-center">
+        <img src="data:image/gif;base64,{{ label_2_b64 }}" class="img-fluid border" style="max-width:4in;" alt="UPS shipping label — 2nd {{ letter.recipient_type }}">
+        <div class="mt-2">
+          <button onclick="window.print()" class="btn btn-outline-primary btn-sm"><i class="bi bi-printer"></i> Print 2nd Label</button>
+        </div>
+      </div>
+    </div>
+    {% endif %}
     {% elif ups_configured and not letter.tracking_number %}
     <form method="POST" action="{{ url_for('letters_create_ups_label', letter_id=letter.id) }}" class="mb-4">
       <button type="submit" class="btn btn-outline-primary w-100">

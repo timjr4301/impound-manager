@@ -716,6 +716,10 @@ class CertifiedLetter(db.Model):
     due_date = db.Column(db.Date, nullable=False)
     sent_date = db.Column(db.Date)
     tracking_number = db.Column(db.String(50))
+    # 2nd label's tracking number — only set when this letter's vehicle has a
+    # 2nd owner/lienholder on file and Print Label creates a separate UPS
+    # shipment addressed to that second party alongside the primary one.
+    tracking_number_2 = db.Column(db.String(50))
     delivery_confirmed_date = db.Column(db.Date)
     scheduled_delivery = db.Column(db.Date)
     ups_status = db.Column(db.String(50))
