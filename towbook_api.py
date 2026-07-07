@@ -51,20 +51,22 @@ def _to_date(val):
     """Parse a variety of date string formats into a date object."""
     if not val:
         return None
-    s = str(val)
+    s = str(val).strip()
     for fmt in (
         '%Y-%m-%dT%H:%M:%S',
-        '%Y-%m-%dT%H:%M:%SZ',
         '%Y-%m-%d %H:%M:%S',
         '%Y-%m-%d',
         '%m/%d/%Y %I:%M %p',
         '%m/%d/%Y',
     ):
         try:
-            return datetime.strptime(s[:len(fmt)], fmt).date()
+            return datetime.strptime(s, fmt).date()
         except (ValueError, TypeError):
             continue
-    return None
+    try:
+        return datetime.fromisoformat(s.replace('Z', '+00:00')).date()
+    except (ValueError, TypeError):
+        return None
 
 
 def _money(val):
@@ -175,12 +177,18 @@ def fetch_calls(since_date=None):
 def upsert_calls(calls):
     """
     Upsert a list of raw Towbook call dicts into the vehicles table.
-    Returns (inserted, updated, skipped, errors).
+    Returns (inserted, updated, skipped, errors, stock_numbers_seen).
+
+    stock_numbers_seen is every stock number present in this pull (whether
+    inserted, updated, or already RELEASED) — the caller cross-references it
+    against ACTIVE vehicles in our DB the same way towbook_import.py's CSV
+    path already does, to catch a vehicle Towbook no longer lists at all.
     """
     from models import db, Vehicle
 
     inserted = updated = skipped = 0
     errors = []
+    stock_numbers_seen = []
 
     for call in calls:
         try:
@@ -189,12 +197,26 @@ def upsert_calls(calls):
             if not stock:
                 skipped += 1
                 continue
+            stock_numbers_seen.append(stock)
+
+            # Speculative field names, same caveat as _map_call above — untested
+            # against a real Towbook API response. Only matters if Towbook's
+            # /v1/calls endpoint ever includes recently-closed calls; if it only
+            # returns open impounds (status=impound), a released vehicle simply
+            # stops appearing at all and is caught by the possible-release check
+            # in run_auto_sync() instead.
+            release_date = _to_date(
+                call.get('releaseDate') or call.get('release_date') or
+                call.get('ReleaseDate') or call.get('releasedDate')
+            )
 
             existing = Vehicle.query.filter_by(stock_number=stock).first()
             if existing:
                 for k, v in fields.items():
                     if v is not None:
                         setattr(existing, k, v)
+                if release_date and existing.status == 'ACTIVE':
+                    existing.status = 'RELEASED'
                 existing.updated_at = datetime.utcnow()
                 updated += 1
             else:
@@ -204,7 +226,7 @@ def upsert_calls(calls):
                 vehicle = Vehicle(
                     **fields,
                     impound_type='PPI',
-                    status='ACTIVE',
+                    status='RELEASED' if release_date else 'ACTIVE',
                     created_at=datetime.utcnow(),
                     updated_at=datetime.utcnow(),
                 )
@@ -218,18 +240,29 @@ def upsert_calls(calls):
             })
 
     db.session.commit()
-    return inserted, updated, skipped, errors
+    return inserted, updated, skipped, errors, stock_numbers_seen
 
 
 def run_auto_sync():
     """
-    Full API-based sync: fetch → upsert → recalculate task pipeline.
-    Returns a result dict.  Raises on API failure.
+    Full API-based sync: fetch → upsert → flag possible releases → recalculate
+    task pipeline. Returns a result dict. Raises on API failure.
     """
     since = date.today() - timedelta(days=SYNC_LOOKBACK_DAYS)
     calls = fetch_calls(since_date=since)
 
-    inserted, updated, skipped, errors = upsert_calls(calls)
+    inserted, updated, skipped, errors, stock_numbers_seen = upsert_calls(calls)
+
+    # Cross-reference against active records — same check the manual CSV
+    # import already runs, previously missing from this API path entirely.
+    possible_release_count = 0
+    try:
+        from tina_sync import check_possible_releases, flag_vehicle_possible_release
+        for v in check_possible_releases(stock_numbers_seen):
+            flag_vehicle_possible_release(v.id)
+            possible_release_count += 1
+    except Exception as exc:
+        print(f'[towbook_api] possible-release check failed: {exc}')
 
     from task_engine import recalculate_all
     urgency_counts = recalculate_all()
@@ -242,6 +275,7 @@ def run_auto_sync():
         'updated': updated,
         'skipped': skipped,
         'errors': errors,
+        'possible_releases_flagged': possible_release_count,
         'urgency': urgency_counts,
         'synced_at': datetime.utcnow().isoformat(),
     }
