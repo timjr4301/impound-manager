@@ -70,23 +70,47 @@
     <div class="table-responsive">
       <table class="table table-sm table-hover align-middle mb-0">
         <thead class="table-light">
-          <tr><th>Stock #</th><th>VIN</th><th>Vehicle</th><th>Towbook Release Date</th>
-              <th>Release Reason</th><th>Days Since</th><th></th></tr>
+          <tr>
+            <th class="text-center" style="width:2.5rem;">
+              <input type="checkbox" class="form-check-input" id="bulk-select-all" title="Select all releasable">
+            </th>
+            <th>Stock #</th><th>VIN</th><th>Vehicle</th><th>Towbook Release Date</th>
+            <th>Release Reason</th><th>Days Since</th><th></th>
+          </tr>
         </thead>
         <tbody>
         {% for r in csv_data.flagged %}
-        <tr>
+        <tr class="{% if r.category == 'TINA_CASE' %}table-success{% elif r.category == 'REVIEW' %}table-warning{% endif %}">
+          <td class="text-center">
+            {% if r.category == 'BULK_ELIGIBLE' %}
+            <input type="checkbox" class="form-check-input bulk-cb" value="{{ r.id }}">
+            {% endif %}
+          </td>
           <td class="font-monospace small">{{ r.stock_number or '—' }}</td>
           <td class="font-monospace small">{{ r.vin or '—' }}</td>
           <td>{{ r.description }}</td>
           <td>{{ r.release_date }}</td>
-          <td class="small">{{ r.release_reason }}</td>
+          <td class="small">
+            {{ r.release_reason }}
+            {% if r.category == 'TINA_CASE' %}<span class="badge bg-success ms-1">→ Tina</span>
+            {% elif r.category == 'REVIEW' %}<span class="badge bg-warning text-dark ms-1">Review</span>{% endif %}
+          </td>
           <td><span class="badge bg-danger">{{ r.days_since_release }}d</span></td>
           <td class="text-end"><a href="{{ r.detail_url }}" class="btn btn-sm btn-outline-danger py-0">View in IM →</a></td>
         </tr>
         {% endfor %}
         </tbody>
       </table>
+    </div>
+
+    {# Sticky bulk-release action bar — only visible when ≥1 checkbox checked #}
+    <div id="bulk-action-bar"
+         class="d-none position-fixed bottom-0 start-0 end-0 bg-dark text-white py-2 px-3 d-flex align-items-center gap-3 shadow-lg"
+         style="z-index:1050;">
+      <span id="bulk-count" class="fw-semibold">0 vehicles selected</span>
+      <button type="button" id="bulk-release-btn" class="btn btn-success btn-sm ms-auto">
+        <i class="bi bi-box-arrow-right me-1"></i>Mark Selected as Released in IM
+      </button>
     </div>
     {% else %}
     <div class="text-success small p-3"><i class="bi bi-check-circle me-1"></i>All clear — no active IM vehicles show a Towbook release.</div>
@@ -231,6 +255,54 @@
     if (files && files.length) {
       input.files = files;
       submitFor(files[0]);
+    }
+  });
+})();
+
+// Section 1 bulk-release: select-all (bulk-eligible only), sticky bar, POST.
+(function () {
+  const selectAll = document.getElementById('bulk-select-all');
+  const bar = document.getElementById('bulk-action-bar');
+  const countEl = document.getElementById('bulk-count');
+  const relBtn = document.getElementById('bulk-release-btn');
+  if (!bar) return;
+  const boxes = () => Array.from(document.querySelectorAll('.bulk-cb'));
+
+  function refresh() {
+    const all = boxes();
+    const checked = all.filter(b => b.checked);
+    countEl.textContent = checked.length + ' vehicle' + (checked.length === 1 ? '' : 's') + ' selected';
+    bar.classList.toggle('d-none', checked.length === 0);
+    if (selectAll) {
+      selectAll.checked = all.length > 0 && checked.length === all.length;
+      selectAll.indeterminate = checked.length > 0 && checked.length < all.length;
+    }
+  }
+
+  if (selectAll) selectAll.addEventListener('change', () => {
+    boxes().forEach(b => { b.checked = selectAll.checked; });
+    refresh();
+  });
+  boxes().forEach(b => b.addEventListener('change', refresh));
+
+  if (relBtn) relBtn.addEventListener('click', async () => {
+    const ids = boxes().filter(b => b.checked).map(b => parseInt(b.value, 10));
+    if (!ids.length) return;
+    if (!confirm('Release ' + ids.length + ' vehicle' + (ids.length === 1 ? '' : 's') +
+                 ' in Impound Manager? This cannot be undone.')) return;
+    relBtn.disabled = true;
+    try {
+      const resp = await fetch('/audit/bulk-release', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ vehicle_ids: ids }),
+      });
+      const data = await resp.json();
+      if (!resp.ok) throw new Error(data.error || ('Request failed (' + resp.status + ')'));
+      window.location.href = data.redirect || '/audit/';
+    } catch (err) {
+      relBtn.disabled = false;
+      alert('Error: ' + err.message);
     }
   });
 })();

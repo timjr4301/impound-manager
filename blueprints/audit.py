@@ -15,10 +15,10 @@ from datetime import date, datetime
 from functools import wraps
 
 from flask import (Blueprint, render_template, request, redirect, url_for,
-                   flash, session)
+                   flash, session, jsonify)
 from flask_login import login_required, current_user
 
-from models import Vehicle
+from models import db, Vehicle, VehicleNote
 from towbook_import import _norm, _get, _parse_date
 
 bp = Blueprint('audit', __name__, url_prefix='/audit')
@@ -40,10 +40,50 @@ def _audit_required(f):
     @wraps(f)
     def decorated(*args, **kwargs):
         if current_user.role not in AUDIT_ROLES:
+            # JSON/AJAX callers (e.g. bulk-release) get a real 403; page GETs
+            # get a friendly flash + redirect.
+            if request.method != 'GET' and (request.is_json or request.accept_mimetypes.best == 'application/json'):
+                return jsonify({'error': 'Restricted to Tim, Brady, and Jim.'}), 403
             flash('That page is restricted to Tim, Brady, and Jim.', 'danger')
             return redirect(url_for('dashboard'))
         return f(*args, **kwargs)
     return login_required(decorated)
+
+
+# ── Release-reason categorization ─────────────────────────────────────────────
+# Buckets each Towbook release reason so Section 1 can show Tina-case / review
+# badges and gate which rows get a bulk-release checkbox. Matching is
+# case-insensitive and whitespace-tolerant.
+_TINA_REASONS = {
+    'released - title obtained',
+    'released - title surrendered',
+}
+_BULK_REASONS = {
+    'released - with payment',
+    'released - to new owner',
+    'release - to insurance',
+    'released - promise to pay',
+    'vehicle was scrapped',
+}
+
+
+def _classify_release_reason(reason):
+    r = (reason or '').strip().lower()
+    if 'affidavit' in r:
+        return 'TINA_CASE'
+    if r in _TINA_REASONS:
+        return 'TINA_CASE'
+    if r in _BULK_REASONS:
+        return 'BULK_ELIGIBLE'
+    return 'REVIEW'   # 'Other', 'PURGED - NOT ON INVENTORY', anything unrecognized
+
+
+def _released_columns_present():
+    """released_at / released_by do not currently exist on the vehicles table
+    (confirmed in the Undo Release build). Check the live model so the bulk
+    release safely sets them only if a future migration adds them."""
+    cols = {c.name for c in Vehicle.__table__.columns}
+    return ('released_at' in cols, 'released_by' in cols)
 
 
 def _active_not_ghost():
@@ -184,13 +224,15 @@ def towbook_check():
         if not v:
             continue  # not an active IM vehicle → not a mismatch
 
+        reason = (_get(row, norm_map, 'Release Reason') or '').strip()
         flagged.append({
             'id': v.id,
             'stock_number': v.stock_number or stock or None,
             'vin': v.vin or vin or None,
             'description': (_get(row, norm_map, 'Vehicle') or '').strip() or v.display_name,
             'release_date': release_date.strftime('%m/%d/%Y'),
-            'release_reason': (_get(row, norm_map, 'Release Reason') or '').strip() or '—',
+            'release_reason': reason or '—',
+            'category': _classify_release_reason(reason),
             'days_since_release': (today - release_date).days,
             'detail_url': url_for('vehicles_detail', vehicle_id=v.id),
         })
@@ -213,4 +255,73 @@ def towbook_check():
 def towbook_clear():
     session.pop(SESSION_KEY, None)
     flash('Cleared the uploaded Towbook cross-reference.', 'info')
+    return redirect(url_for('audit.index'))
+
+
+@bp.route('/bulk-release', methods=['POST'])
+@_audit_required
+def bulk_release():
+    """Mark a batch of Section 1 vehicles RELEASED in IM. Ghost and
+    already-released vehicles are skipped silently. No reason field — the
+    front end gates this behind a confirm() dialog."""
+    if request.is_json:
+        vehicle_ids = (request.get_json(silent=True) or {}).get('vehicle_ids', [])
+    else:
+        vehicle_ids = request.form.getlist('vehicle_ids')
+
+    # Normalize to ints, drop anything unparseable
+    ids = []
+    for raw in vehicle_ids or []:
+        try:
+            ids.append(int(raw))
+        except (TypeError, ValueError):
+            continue
+
+    has_released_at, has_released_by = _released_columns_present()
+    who = current_user.username
+    now = datetime.utcnow()
+
+    released = 0
+    skipped = 0
+    errors = []
+    for vid in ids:
+        v = db.session.get(Vehicle, vid)
+        if v is None:
+            skipped += 1
+            errors.append(f'Vehicle {vid} not found')
+            continue
+        # Hard-block ghosts and no-op already-released vehicles.
+        if v.possible_release or v.status == 'RELEASED':
+            skipped += 1
+            continue
+        v.status = 'RELEASED'
+        v.updated_at = now
+        if has_released_at:
+            setattr(v, 'released_at', now)
+        if has_released_by:
+            setattr(v, 'released_by', who)
+        db.session.add(VehicleNote(
+            vehicle_id=v.id,
+            body=f'Marked Released via Status Audit bulk release by '
+                 f'{current_user.display_name or who}.',
+            author=current_user.display_name or who,
+            created_at=now,
+        ))
+        released += 1
+
+    if released:
+        db.session.commit()
+
+    # Keep the CSV session data intact — released rows drop off on the next
+    # upload (they'll no longer be ACTIVE), per spec.
+    flash(f'{released} vehicle{"" if released == 1 else "s"} released. '
+          f'{skipped} skipped (already released or ghost).', 'success')
+
+    if request.is_json:
+        return jsonify({
+            'released': released,
+            'skipped': skipped,
+            'errors': errors,
+            'redirect': url_for('audit.index'),
+        })
     return redirect(url_for('audit.index'))
