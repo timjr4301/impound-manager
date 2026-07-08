@@ -50,6 +50,16 @@
   </span>
 </div>
 
+{# ══ Undo-Release audit trail (muted) ══ #}
+{% if vehicle.unreleased_at %}
+<div class="text-muted small mb-3">
+  <i class="bi bi-arrow-counterclockwise"></i>
+  Previously released — undone by {{ vehicle.unreleased_by or '—' }} on
+  {{ vehicle.unreleased_at.strftime('%m/%d/%Y') }}
+  {% if vehicle.unreleased_reason %} &middot; Reason: {{ vehicle.unreleased_reason }}{% endif %}
+</div>
+{% endif %}
+
 {# ══ Pending Pickup Banner ══ #}
 {% if vehicle.status == 'PENDING_PICKUP' %}
 <div class="alert {% if vehicle.pending_pickup_overdue %}alert-danger border-danger border-3{% else %}alert-warning{% endif %} d-flex align-items-center gap-3 mb-4">
@@ -877,6 +887,26 @@ function showGeneralDocImage(btn) {
             </button>
           </form>
           {% endif %}
+        {% endif %}
+        {# Undo Release — restore a mistakenly-released vehicle to active #}
+        {% if vehicle.status == 'RELEASED' and current_user.can_unrelease %}
+        <button class="btn btn-warning" type="button"
+                data-bs-toggle="collapse" data-bs-target="#undoReleaseForm">
+          <i class="bi bi-arrow-counterclockwise"></i> Undo Release
+        </button>
+        <div class="collapse" id="undoReleaseForm">
+          <form method="POST" action="{{ url_for('vehicles_unrelease', vehicle_id=vehicle.id) }}"
+                class="border rounded p-2 mt-1">
+            <label class="form-label small fw-semibold mb-1">Reason for undoing release</label>
+            <textarea name="reason" class="form-control form-control-sm mb-2" rows="2" required
+                      placeholder="e.g. Released by mistake — owner paid on wrong ticket"></textarea>
+            <div class="d-flex gap-2 align-items-center">
+              <button type="submit" class="btn btn-warning btn-sm">Confirm — Restore to Active</button>
+              <button type="button" class="btn btn-link btn-sm text-muted p-0"
+                      data-bs-toggle="collapse" data-bs-target="#undoReleaseForm">Cancel</button>
+            </div>
+          </form>
+        </div>
         {% endif %}
         {# Heather-specific actions #}
         {% if current_user.is_heather and vehicle.status == 'ACTIVE' %}

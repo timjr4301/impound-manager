@@ -161,6 +161,9 @@ def run_migrations(app):
                     ('vin_mismatch_resolved_by',   'VARCHAR(50)'),
                     ('vin_mismatch_resolved_date', 'DATE'),
                     ('pending_pickup_since',       'TIMESTAMP'),
+                    ('unreleased_at',              'TIMESTAMP'),
+                    ('unreleased_by',              'VARCHAR(50)'),
+                    ('unreleased_reason',          'VARCHAR(255)'),
                     ('snoozed_until',           'DATE'),
                     ('snoozed_at',              'TIMESTAMP'),
                     ('snoozed_by',              'VARCHAR(50)'),
@@ -1201,6 +1204,36 @@ def create_app():
         ))
         db.session.commit()
         flash(f'{vehicle.display_name} pickup confirmed — released.', 'success')
+        return redirect(url_for('vehicles_detail', vehicle_id=vehicle_id))
+
+    @app.route('/vehicles/<int:vehicle_id>/unrelease', methods=['POST'])
+    @login_required
+    def vehicles_unrelease(vehicle_id):
+        """Undo a mistaken release — restore a RELEASED vehicle to ACTIVE."""
+        vehicle = db.get_or_404(Vehicle, vehicle_id)
+        if not current_user.can_unrelease:
+            flash('Permission denied.', 'danger')
+            return redirect(url_for('vehicles_detail', vehicle_id=vehicle_id))
+        if vehicle.status != 'RELEASED':
+            flash('Vehicle is not currently released.', 'danger')
+            return redirect(url_for('vehicles_detail', vehicle_id=vehicle_id))
+        reason = request.form.get('reason', '').strip()
+        if not reason:
+            flash('A reason is required to undo a release.', 'danger')
+            return redirect(url_for('vehicles_detail', vehicle_id=vehicle_id))
+        vehicle.status = 'ACTIVE'
+        vehicle.unreleased_at = datetime.utcnow()
+        vehicle.unreleased_by = current_user.username
+        vehicle.unreleased_reason = reason
+        vehicle.updated_at = datetime.utcnow()
+        db.session.add(VehicleNote(
+            vehicle_id=vehicle.id,
+            body=f'Release undone by {current_user.display_name or current_user.username} — restored to active. Reason: {reason}',
+            author=current_user.display_name or current_user.username,
+            created_at=datetime.utcnow(),
+        ))
+        db.session.commit()
+        flash(f'Vehicle restored to active — {vehicle.display_name}.', 'success')
         return redirect(url_for('vehicles_detail', vehicle_id=vehicle_id))
 
     # ── Valuation Report ───────────────────────────────────────────────────────

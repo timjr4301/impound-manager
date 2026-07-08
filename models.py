@@ -104,6 +104,11 @@ class User(UserMixin, db.Model):
     def can_assess_damage(self):
         return self.role in ('tina', 'tim', 'brady', 'jim')
 
+    @property
+    def can_unrelease(self):
+        """Who may undo a mistaken release — same set as mark-released (wally uses role tim)."""
+        return self.role in ('tim', 'heather', 'brady', 'jim')
+
 
 class Vehicle(db.Model):
     __tablename__ = 'vehicles'
@@ -272,6 +277,12 @@ class Vehicle(db.Model):
     # the RELEASED status set directly by Tina's sale/junk invoice flows, which
     # have no "customer picks it up" step and skip this entirely.
     pending_pickup_since = db.Column(db.DateTime)
+
+    # Undo Release — set when an authorized user reverses a mistaken RELEASED
+    # status back to ACTIVE, keeping a paper trail of who/when/why.
+    unreleased_at = db.Column(db.DateTime)
+    unreleased_by = db.Column(db.String(50))
+    unreleased_reason = db.Column(db.String(255))
 
     @property
     def pending_pickup_hours(self):

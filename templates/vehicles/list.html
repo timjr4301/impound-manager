@@ -78,6 +78,11 @@
             {% endif %}
           </td>
           <td class="text-end pe-3">
+            {% if status_filter == 'RELEASED' and current_user.can_unrelease %}
+            <a href="{{ url_for('vehicles_detail', vehicle_id=v.id) }}#undoReleaseForm" class="btn btn-sm btn-warning">
+              <i class="bi bi-arrow-counterclockwise"></i> Undo
+            </a>
+            {% endif %}
             <a href="{{ url_for('vehicles_detail', vehicle_id=v.id) }}" class="btn btn-sm btn-outline-secondary">
               View
             </a>
