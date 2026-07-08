@@ -1,0 +1,83 @@
+{% extends 'base.html' %}
+{% block title %}My To-Dos — Impound Manager{% endblock %}
+
+{% block content %}
+<div class="d-flex align-items-center mb-4 gap-2">
+  <h2 class="h4 mb-0 fw-bold"><i class="bi bi-check2-square"></i> My To-Dos</h2>
+  <span class="badge bg-secondary">{{ open_todos|length }} open</span>
+</div>
+
+<p class="text-muted small mb-3">
+  Your own personal reminders. These are separate from the app's automatic
+  compliance tasks (letters, BMV searches, etc.) — those can't be checked off or deleted here.
+</p>
+
+{# Add form #}
+<form method="POST" action="{{ url_for('todos_add') }}" class="card shadow-sm mb-4">
+  <div class="card-body d-flex gap-2">
+    <input type="text" name="text" class="form-control" maxlength="1000" required
+           placeholder="Add a to-do — e.g. Call auctioneer about Lot B pickup" autofocus>
+    <button type="submit" class="btn btn-success flex-shrink-0">
+      <i class="bi bi-plus-lg"></i> Add
+    </button>
+  </div>
+</form>
+
+{# Open items #}
+{% if open_todos %}
+<div class="card shadow-sm mb-4">
+  <div class="list-group list-group-flush">
+    {% for t in open_todos %}
+    <div class="list-group-item d-flex align-items-center gap-3">
+      <form method="POST" action="{{ url_for('todos_toggle', todo_id=t.id) }}" class="d-inline">
+        <button type="submit" class="btn btn-outline-success btn-sm" title="Mark done">
+          <i class="bi bi-circle"></i>
+        </button>
+      </form>
+      <span class="flex-grow-1">{{ t.text }}</span>
+      <small class="text-muted d-none d-sm-inline">{{ t.created_at.strftime('%m/%d/%Y') if t.created_at else '' }}</small>
+      <form method="POST" action="{{ url_for('todos_delete', todo_id=t.id) }}" class="d-inline"
+            onsubmit="return confirm('Delete this to-do?');">
+        <button type="submit" class="btn btn-outline-danger btn-sm" title="Delete">
+          <i class="bi bi-trash"></i>
+        </button>
+      </form>
+    </div>
+    {% endfor %}
+  </div>
+</div>
+{% else %}
+<div class="text-center text-muted py-4">
+  <i class="bi bi-check2-circle display-5 d-block mb-2"></i>
+  Nothing on your list. Add a to-do above.
+</div>
+{% endif %}
+
+{# Completed items #}
+{% if done_todos %}
+<h6 class="text-muted text-uppercase small fw-semibold mb-2">Completed</h6>
+<div class="card shadow-sm">
+  <div class="list-group list-group-flush">
+    {% for t in done_todos %}
+    <div class="list-group-item d-flex align-items-center gap-3 bg-light">
+      <form method="POST" action="{{ url_for('todos_toggle', todo_id=t.id) }}" class="d-inline">
+        <button type="submit" class="btn btn-success btn-sm" title="Mark not done">
+          <i class="bi bi-check-lg"></i>
+        </button>
+      </form>
+      <span class="flex-grow-1 text-muted text-decoration-line-through">{{ t.text }}</span>
+      <small class="text-muted d-none d-sm-inline">
+        {{ t.completed_at.strftime('%m/%d/%Y') if t.completed_at else '' }}
+      </small>
+      <form method="POST" action="{{ url_for('todos_delete', todo_id=t.id) }}" class="d-inline"
+            onsubmit="return confirm('Delete this to-do?');">
+        <button type="submit" class="btn btn-outline-danger btn-sm" title="Delete">
+          <i class="bi bi-trash"></i>
+        </button>
+      </form>
+    </div>
+    {% endfor %}
+  </div>
+</div>
+{% endif %}
+{% endblock %}

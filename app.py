@@ -9,7 +9,7 @@ from flask import (Flask, render_template, request, redirect, url_for,
 from flask_login import LoginManager, login_required, current_user
 from models import (db, User, Vehicle, CertifiedLetter, TitleFiling,
                     VehicleNote, DamageItem, SyncLog, VehicleDocument, StaffFeedback,
-                    PoliceDepartment, VehicleCharge, GeneralDocument, VehicleDamagePhoto,
+                    StaffTodo, PoliceDepartment, VehicleCharge, GeneralDocument, VehicleDamagePhoto,
                     PPI_LETTER1_DAYS, PPI_LETTER2_DAYS, POLICE_LETTER1_DAYS)
 from werkzeug.utils import secure_filename
 
@@ -253,6 +253,9 @@ def run_migrations(app):
 
             if 'staff_feedback' not in existing_tables:
                 StaffFeedback.__table__.create(db.engine)
+
+            if 'staff_todos' not in existing_tables:
+                StaffTodo.__table__.create(db.engine)
 
             if 'vehicle_charges' not in existing_tables:
                 VehicleCharge.__table__.create(db.engine)
@@ -971,6 +974,69 @@ def create_app():
         fb.read_at = datetime.utcnow()
         db.session.commit()
         return redirect(request.referrer or url_for('dashboard'))
+
+    # ── Staff to-do list ─────────────────────────────────────────────────────────
+    # Personal, per-user custom to-dos. Deliberately separate from task_engine's
+    # auto-generated compliance tasks, which stay non-checkable/non-deletable.
+    # Every authenticated staff member has their own list; they only ever see and
+    # act on their OWN items (scoped by user_id).
+
+    @app.route('/todos')
+    @login_required
+    def todos():
+        open_todos = (
+            StaffTodo.query
+            .filter_by(user_id=current_user.id, is_done=False)
+            .order_by(StaffTodo.created_at.desc())
+            .all()
+        )
+        done_todos = (
+            StaffTodo.query
+            .filter_by(user_id=current_user.id, is_done=True)
+            .order_by(StaffTodo.completed_at.desc())
+            .all()
+        )
+        return render_template('todos/index.html', open_todos=open_todos, done_todos=done_todos)
+
+    @app.route('/todos/add', methods=['POST'])
+    @login_required
+    def todos_add():
+        text = request.form.get('text', '').strip()
+        if not text:
+            flash('Enter a to-do before adding.', 'danger')
+            return redirect(url_for('todos'))
+        db.session.add(StaffTodo(
+            user_id=current_user.id,
+            username=current_user.username,
+            text=text,
+            is_done=False,
+            created_at=datetime.utcnow(),
+        ))
+        db.session.commit()
+        return redirect(url_for('todos'))
+
+    @app.route('/todos/<int:todo_id>/toggle', methods=['POST'])
+    @login_required
+    def todos_toggle(todo_id):
+        todo = db.get_or_404(StaffTodo, todo_id)
+        if todo.user_id != current_user.id:
+            flash('Permission denied.', 'danger')
+            return redirect(url_for('todos'))
+        todo.is_done = not todo.is_done
+        todo.completed_at = datetime.utcnow() if todo.is_done else None
+        db.session.commit()
+        return redirect(url_for('todos'))
+
+    @app.route('/todos/<int:todo_id>/delete', methods=['POST'])
+    @login_required
+    def todos_delete(todo_id):
+        todo = db.get_or_404(StaffTodo, todo_id)
+        if todo.user_id != current_user.id:
+            flash('Permission denied.', 'danger')
+            return redirect(url_for('todos'))
+        db.session.delete(todo)
+        db.session.commit()
+        return redirect(url_for('todos'))
 
     # ── Pipeline ───────────────────────────────────────────────────────────────
 

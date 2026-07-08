@@ -1396,6 +1396,23 @@ class VehicleDamagePhoto(db.Model):
 
 # ── Staff Feedback ───────────────────────────────────────────────────────────
 
+class StaffTodo(db.Model):
+    """A staff member's own custom to-do item. Entirely separate from
+    task_engine's auto-generated compliance tasks — those stay
+    non-checkable/non-deletable; these are personal and fully owner-editable."""
+    __tablename__ = 'staff_todos'
+
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False, index=True)
+    username = db.Column(db.String(50))     # denormalized, mirrors StaffFeedback
+    text = db.Column(db.Text, nullable=False)
+    is_done = db.Column(db.Boolean, default=False)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    completed_at = db.Column(db.DateTime)
+
+    user = db.relationship('User')
+
+
 class StaffFeedback(db.Model):
     __tablename__ = 'staff_feedback'
 

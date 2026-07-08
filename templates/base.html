@@ -224,6 +224,11 @@
         <i class="bi bi-geo-alt-fill"></i> VIN Snap
       </a>
 
+      {# ── My To-Dos (all authenticated users) ── #}
+      <a href="{{ url_for('todos') }}" class="nav-link text-white px-2">
+        <i class="bi bi-check2-square"></i> My To-Dos
+      </a>
+
       {# ── Envelopes tab (heather, tim, brady, jim only) ── #}
       {% if current_user.role in ('heather', 'tim', 'brady', 'jim') %}
       <a href="{{ url_for('envelopes.index') }}" class="nav-link text-white px-2">
