@@ -1,73 +1,49 @@
 """
-Status Audit Tool — Tim-only backlog triage dashboard.
+Status Audit Tool — backlog triage dashboard (tim / brady / jim).
 
-Read-mostly: every flag here is computed at query time from columns that
-already exist (letters, lka_document_confirmed, title_search_confirmed,
-title_filing, possible_release). No new columns, no ALTER TABLE. The one
-CSV cross-reference (Towbook Mismatch) is parsed and matched in memory per
-request and never persisted — it's a session tool, not a data source.
+Read-only: every flag here is computed at query time from columns that
+already exist (letters + delivery dates, lka_document_confirmed, the
+task_engine BMV-search completion signal, possible_release). No new
+columns, no ALTER TABLE, no schema changes. The one CSV cross-reference
+(Section 1) is parsed and matched in memory, stashed in the Flask session
+(never the DB), and cleared when the session ends. Display is link-only —
+no inline mutation actions live on this page.
 """
 import csv
 import io
 from datetime import date, datetime
 from functools import wraps
 
-from flask import Blueprint, render_template, request, jsonify, redirect, url_for, flash
+from flask import (Blueprint, render_template, request, redirect, url_for,
+                   flash, session)
 from flask_login import login_required, current_user
 
-from models import db, Vehicle, VehicleNote
+from models import Vehicle
 from towbook_import import _norm, _get, _parse_date
 
 bp = Blueprint('audit', __name__, url_prefix='/audit')
 
-# Coarse backlog-sweep thresholds. Deliberately looser/simpler than the
-# PPI/POLICE-specific due-date math already used by Vehicle.stoplight_color
-# (5/10-day Letter 1, 30-day Letter 2) — that logic drives Heather's live
-# queue (which also only covers vehicles impounded since 2024-01-01). This
-# tool exists to catch anything that fell all the way through that net
-# across the full 650-vehicle backlog, so it uses one flat rule instead.
-OVERDUE_LETTER1_DAYS = 14
-OVERDUE_LETTER2_GAP_DAYS = 30
-OVERDUE_TITLE_DAYS = 60
+# ── Backlog-sweep thresholds ──────────────────────────────────────────────────
+# Deliberately coarse/flat, distinct from the PPI/POLICE-specific due-date math
+# in Vehicle.stoplight_color / task_engine (which drives Heather's live queue).
+# This tool catches anything that fell all the way through that net.
+OVERDUE_LETTER1_DAYS = 5        # day 1-5 grace; day 6+ overdue
+LETTER2_DELIVERY_GAP_DAYS = 30  # Letter 2 due 30d after Letter 1 delivery
+MISSING_DOC_GRACE_DAYS = 3      # BMV search / LKA: day 1-3 grace; day 4+ flagged
+
+SESSION_KEY = 'audit_towbook_csv'
+
+AUDIT_ROLES = ('tim', 'brady', 'jim')   # wally is role 'tim', so included
 
 
-def _tim_required(f):
+def _audit_required(f):
     @wraps(f)
     def decorated(*args, **kwargs):
-        if current_user.role != 'tim':
-            if request.method == 'GET':
-                flash('That page is Tim-only.', 'danger')
-                return redirect(url_for('dashboard'))
-            return jsonify({'error': 'Tim-only action.'}), 403
+        if current_user.role not in AUDIT_ROLES:
+            flash('That page is restricted to Tim, Brady, and Jim.', 'danger')
+            return redirect(url_for('dashboard'))
         return f(*args, **kwargs)
     return login_required(decorated)
-
-
-def _overdue_letter_reasons(v):
-    """Returns a list of human-readable reasons this vehicle is flagged, or [] if clean."""
-    reasons = []
-    l1, l2 = v.letter1, v.letter2
-
-    if not l1 or not l1.sent_date:
-        if v.days_in_storage > OVERDUE_LETTER1_DAYS:
-            reasons.append('Letter 1 not sent')
-    elif not l2 or not l2.sent_date:
-        if (date.today() - l1.sent_date).days > OVERDUE_LETTER2_GAP_DAYS:
-            reasons.append('Letter 2 not sent')
-
-    if v.days_in_storage > OVERDUE_TITLE_DAYS:
-        if not v.title_filing or not v.title_filing.filed_date:
-            reasons.append('Title not filed')
-
-    return reasons
-
-
-def _last_letter_sent(v):
-    if v.letter2 and v.letter2.sent_date:
-        return v.letter2.sent_date
-    if v.letter1 and v.letter1.sent_date:
-        return v.letter1.sent_date
-    return None
 
 
 def _active_not_ghost():
@@ -79,47 +55,81 @@ def _active_not_ghost():
     )
 
 
+def _task1_bmv_done(v):
+    """Task 1 (BMV Search) completion — same signal task_engine.compute_task
+    uses: heather_complete OR bmv_stage == 'COMPLETE'. NOT title_search_confirmed
+    (that's a separate document-on-file flag)."""
+    return bool(v.heather_complete or (v.bmv_stage == 'COMPLETE'))
+
+
+def _overdue_letter_issue(v, today):
+    """Returns a single human-readable overdue-letter issue string, or None."""
+    l1, l2 = v.letter1, v.letter2
+
+    # (a) Letter 1 not sent and past the 5-day grace
+    if (not l1 or not l1.sent_date):
+        if v.days_in_storage > OVERDUE_LETTER1_DAYS:
+            return f'Letter 1 overdue — {v.days_in_storage} days'
+        return None
+
+    # (b) Letter 1 sent + delivery confirmed, Letter 2 not sent, 30+ days since delivery
+    if l1.delivery_confirmed_date and (not l2 or not l2.sent_date):
+        days_since_delivery = (today - l1.delivery_confirmed_date).days
+        if days_since_delivery >= LETTER2_DELIVERY_GAP_DAYS:
+            past_due = days_since_delivery - LETTER2_DELIVERY_GAP_DAYS
+            return f'Letter 2 overdue — {past_due} days past due'
+    return None
+
+
 @bp.route('/')
-@_tim_required
+@_audit_required
 def index():
+    today = date.today()
     active_vehicles = _active_not_ghost().all()
     total_active = len(active_vehicles)
 
+    # Section 2 — Overdue letters
     overdue = []
     for v in active_vehicles:
-        reasons = _overdue_letter_reasons(v)
-        if reasons:
-            overdue.append({
-                'vehicle': v,
-                'reasons': reasons,
-                'last_letter_sent': _last_letter_sent(v),
-            })
+        issue = _overdue_letter_issue(v, today)
+        if issue:
+            overdue.append({'vehicle': v, 'issue': issue})
     overdue.sort(key=lambda r: r['vehicle'].days_in_storage, reverse=True)
 
+    # Section 3 — Missing BMV title search (Task 1 not complete), 3-day grace
+    missing_bmv = sorted(
+        (v for v in active_vehicles
+         if not _task1_bmv_done(v) and v.days_in_storage > MISSING_DOC_GRACE_DAYS),
+        key=lambda v: v.days_in_storage, reverse=True,
+    )
+
+    # Section 4 — Missing LKA document, 3-day grace
     missing_lka = sorted(
-        (v for v in active_vehicles if not v.lka_document_confirmed),
+        (v for v in active_vehicles
+         if not v.lka_document_confirmed and v.days_in_storage > MISSING_DOC_GRACE_DAYS),
         key=lambda v: v.days_in_storage, reverse=True,
     )
-    missing_title_search = sorted(
-        (v for v in active_vehicles if not v.title_search_confirmed),
-        key=lambda v: v.days_in_storage, reverse=True,
-    )
+
+    csv_data = session.get(SESSION_KEY)
 
     return render_template(
         'audit/index.html',
         total_active=total_active,
         overdue=overdue,
+        missing_bmv=missing_bmv,
         missing_lka=missing_lka,
-        missing_title_search=missing_title_search,
+        csv_data=csv_data,
+        last_refreshed=datetime.now(),
     )
 
 
 @bp.route('/towbook-check', methods=['POST'])
-@_tim_required
+@_audit_required
 def towbook_check():
     uploaded = request.files.get('file')
-    if not uploaded:
-        return jsonify({'error': 'No file uploaded. Use field name "file".'}), 400
+    if not uploaded or not uploaded.filename:
+        flash('No file selected. Choose a Towbook Release Export CSV.', 'danger')
+        return redirect(url_for('audit.index'))
 
     raw = uploaded.stream.read()
     try:
@@ -129,10 +139,9 @@ def towbook_check():
 
     lines = [l for l in content.splitlines() if l.strip()]
     if len(lines) < 3:
-        return jsonify({
-            'error': f'File has only {len(lines)} non-empty row(s). '
-                     'Expected a Towbook Impounds export with 2 metadata rows then column headers.',
-        }), 400
+        flash(f'File has only {len(lines)} non-empty row(s). Expected a Towbook '
+              'Impounds export with 2 metadata rows then column headers.', 'danger')
+        return redirect(url_for('audit.index'))
 
     # Same 2-metadata-row skip as the main Towbook importer (towbook_import.py).
     csv_body = '\n'.join(lines[2:])
@@ -141,99 +150,67 @@ def towbook_check():
     norm_map = {_norm(h): h for h in headers}
 
     if _norm('Stock #') not in norm_map and _norm('Stock') not in norm_map:
-        return jsonify({
-            'error': "Could not find a 'Stock #' column — is this a Towbook Impounds export?",
-        }), 400
+        flash("Could not find a 'Stock #' column — is this a Towbook Impounds export?", 'danger')
+        return redirect(url_for('audit.index'))
 
-    # Towbook's export has no dedicated "status" column — the existing importer
-    # (towbook_import.py) already treats a populated "Release Date" as the
-    # released signal, so this reuses that same interpretation.
+    # Towbook exports have no dedicated status column; a populated Release Date is
+    # the released signal (same interpretation as towbook_import.py). Match to
+    # active, non-ghost IM vehicles by stock_number first, VIN as fallback.
+    active_vehicles = _active_not_ghost().all()
+    by_stock = {v.stock_number.strip().upper(): v
+                for v in active_vehicles if v.stock_number}
+    by_vin = {v.vin.strip().upper(): v
+              for v in active_vehicles if v.vin}
+
+    today = date.today()
     total_records = 0
-    csv_release_date = {}
+    flagged = []
     for row in reader:
-        stock = _get(row, norm_map, 'Stock #', 'Stock')
-        if not stock:
+        stock = (_get(row, norm_map, 'Stock #', 'Stock') or '').strip()
+        vin = (_get(row, norm_map, 'VIN') or '').strip()
+        if not stock and not vin:
             continue
         total_records += 1
-        csv_release_date[stock.strip().upper()] = _parse_date(_get(row, norm_map, 'Release Date'))
 
-    active_vehicles = (
-        _active_not_ghost()
-        .filter(Vehicle.stock_number.isnot(None))
-        .all()
-    )
-    active_by_stock = {v.stock_number.strip().upper(): v for v in active_vehicles if v.stock_number}
+        release_date = _parse_date(_get(row, norm_map, 'Release Date'))
+        if not release_date:
+            continue  # only released-in-Towbook rows are of interest
 
-    matched = 0
-    mismatches = []
-    for key, release_date in csv_release_date.items():
-        v = active_by_stock.get(key)
+        v = None
+        if stock:
+            v = by_stock.get(stock.upper())
+        if not v and vin:
+            v = by_vin.get(vin.upper())
         if not v:
-            continue
-        matched += 1
-        if release_date:
-            mismatches.append(v)
+            continue  # not an active IM vehicle → not a mismatch
 
-    mismatches.sort(key=lambda v: v.days_in_storage, reverse=True)
-
-    return jsonify({
-        'ok': True,
-        'total_records': total_records,
-        'matched': matched,
-        'mismatches': [{
+        flagged.append({
             'id': v.id,
-            'stock_number': v.stock_number,
-            'display_name': v.display_name,
-            'plate': v.plate,
-            'impound_date': v.impound_date.strftime('%m/%d/%Y') if v.impound_date else None,
-            'days_in': v.days_in_storage,
+            'stock_number': v.stock_number or stock or None,
+            'vin': v.vin or vin or None,
+            'description': (_get(row, norm_map, 'Vehicle') or '').strip() or v.display_name,
+            'release_date': release_date.strftime('%m/%d/%Y'),
+            'release_reason': (_get(row, norm_map, 'Release Reason') or '').strip() or '—',
+            'days_since_release': (today - release_date).days,
             'detail_url': url_for('vehicles_detail', vehicle_id=v.id),
-        } for v in mismatches],
-    })
+        })
+
+    flagged.sort(key=lambda r: r['days_since_release'], reverse=True)
+
+    session[SESSION_KEY] = {
+        'filename': uploaded.filename,
+        'uploaded_at': datetime.now().strftime('%m/%d/%Y %I:%M %p'),
+        'total_records': total_records,
+        'flagged': flagged,
+    }
+    flash(f'{len(flagged)} vehicle{"" if len(flagged) == 1 else "s"} flagged from CSV '
+          f'({total_records} rows cross-referenced).', 'info')
+    return redirect(url_for('audit.index'))
 
 
-def _log_and_commit(vehicle, note_body):
-    vehicle.updated_at = datetime.utcnow()
-    db.session.add(VehicleNote(
-        vehicle_id=vehicle.id,
-        body=note_body,
-        author=current_user.display_name or current_user.username,
-        created_at=datetime.utcnow(),
-    ))
-    db.session.commit()
-
-
-@bp.route('/vehicles/<int:vehicle_id>/mark-released', methods=['POST'])
-@_tim_required
-def mark_released(vehicle_id):
-    vehicle = db.session.get(Vehicle, vehicle_id)
-    if not vehicle:
-        return jsonify({'error': 'Vehicle not found'}), 404
-    who = current_user.display_name or current_user.username
-    vehicle.status = 'RELEASED'
-    _log_and_commit(vehicle, f'Marked Released via Status Audit Tool (Towbook mismatch) by {who}.')
-    return jsonify({'ok': True})
-
-
-@bp.route('/vehicles/<int:vehicle_id>/mark-lka-confirmed', methods=['POST'])
-@_tim_required
-def mark_lka_confirmed(vehicle_id):
-    vehicle = db.session.get(Vehicle, vehicle_id)
-    if not vehicle:
-        return jsonify({'error': 'Vehicle not found'}), 404
-    who = current_user.display_name or current_user.username
-    vehicle.lka_document_confirmed = True
-    _log_and_commit(vehicle, f'LKA marked confirmed via Status Audit Tool by {who}.')
-    return jsonify({'ok': True})
-
-
-@bp.route('/vehicles/<int:vehicle_id>/mark-title-search-confirmed', methods=['POST'])
-@_tim_required
-def mark_title_search_confirmed(vehicle_id):
-    vehicle = db.session.get(Vehicle, vehicle_id)
-    if not vehicle:
-        return jsonify({'error': 'Vehicle not found'}), 404
-    who = current_user.display_name or current_user.username
-    vehicle.title_search_confirmed = True
-    _log_and_commit(vehicle, f'Title search marked confirmed via Status Audit Tool by {who}.')
-    return jsonify({'ok': True})
+@bp.route('/towbook-clear', methods=['POST'])
+@_audit_required
+def towbook_clear():
+    session.pop(SESSION_KEY, None)
+    flash('Cleared the uploaded Towbook cross-reference.', 'info')
+    return redirect(url_for('audit.index'))
