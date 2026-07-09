@@ -48,11 +48,17 @@
       </thead>
       <tbody>
         {% for v in vehicles %}
-        <tr>
+        <tr {% if v.possible_release %}style="background:#fff8e1;border-left:4px solid #ffc107;"{% endif %}>
           <td>
             <a href="{{ url_for('vehicles_detail', vehicle_id=v.id) }}" class="fw-semibold row-link">
               {{ v.display_name }}
             </a>
+            {% if v.possible_release %}
+            <span class="badge bg-warning text-dark ms-1"
+                  title="May no longer be on the lot — verify before taking any action.">
+              &#9888;&#65039; POSSIBLE RELEASE
+            </span>
+            {% endif %}
             {% if v.vin %}
             <br><small class="text-muted font-monospace">{{ v.vin }}</small>
             {% endif %}

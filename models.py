@@ -109,6 +109,13 @@ class User(UserMixin, db.Model):
         """Who may undo a mistaken release — same set as mark-released (wally uses role tim)."""
         return self.role in ('tim', 'heather', 'brady', 'jim')
 
+    @property
+    def can_verify_possible_release(self):
+        """Who may resolve a Possible Release flag — Confirm Released / Still On Lot.
+        Deliberately narrower than is_heather: excludes demo, lawrence, lori, brady
+        because both actions mutate pipeline state. Wally uses role tim."""
+        return self.role in ('tim', 'jim', 'tina', 'heather')
+
 
 class Vehicle(db.Model):
     __tablename__ = 'vehicles'

@@ -4,6 +4,35 @@
 {% block title %}{{ vehicle.display_name }} — Impound Manager{% endblock %}
 
 {% block content %}
+{# ══ Possible Release / Ghost Vehicle Banner — must stay the first thing in the
+   content block, above the status/action bar. Amber, not red: this is a "verify
+   before acting" state, not a hard compliance failure. ══ #}
+{% if vehicle.possible_release %}
+<div class="alert border-warning border-3 d-flex align-items-center gap-3 mb-4"
+     style="background:#fff8e1;">
+  <i class="bi bi-exclamation-triangle-fill fs-3 text-warning"></i>
+  <div class="flex-grow-1">
+    <strong class="d-block fs-5" style="color:#8a6100;">
+      &#9888;&#65039; POSSIBLE RELEASE
+    </strong>
+    <span class="small">
+      This vehicle may no longer be on the lot. Verify before taking any action.
+    </span>
+  </div>
+  {% if current_user.can_verify_possible_release %}
+  <div class="d-flex gap-2 flex-shrink-0">
+    <form method="POST" action="{{ url_for('heather.mark_possible_release_released', vehicle_id=vehicle.id) }}"
+          onsubmit="return confirm('Mark this vehicle as RELEASED? It will drop out of the active pipeline entirely.');">
+      <button type="submit" class="btn btn-success btn-sm">&#10003; Confirm Released</button>
+    </form>
+    <form method="POST" action="{{ url_for('heather.confirm_possible_release', vehicle_id=vehicle.id) }}">
+      <button type="submit" class="btn btn-secondary btn-sm">&#8617; Still On Lot</button>
+    </form>
+  </div>
+  {% endif %}
+</div>
+{% endif %}
+
 <div class="d-flex align-items-center mb-4 gap-3">
   <a href="{{ url_for('dashboard') }}" class="btn btn-outline-secondary btn-sm">
     <i class="bi bi-arrow-left"></i>
@@ -183,29 +212,6 @@
 </div>
 {% endif %}
 
-{# ══ Possible Release / Ghost Vehicle Banner ══ #}
-{% if vehicle.possible_release %}
-<div class="alert alert-danger border-danger border-3 d-flex align-items-center gap-3 mb-4" style="background:#fff0f0;">
-  <i class="bi bi-question-diamond-fill fs-3 text-danger"></i>
-  <div class="flex-grow-1">
-    <strong class="d-block text-danger fs-5">POSSIBLE RELEASE — VERIFY BEFORE SENDING LETTER</strong>
-    <span class="small">Not found in the latest Towbook export, or manually flagged as possibly missing from the lot.</span>
-    <span class="text-muted small ms-2">Letters are blocked until this is confirmed one way or the other.</span>
-  </div>
-  {% if current_user.is_heather %}
-  <div class="d-flex gap-2 flex-shrink-0">
-    <form method="POST" action="{{ url_for('heather.confirm_possible_release', vehicle_id=vehicle.id) }}">
-      <button type="submit" class="btn btn-success btn-sm"><i class="bi bi-check-lg"></i> Still On Lot</button>
-    </form>
-    <form method="POST" action="{{ url_for('heather.mark_possible_release_released', vehicle_id=vehicle.id) }}"
-          onsubmit="return confirm('Mark this vehicle as RELEASED? It will drop out of the active pipeline entirely.');">
-      <button type="submit" class="btn btn-outline-danger btn-sm"><i class="bi bi-box-arrow-right"></i> Mark Released</button>
-    </form>
-  </div>
-  {% endif %}
-</div>
-{% endif %}
-
 {# ══ Snoozed Banner ══ #}
 {% if vehicle.is_snoozed %}
 <div class="alert alert-dark d-flex align-items-center gap-3 mb-4">
@@ -343,9 +349,14 @@
 
     </div>
     {% if vehicle.current_task_label %}
-    <div class="alert alert-light py-2 small mb-0">
+    <div class="alert alert-light py-2 small mb-0 {% if vehicle.possible_release %}opacity-50{% endif %}">
       <strong>Current task:</strong> Task {{ vehicle.current_task_num }} — {{ vehicle.current_task_label }}.
       {% if vehicle.current_task_due %} Due: <strong>{{ vehicle.current_task_due|mdY }}</strong>.{% endif %}
+    </div>
+    {% endif %}
+    {% if vehicle.possible_release %}
+    <div class="small text-muted fst-italic mt-2">
+      <i class="bi bi-pause-circle me-1"></i>Tasks paused — pending release verification.
     </div>
     {% endif %}
   </div>

@@ -161,6 +161,20 @@ def _heather_required(f):
     return login_required(decorated)
 
 
+def _verify_release_required(f):
+    """Resolving a Possible Release flag (Confirm Released / Still On Lot) is a
+    state-changing action — gated to tim/jim/tina/heather, not the wider
+    is_heather set. Mirrors the template gate on can_verify_possible_release."""
+    from functools import wraps
+    @wraps(f)
+    def decorated(*args, **kwargs):
+        if not current_user.is_authenticated or not current_user.can_verify_possible_release:
+            flash('Access restricted.', 'danger')
+            return redirect(url_for('dashboard'))
+        return f(*args, **kwargs)
+    return login_required(decorated)
+
+
 def _heather_view(f):
     """Tim + Heather + Tina can VIEW Heather's dashboard data."""
     from functools import wraps
@@ -475,27 +489,28 @@ def flag_possible_release(vehicle_id):
 
 
 @bp.route('/possible-release/<int:vehicle_id>/confirm', methods=['POST'])
-@_heather_required
+@_verify_release_required
 def confirm_possible_release(vehicle_id):
-    """Heather confirmed the vehicle is still physically on the lot — clear the flag."""
+    """Staff confirmed the vehicle is still physically on the lot — clear the flag
+    and resume the compliance pipeline."""
     from tina_sync import confirm_still_on_lot
     vehicle = db.get_or_404(Vehicle, vehicle_id)
-    confirm_still_on_lot(vehicle.id)
+    confirm_still_on_lot(vehicle.id, actor=current_user.username)
     from task_engine import recalculate_vehicle
     recalculate_vehicle(vehicle)
     db.session.commit()
-    flash(f'{vehicle.display_name} confirmed still on lot — flag cleared, letters unblocked.', 'success')
+    flash('Vehicle confirmed on lot. Pipeline resumed.', 'info')
     return redirect(request.referrer or url_for('heather.dashboard'))
 
 
 @bp.route('/possible-release/<int:vehicle_id>/mark-released', methods=['POST'])
-@_heather_required
+@_verify_release_required
 def mark_possible_release_released(vehicle_id):
     """Vehicle confirmed gone — mark it RELEASED so it drops out of the pipeline entirely."""
     from tina_sync import mark_released
     vehicle = db.get_or_404(Vehicle, vehicle_id)
-    mark_released(vehicle.id)
-    flash(f'{vehicle.display_name} marked as RELEASED.', 'success')
+    mark_released(vehicle.id, actor=current_user.username)
+    flash('Vehicle marked as Released.', 'success')
     return redirect(request.referrer or url_for('heather.dashboard'))
 
 

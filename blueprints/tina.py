@@ -27,10 +27,14 @@ def _tina_required(f):
 def dashboard():
     today = date.today()
 
+    # Possible Release (ghost) vehicles are excluded from every queue below —
+    # the compliance pipeline stops until staff verify. Same guard heather.py
+    # applies to her own queues.
     # Handoff queue — vehicles Heather marked complete that Tina hasn't started
     queued = (
         Vehicle.query
         .filter_by(heather_complete=True, tina_stage='QUEUED')
+        .filter(Vehicle.possible_release.isnot(True))
         .filter(Vehicle.not_snoozed_filter())
         .order_by(Vehicle.heather_complete_date.asc())
         .all()
@@ -40,6 +44,7 @@ def dashboard():
     in_progress = (
         Vehicle.query
         .filter(Vehicle.tina_stage.in_(['TITLE_WORK', 'COURT', 'AFFIDAVIT']))
+        .filter(Vehicle.possible_release.isnot(True))
         .filter(Vehicle.not_snoozed_filter())
         .order_by(Vehicle.impound_date.asc())
         .all()
@@ -47,7 +52,9 @@ def dashboard():
 
     # Title-eligible and ready to file
     title_eligible = [
-        v for v in Vehicle.query.filter_by(status='ACTIVE').filter(Vehicle.not_snoozed_filter()).all()
+        v for v in Vehicle.query.filter_by(status='ACTIVE')
+                                .filter(Vehicle.possible_release.isnot(True))
+                                .filter(Vehicle.not_snoozed_filter()).all()
         if v.is_title_eligible and v.title_filing is None
     ]
 
@@ -57,6 +64,7 @@ def dashboard():
         .filter_by(status='ACTIVE', heather_complete=True)
         .filter(Vehicle.disposition.is_(None))
         .filter(Vehicle.tina_stage.isnot(None))
+        .filter(Vehicle.possible_release.isnot(True))
         .order_by(Vehicle.impound_date.asc())
         .all()
     )
@@ -67,6 +75,7 @@ def dashboard():
         .filter(Vehicle.court_date.isnot(None))
         .filter(Vehicle.court_date >= today)
         .filter(Vehicle.status == 'ACTIVE')
+        .filter(Vehicle.possible_release.isnot(True))
         .order_by(Vehicle.court_date.asc())
         .all()
     )

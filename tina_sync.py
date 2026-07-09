@@ -119,9 +119,10 @@ def flag_vehicle_possible_release(vehicle_id):
     return True
 
 
-def confirm_still_on_lot(vehicle_id):
+def confirm_still_on_lot(vehicle_id, actor=None):
     """
-    Clears the possible_release flag — Heather confirmed the vehicle is still on lot.
+    Clears the possible_release flag — staff confirmed the vehicle is still on lot.
+    `actor` is a username; when given, the audit note is attributed to them.
     Returns True on success, False if vehicle not found.
     """
     vehicle = db.session.get(Vehicle, vehicle_id)
@@ -131,30 +132,44 @@ def confirm_still_on_lot(vehicle_id):
     vehicle.updated_at = datetime.utcnow()
     db.session.add(VehicleNote(
         vehicle_id=vehicle.id,
-        body='Confirmed still on lot — possible release flag cleared.',
-        author='System',
+        body=(f'Verified still on lot by {actor} on '
+              f'{datetime.utcnow().strftime("%m/%d/%Y")}'
+              if actor else
+              'Confirmed still on lot — possible release flag cleared.'),
+        author=actor or 'System',
         created_at=datetime.utcnow(),
     ))
     db.session.commit()
     return True
 
 
-def mark_released(vehicle_id):
+def mark_released(vehicle_id, actor=None):
     """
     Marks vehicle as RELEASED in Impound Manager and clears the possible_release flag.
     Does NOT push to Tina — released vehicles without a title don't go to her pipeline.
+    `actor` is a username; when given, the audit note is attributed to them.
     Returns True on success, False if vehicle not found.
     """
     vehicle = db.session.get(Vehicle, vehicle_id)
     if not vehicle:
         return False
+    prior_status = vehicle.status
     vehicle.status = 'RELEASED'
     vehicle.possible_release = False
     vehicle.updated_at = datetime.utcnow()
+    if actor:
+        body = (f'Confirmed released by {actor} on '
+                f'{datetime.utcnow().strftime("%m/%d/%Y")}')
+        # PENDING_PICKUP skips its Confirm Picked Up step when resolved this way —
+        # record it so the jump is visible in the audit trail.
+        if prior_status == 'PENDING_PICKUP':
+            body += ' (was PENDING_PICKUP — pickup confirmation bypassed)'
+    else:
+        body = 'Vehicle marked as released.'
     db.session.add(VehicleNote(
         vehicle_id=vehicle.id,
-        body='Vehicle marked as released.',
-        author='System',
+        body=body,
+        author=actor or 'System',
         created_at=datetime.utcnow(),
     ))
     db.session.commit()

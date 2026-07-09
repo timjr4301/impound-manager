@@ -366,13 +366,15 @@
         <td>{{ v.impound_date|mdY }}</td>
         <td><span class="badge bg-danger">{{ v.days_in_storage }}d</span></td>
         <td class="text-end">
-          <form method="POST" action="{{ url_for('heather.confirm_possible_release', vehicle_id=v.id) }}" class="d-inline">
-            <button type="submit" class="btn btn-sm btn-outline-success">Still On Lot</button>
-          </form>
+          {% if current_user.can_verify_possible_release %}
           <form method="POST" action="{{ url_for('heather.mark_possible_release_released', vehicle_id=v.id) }}" class="d-inline"
                 onsubmit="return confirm('Mark this vehicle as RELEASED?');">
-            <button type="submit" class="btn btn-sm btn-outline-danger">Mark Released</button>
+            <button type="submit" class="btn btn-sm btn-success">&#10003; Confirm Released</button>
           </form>
+          <form method="POST" action="{{ url_for('heather.confirm_possible_release', vehicle_id=v.id) }}" class="d-inline">
+            <button type="submit" class="btn btn-sm btn-secondary">&#8617; Still On Lot</button>
+          </form>
+          {% endif %}
         </td>
       </tr>
       {% endfor %}

@@ -112,13 +112,15 @@
         <td class="small">{{ v.account or '—' }}</td>
         <td><span class="badge bg-danger">{{ v.days_in_storage }}d</span></td>
         <td class="text-end pe-2">
-          {% if can_act %}
-          <form method="POST" action="{{ url_for('heather.confirm_possible_release', vehicle_id=v.id) }}" class="d-inline">
-            <button type="submit" class="btn btn-sm btn-outline-success py-0">Still On Lot</button>
-          </form>
+          {# Narrower than can_act: resolving a Possible Release flag is gated to
+             tim/jim/tina/heather, matching _verify_release_required on the route. #}
+          {% if current_user.can_verify_possible_release %}
           <form method="POST" action="{{ url_for('heather.mark_possible_release_released', vehicle_id=v.id) }}" class="d-inline"
                 onsubmit="return confirm('Mark this vehicle as RELEASED?');">
-            <button type="submit" class="btn btn-sm btn-outline-danger py-0">Mark Released</button>
+            <button type="submit" class="btn btn-sm btn-success py-0">&#10003; Confirm Released</button>
+          </form>
+          <form method="POST" action="{{ url_for('heather.confirm_possible_release', vehicle_id=v.id) }}" class="d-inline">
+            <button type="submit" class="btn btn-sm btn-secondary py-0">&#8617; Still On Lot</button>
           </form>
           {% endif %}
           <a href="{{ url_for('vehicles_detail', vehicle_id=v.id) }}" class="btn btn-sm btn-outline-secondary py-0">View</a>
