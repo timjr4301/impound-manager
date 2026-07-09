@@ -1926,6 +1926,167 @@ def create_app():
             storage_address=app.config['STORAGE_ADDRESS'],
         )
 
+    # ── Generate Letters hub ───────────────────────────────────────────────────
+    # Heather's entry point for producing a print-ready notice without going
+    # through Towbook. Every letter this hub opens is a real CertifiedLetter
+    # row, so it keeps its tracking number, sent/delivery dates, and its place
+    # in task_engine's compliance clock — an ad-hoc letter detached from that
+    # pipeline could be mailed without the system ever knowing it existed.
+
+    # slug -> (letter_number, letter_kind, recipient_type), per impound type.
+    # The letter_number values are NOT arbitrary: they are the scheme
+    # documented on Vehicle in models.py and created by letter_triggers.py.
+    LETTER_SLUGS = {
+        'PPI': {
+            'first_owner':        (1, 'first_notice',  'owner'),
+            'second_owner':       (2, 'second_notice', 'owner'),
+            'first_lienholder':   (5, 'first_notice',  'lienholder'),
+            'second_lienholder':  (6, 'second_notice', 'lienholder'),
+        },
+        'POLICE': {
+            'police':             (1, 'notice_of_lien', 'owner'),
+            'first_owner':        (3, 'first_notice',   'owner'),
+            'second_owner':       (4, 'second_notice',  'owner'),
+            'first_lienholder':   (5, 'first_notice',   'lienholder'),
+            'second_lienholder':  (6, 'second_notice',  'lienholder'),
+        },
+    }
+
+    LETTER_SLUG_TITLES = {
+        'police':            'Police Notice of Lien',
+        'first_owner':       'First Notice (Owner)',
+        'second_owner':      'Second Notice (Owner)',
+        'first_lienholder':  'First Notice (Lienholder)',
+        'second_lienholder': 'Second Notice (Lienholder)',
+    }
+
+    def _letter_by_number(vehicle, number):
+        return next((l for l in vehicle.letters if l.letter_number == number), None)
+
+    def _resolve_letter(vehicle, slug, create):
+        """Map a slug to this vehicle's CertifiedLetter, creating it only when
+        the compliance pipeline would already allow it to exist.
+
+        Returns (letter, unavailable_reason). Exactly one is non-None.
+
+        letter_number 1 is never created here — intake owns it, and its
+        due_date anchors task_engine. The 2nd notices (2/4/6) are only created
+        once their preceding 1st notice has actually been sent, reusing the
+        same sent_date + PPI_LETTER2_DAYS formula letter_triggers uses, so a
+        letter opened from this hub can never disagree with one the pipeline
+        would have created on its own.
+        """
+        slugs = LETTER_SLUGS.get(vehicle.impound_type, {})
+        if slug not in slugs:
+            return None, f'Not applicable to a {vehicle.impound_type} impound.'
+
+        number, kind, recipient = slugs[slug]
+
+        if recipient == 'lienholder' and not vehicle.lienholder_name:
+            return None, 'No lienholder on file.'
+
+        existing = _letter_by_number(vehicle, number)
+        if existing:
+            return existing, None
+        if not create:
+            return None, None  # creatable, just not created yet
+
+        if number == 1:
+            return None, 'Not yet created by intake.'
+
+        # 2nd notices wait on their 1st notice actually being sent.
+        if number in (2, 4, 6):
+            trigger_number = 1 if vehicle.impound_type == 'PPI' else 3
+            trigger = _letter_by_number(vehicle, trigger_number)
+            if not trigger or not trigger.sent_date:
+                return None, 'The 1st Notice must be sent first.'
+            due = trigger.sent_date + timedelta(days=PPI_LETTER2_DAYS)
+        else:
+            due = date.today()
+
+        import letter_triggers
+        letter = letter_triggers.ensure_letter(vehicle, number, kind, recipient, due)
+        db.session.commit()
+        return letter, None
+
+    @app.route('/vehicle/<int:vehicle_id>/letters')
+    @login_required
+    def vehicle_letters(vehicle_id):
+        vehicle = db.get_or_404(Vehicle, vehicle_id)
+        if not current_user.can_generate_letters:
+            flash('Permission denied.', 'danger')
+            return redirect(url_for('vehicles_detail', vehicle_id=vehicle_id))
+
+        if vehicle.possible_release:
+            flash(
+                f'{vehicle.display_name} is flagged Possible Release (ghost vehicle) — '
+                'letter generation is blocked until this is verified/resolved.',
+                'danger',
+            )
+            return redirect(url_for('vehicles_detail', vehicle_id=vehicle.id))
+
+        # Which slugs to offer. Second notices always show (per spec) — they
+        # render disabled with a reason when the pipeline hasn't unlocked them.
+        if vehicle.impound_type == 'POLICE':
+            slugs = ['police', 'first_owner', 'first_lienholder',
+                     'second_owner', 'second_lienholder']
+        else:
+            slugs = ['first_owner', 'first_lienholder',
+                     'second_owner', 'second_lienholder']
+
+        options = []
+        for slug in slugs:
+            letter, reason = _resolve_letter(vehicle, slug, create=False)
+            # A blank lienholder is skipped silently, never shown as an error.
+            if reason == 'No lienholder on file.':
+                continue
+            options.append({
+                'slug': slug,
+                'title': LETTER_SLUG_TITLES[slug],
+                'letter': letter,
+                'reason': reason,
+            })
+
+        return render_template('letters/hub.html',
+            vehicle=vehicle,
+            options=options,
+            today=date.today(),
+        )
+
+    @app.route('/vehicle/<int:vehicle_id>/letter/<letter_type>')
+    @login_required
+    def vehicle_letter_generate(vehicle_id, letter_type):
+        vehicle = db.get_or_404(Vehicle, vehicle_id)
+        if not current_user.can_generate_letters:
+            flash('Permission denied.', 'danger')
+            return redirect(url_for('vehicles_detail', vehicle_id=vehicle_id))
+
+        # Ghost check runs before any letter row is created, not just before
+        # printing — print_letter blocks too, but by then the row would exist.
+        if vehicle.possible_release:
+            flash(
+                f'{vehicle.display_name} is flagged Possible Release (ghost vehicle) — '
+                'letter generation is blocked until this is verified/resolved.',
+                'danger',
+            )
+            return redirect(url_for('vehicles_detail', vehicle_id=vehicle.id))
+
+        letter, reason = _resolve_letter(vehicle, letter_type, create=True)
+        if not letter:
+            flash(reason or 'That letter is not available for this vehicle.', 'warning')
+            return redirect(url_for('vehicle_letters', vehicle_id=vehicle.id))
+
+        db.session.add(VehicleNote(
+            vehicle_id=vehicle.id,
+            body=(f'{LETTER_SLUG_TITLES[letter_type]} generated by '
+                  f'{current_user.username} on {date.today().strftime("%m/%d/%Y")}'),
+            author=current_user.username,
+            created_at=datetime.utcnow(),
+        ))
+        db.session.commit()
+
+        return redirect(url_for('print_letter', letter_id=letter.id))
+
     # ── Towbook PDF import ─────────────────────────────────────────────────────
 
     @app.route('/towbook-import', methods=['POST'])

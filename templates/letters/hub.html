@@ -1,0 +1,140 @@
+{% extends 'base.html' %}
+{% block title %}Generate Letters — Impound Manager{% endblock %}
+
+{% block content %}
+<div class="d-flex align-items-center mb-4 gap-3">
+  <a href="{{ url_for('vehicles_detail', vehicle_id=vehicle.id) }}" class="btn btn-outline-secondary btn-sm">
+    <i class="bi bi-arrow-left"></i>
+  </a>
+  <div>
+    <h2 class="h4 mb-0 fw-bold">Generate Letters</h2>
+    <small class="text-muted">{{ vehicle.impound_type }} Impound &bull; {{ today|mdY }}</small>
+  </div>
+</div>
+
+{# ── Vehicle summary ── #}
+<div class="card mb-3">
+  <div class="card-header py-2 fw-semibold small">Vehicle</div>
+  <div class="card-body py-2">
+    <div class="row small">
+      <div class="col-md-4">
+        <div class="text-muted">Vehicle</div>
+        <div class="fw-semibold">{{ vehicle.display_name }}</div>
+      </div>
+      <div class="col-md-4">
+        <div class="text-muted">VIN</div>
+        <div class="fw-semibold">{{ vehicle.vin or '—' }}</div>
+      </div>
+      <div class="col-md-4">
+        <div class="text-muted">Registered Owner</div>
+        <div class="fw-semibold">{{ vehicle.owner_name or '—' }}</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+{# ── Which letter type applies, and why ── #}
+<div class="alert {% if vehicle.impound_type == 'POLICE' %}alert-primary{% else %}alert-secondary{% endif %} py-2 small">
+  {% if vehicle.impound_type == 'POLICE' %}
+  <strong>Police impound.</strong> This vehicle was towed at the order of law enforcement, so it
+  gets the <strong>Notice of Lien</strong> (owner and lienholder on one letter, R.C. 4513.60 /
+  4513.61 / 4513.66 and R.C. 4505.104(A), 60-day claim window). Rates come from the requesting
+  police department.
+  {% else %}
+  <strong>Private property impound.</strong> No law-enforcement order, so this vehicle gets
+  {% if vehicle.lienholder_name %}
+  <strong>separate Owner and Lienholder notices</strong>
+  {% else %}
+  <strong>Owner notices</strong> (no lienholder on file)
+  {% endif %}
+  rather than a Notice of Lien. Rates are the standard private-property defaults.
+  {% endif %}
+</div>
+
+{# ── Rates in use — shown so Heather can verify before printing ── #}
+<div class="card mb-3">
+  <div class="card-header py-2 fw-semibold small d-flex justify-content-between align-items-center">
+    <span>Rates on these letters</span>
+    <span class="text-muted fw-normal">
+      {% if vehicle.impound_type == 'POLICE' %}
+        Source: {{ vehicle.police_department.name if vehicle.police_department else 'no department assigned' }}
+      {% else %}
+        Source: private-property defaults
+      {% endif %}
+    </span>
+  </div>
+  <div class="card-body py-2">
+    {% if vehicle.rate_pending %}
+    <div class="text-danger fw-semibold small mb-2">
+      <i class="bi bi-exclamation-triangle-fill"></i>
+      [RATE PENDING] — no police department assigned to this vehicle, so the letter cannot show
+      real fees. Assign a department on the vehicle edit form before mailing.
+    </div>
+    {% endif %}
+    <div class="row small">
+      <div class="col-md-4">
+        <div class="text-muted">Tow / Hook Fee</div>
+        <div class="fw-semibold">
+          {% if vehicle.effective_tow_rate is none %}<span class="text-danger">[RATE PENDING]</span>
+          {% else %}${{ '%.2f'|format(vehicle.effective_tow_rate) }}{% endif %}
+        </div>
+      </div>
+      <div class="col-md-4">
+        <div class="text-muted">Storage (per day)</div>
+        <div class="fw-semibold">
+          {% if vehicle.effective_storage_rate is none %}<span class="text-danger">[RATE PENDING]</span>
+          {% else %}${{ '%.2f'|format(vehicle.effective_storage_rate) }}{% endif %}
+        </div>
+      </div>
+      <div class="col-md-4">
+        <div class="text-muted">Notification / Admin Fee</div>
+        <div class="fw-semibold">
+          {% if vehicle.effective_admin_fee is none %}<span class="text-danger">[RATE PENDING]</span>
+          {% else %}${{ '%.2f'|format(vehicle.effective_admin_fee) }}{% endif %}
+        </div>
+      </div>
+    </div>
+    <hr class="my-2">
+    <div class="small">
+      <span class="text-muted">Total balance owed (tow + storage accrued to today + additional charges):</span>
+      <span class="fw-bold">${{ '%.2f'|format(vehicle.total_owed) }}</span>
+    </div>
+  </div>
+</div>
+
+{# ── The letters ── #}
+<div class="card">
+  <div class="card-header py-2 fw-semibold small">Letters</div>
+  <div class="list-group list-group-flush">
+    {% for opt in options %}
+    <div class="list-group-item d-flex justify-content-between align-items-center">
+      <div>
+        <div class="fw-semibold">{{ opt.title }}</div>
+        <div class="small text-muted">
+          {% if opt.letter and opt.letter.sent_date %}
+            Sent {{ opt.letter.sent_date|mdY }}
+            {% if opt.letter.tracking_number %}&bull; {{ opt.letter.tracking_number }}{% endif %}
+          {% elif opt.letter %}
+            Letter {{ opt.letter.letter_number }} &bull; due {{ opt.letter.due_date|mdY }} &bull; not yet sent
+          {% elif opt.reason %}
+            {{ opt.reason }}
+          {% else %}
+            Not created yet — generating will create it.
+          {% endif %}
+        </div>
+      </div>
+      {% if opt.reason %}
+      <button class="btn btn-outline-secondary btn-sm" disabled title="{{ opt.reason }}">
+        Unavailable
+      </button>
+      {% else %}
+      <a href="{{ url_for('vehicle_letter_generate', vehicle_id=vehicle.id, letter_type=opt.slug) }}"
+         target="_blank" class="btn btn-primary btn-sm">
+        <i class="bi bi-printer"></i> Generate
+      </a>
+      {% endif %}
+    </div>
+    {% endfor %}
+  </div>
+</div>
+{% endblock %}

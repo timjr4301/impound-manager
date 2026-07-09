@@ -52,7 +52,13 @@
       {{ vehicle.days_in_storage }} days in storage
     </small>
   </div>
-  {% if vehicle.status == 'ACTIVE' and not vehicle.possible_release and current_user.is_heather %}
+  {# Whichever of these three buttons renders first gets ms-auto, pushing the
+     whole group to the right edge of the header. #}
+  {% set show_flag = vehicle.status == 'ACTIVE' and not vehicle.possible_release and current_user.is_heather %}
+  {% set show_letters = not vehicle.possible_release and current_user.can_generate_letters %}
+  {% set show_edit = vehicle.status == 'ACTIVE' and current_user.can_edit_vehicles %}
+
+  {% if show_flag %}
   <form method="POST" action="{{ url_for('heather.flag_possible_release', vehicle_id=vehicle.id) }}"
         class="ms-auto me-2 d-inline" onsubmit="return confirm('Flag this vehicle as possibly missing/released? This will block letters from going out until confirmed.');">
     <button type="submit" class="btn btn-outline-danger btn-sm">
@@ -60,8 +66,15 @@
     </button>
   </form>
   {% endif %}
-  {% if vehicle.status == 'ACTIVE' and current_user.can_edit_vehicles %}
-  <a href="{{ url_for('vehicles_edit', vehicle_id=vehicle.id) }}" class="btn btn-outline-secondary btn-sm {% if not (not vehicle.possible_release and current_user.is_heather) %}ms-auto{% endif %} me-2">
+  {% if show_letters %}
+  <a href="{{ url_for('vehicle_letters', vehicle_id=vehicle.id) }}"
+     class="btn btn-outline-primary btn-sm {% if not show_flag %}ms-auto{% endif %} me-2">
+    📄 Generate Letters
+  </a>
+  {% endif %}
+  {% if show_edit %}
+  <a href="{{ url_for('vehicles_edit', vehicle_id=vehicle.id) }}"
+     class="btn btn-outline-secondary btn-sm {% if not show_flag and not show_letters %}ms-auto{% endif %} me-2">
     <i class="bi bi-pencil"></i> Edit
   </a>
   {% endif %}

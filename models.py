@@ -105,6 +105,14 @@ class User(UserMixin, db.Model):
         return self.role in ('tina', 'tim', 'brady', 'jim')
 
     @property
+    def can_generate_letters(self):
+        """Who may open the Generate Letters hub and produce a print-ready
+        notice. Wally uses role tim. Deliberately does NOT gate the older
+        /letters/<id>/print route, which stays login_required so brady and
+        the third-shift roles keep the read access they already had."""
+        return self.role in ('heather', 'tina', 'tim', 'jim')
+
+    @property
     def can_unrelease(self):
         """Who may undo a mistaken release — same set as mark-released (wally uses role tim)."""
         return self.role in ('tim', 'heather', 'brady', 'jim')
@@ -383,8 +391,12 @@ class Vehicle(db.Model):
 
     # PUCO fee caps for PPI impounds — hardcoded, unlike POLICE rates which
     # vary by department and live in the police_departments table.
-    PPI_TOW_RATE = 129.00
-    PPI_STORAGE_RATE = 17.00
+    # Read ONLY by effective_tow_rate/effective_storage_rate below, which in
+    # turn are read ONLY by the letter template — total_owed and the invoice
+    # /title-packet paths use the per-vehicle tow_fee/daily_storage_rate
+    # columns instead, so changing these numbers moves letter copy alone.
+    PPI_TOW_RATE = 144.00
+    PPI_STORAGE_RATE = 22.00
     NOTIFICATION_FEE = 25.00  # flat per-letter fee cited on Owner/Lienholder notices
 
     @property
@@ -401,6 +413,18 @@ class Vehicle(db.Model):
             return self.PPI_STORAGE_RATE
         if self.police_department and self.police_department.storage_rate is not None:
             return float(self.police_department.storage_rate)
+        return None
+
+    @property
+    def effective_admin_fee(self):
+        """Notification/admin fee cited in the body of the 1st/2nd Owner and
+        Lienholder notices. PPI uses the flat NOTIFICATION_FEE; POLICE reads
+        the requesting department's own admin_fee, which varies (County Towing
+        Storage bills $40.92, most departments $25.00)."""
+        if self.impound_type == 'PPI':
+            return self.NOTIFICATION_FEE
+        if self.police_department and self.police_department.admin_fee is not None:
+            return float(self.police_department.admin_fee)
         return None
 
     @property

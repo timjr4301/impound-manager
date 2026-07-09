@@ -33,6 +33,12 @@ def _ensure_letter(vehicle, letter_number, kind, recipient_type, due_date):
     return letter
 
 
+# Public alias — the Generate Letters hub (app.py) resolves a letter slug to a
+# CertifiedLetter and needs the same canonical numbering/idempotency this
+# module already owns, rather than duplicating the numbering scheme.
+ensure_letter = _ensure_letter
+
+
 def on_vehicle_created(vehicle, letter1_due):
     """Call right after a new vehicle's initial letter_number=1 is created
     (app.py's vehicles_new route). Only PPI needs anything extra here —
