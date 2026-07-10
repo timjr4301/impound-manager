@@ -2,6 +2,12 @@
 {% block title %}All Vehicles — Impound Manager{% endblock %}
 
 {% block content %}
+<style>
+  .photo-count { font-size: 11px; margin-top: 2px; display: inline-block; }
+  .no-photos { color: #c0392b; font-weight: 600; }
+  .has-photos { color: #888; }
+</style>
+
 <div class="d-flex justify-content-between align-items-center mb-4">
   <h2 class="h4 mb-0 fw-bold">All Vehicles</h2>
   <a href="{{ url_for('vehicles_new') }}" class="btn btn-success">
@@ -62,6 +68,11 @@
             {% if v.vin %}
             <br><small class="text-muted font-monospace">{{ v.vin }}</small>
             {% endif %}
+            <div>
+              <span class="photo-count {% if photo_counts.get(v.id, 0) == 0 %}no-photos{% else %}has-photos{% endif %}">
+                📷 {{ photo_counts.get(v.id, 0) }} photo{{ 's' if photo_counts.get(v.id, 0) != 1 else '' }}
+              </span>
+            </div>
           </td>
           <td>
             {% if v.plate %}{{ v.plate }} <small class="text-muted">{{ v.plate_state }}</small>{% else %}—{% endif %}

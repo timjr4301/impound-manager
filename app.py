@@ -1101,7 +1101,20 @@ def create_app():
             .order_by(Vehicle.impound_date.desc())
             .all()
         )
-        return render_template('vehicles/list.html', vehicles=vehicles, status_filter=status_filter)
+        photo_counts = {}
+        if vehicles:
+            rows = (
+                db.session.query(
+                    VehicleDamagePhoto.vehicle_id,
+                    db.func.count(VehicleDamagePhoto.id),
+                )
+                .filter(VehicleDamagePhoto.vehicle_id.in_([v.id for v in vehicles]))
+                .group_by(VehicleDamagePhoto.vehicle_id)
+                .all()
+            )
+            photo_counts = {vid: count for vid, count in rows}
+        return render_template('vehicles/list.html', vehicles=vehicles,
+                               status_filter=status_filter, photo_counts=photo_counts)
 
     def _vehicle_from_form(form, vehicle=None):
         year_str = form.get('year', '').strip()
