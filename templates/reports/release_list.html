@@ -1,0 +1,134 @@
+{% extends "base.html" %}
+{% block title %}Daily Release List — {{ day.strftime('%m/%d/%Y') }}{% endblock %}
+
+{% block content %}
+<style>
+  /* Large-text, tablet-friendly layout for Lawrence's third shift. */
+  .release-list { font-size: 1.05rem; }
+  .release-list h1 { font-size: 2rem; font-weight: 700; }
+  .release-list .day-label { font-size: 1.35rem; font-weight: 600; }
+  .release-table { font-size: 1.15rem; }
+  .release-table thead th {
+    font-size: .85rem; background: #1a1a2e; color: #fff;
+  }
+  .release-table td, .release-table th { padding: .75rem .9rem; vertical-align: middle; }
+  .release-table tbody tr { border-bottom: 1px solid #e3e6ea; }
+  .release-num { font-weight: 700; color: #6c757d; width: 3rem; }
+  .recon-line { border-top: 2px solid #1a1a2e; }
+  .print-header { display: none; }
+  @media print {
+    body { background: #fff; }
+    .release-list { font-size: 12pt; }
+    .print-header { display: block; margin-bottom: 12px; }
+    .release-table { font-size: 11pt; }
+    a.row-link { color: #000 !important; text-decoration: none; }
+    .release-table thead th { background: #1a1a2e !important; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  }
+</style>
+
+<div class="release-list">
+
+  {# Print-only masthead #}
+  <div class="print-header">
+    <div style="font-size:15pt;font-weight:700;">{{ company_name }}</div>
+    <div style="font-size:13pt;">Daily Release List — {{ day.strftime('%A, %B %d, %Y') }}</div>
+    <div style="font-size:9pt;color:#666;">Printed {{ printed_at.strftime('%m/%d/%Y %I:%M %p') }}</div>
+  </div>
+
+  {# Screen controls #}
+  <div class="d-flex flex-wrap align-items-center justify-content-between mb-3 no-print">
+    <div>
+      <h1 class="mb-1"><i class="bi bi-box-arrow-right me-2"></i>Daily Release List</h1>
+      <div class="day-label text-muted">
+        {{ day.strftime('%A, %B %d, %Y') }}{% if is_today %} <span class="badge bg-primary align-middle">Today</span>{% endif %}
+      </div>
+    </div>
+    <div class="d-flex align-items-center gap-2 mt-2 mt-md-0">
+      <a href="{{ url_for('release_list', date=prev_day.isoformat()) }}"
+         class="btn btn-outline-secondary" title="Previous day">
+        <i class="bi bi-chevron-left"></i> Prev
+      </a>
+      {% if not is_today %}
+      <a href="{{ url_for('release_list') }}" class="btn btn-outline-primary">Today</a>
+      {% endif %}
+      <a href="{{ url_for('release_list', date=next_day.isoformat()) }}"
+         class="btn btn-outline-secondary" title="Next day">
+        Next <i class="bi bi-chevron-right"></i>
+      </a>
+      <form method="GET" action="{{ url_for('release_list') }}" class="d-flex align-items-center gap-1 ms-1">
+        <input type="date" name="date" value="{{ day.isoformat() }}" class="form-control" style="max-width:180px;">
+        <button class="btn btn-outline-secondary" type="submit">Go</button>
+      </form>
+      <button class="btn btn-dark" onclick="window.print()"><i class="bi bi-printer me-1"></i>Print</button>
+    </div>
+  </div>
+
+  <p class="fw-semibold mb-3">
+    {{ vehicles|length }} vehicle{{ '' if vehicles|length == 1 else 's' }} released
+    on {{ day.strftime('%m/%d/%Y') }}.
+  </p>
+
+  {% if vehicles %}
+  <div class="table-responsive">
+    <table class="table release-table align-middle">
+      <thead>
+        <tr>
+          <th class="release-num">#</th>
+          <th>Time</th>
+          <th>Stock&nbsp;#</th>
+          <th>Vehicle</th>
+          <th>Plate</th>
+          <th>VIN</th>
+          <th>Type</th>
+          <th>Released By</th>
+          <th class="text-end">Total Owed</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for v in vehicles %}
+        <tr>
+          <td class="release-num">{{ loop.index }}</td>
+          <td class="text-nowrap">{{ v.released_at.strftime('%I:%M %p') if v.released_at else '—' }}</td>
+          <td class="font-monospace">
+            <a href="{{ url_for('vehicles_detail', vehicle_id=v.id) }}" class="row-link">{{ v.stock_number or '#' ~ v.id }}</a>
+          </td>
+          <td>
+            <a href="{{ url_for('vehicles_detail', vehicle_id=v.id) }}" class="row-link fw-semibold">{{ v.display_name }}</a>
+          </td>
+          <td class="font-monospace">{{ v.plate or '—' }}{% if v.plate and v.plate_state %} <span class="text-muted small">{{ v.plate_state }}</span>{% endif %}</td>
+          <td class="font-monospace small">{{ ('…' ~ v.vin[-8:]) if v.vin else '—' }}</td>
+          <td>{{ v.release_type_label }}</td>
+          <td>{{ v.released_by or '—' }}</td>
+          <td class="text-end font-monospace">${{ '%.2f'|format(v.total_owed or 0) }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+  {# End-of-shift book reconciliation footer #}
+  <div class="recon-line pt-3 mt-4">
+    <div class="row g-4" style="max-width:720px;">
+      <div class="col-6">
+        <div class="text-muted small text-uppercase">Reconciled by</div>
+        <div style="border-bottom:1px solid #999;height:2rem;"></div>
+      </div>
+      <div class="col-6">
+        <div class="text-muted small text-uppercase">Date / Time</div>
+        <div style="border-bottom:1px solid #999;height:2rem;"></div>
+      </div>
+    </div>
+    <p class="text-muted small mt-3">
+      Cross-check each vehicle above against the physical release book.
+      Discrepancies should be flagged to Tim.
+    </p>
+  </div>
+  {% else %}
+  <div class="text-center text-muted py-5">
+    <i class="bi bi-inbox" style="font-size:3rem;"></i>
+    <p class="mt-3 mb-0" style="font-size:1.25rem;">No vehicles were released on {{ day.strftime('%m/%d/%Y') }}.</p>
+  </div>
+  {% endif %}
+
+</div>
+{% endblock %}

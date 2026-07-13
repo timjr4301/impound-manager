@@ -165,6 +165,8 @@ def run_migrations(app):
                     ('unreleased_at',              'TIMESTAMP'),
                     ('unreleased_by',              'VARCHAR(50)'),
                     ('unreleased_reason',          'VARCHAR(255)'),
+                    ('released_at',                'TIMESTAMP'),
+                    ('released_by',                'VARCHAR(50)'),
                     ('snoozed_until',           'DATE'),
                     ('snoozed_at',              'TIMESTAMP'),
                     ('snoozed_by',              'VARCHAR(50)'),
@@ -1370,6 +1372,8 @@ def create_app():
             flash('Permission denied.', 'danger')
             return redirect(url_for('vehicles_detail', vehicle_id=vehicle_id))
         vehicle.status = 'RELEASED'
+        vehicle.released_at = datetime.utcnow()
+        vehicle.released_by = current_user.username
         vehicle.updated_at = datetime.utcnow()
         db.session.add(VehicleNote(
             vehicle_id=vehicle.id,
@@ -1400,6 +1404,10 @@ def create_app():
         vehicle.unreleased_at = datetime.utcnow()
         vehicle.unreleased_by = current_user.username
         vehicle.unreleased_reason = reason
+        # Clear the release stamp so an undone release drops off Lawrence's
+        # Daily Release List for the day.
+        vehicle.released_at = None
+        vehicle.released_by = None
         vehicle.updated_at = datetime.utcnow()
         db.session.add(VehicleNote(
             vehicle_id=vehicle.id,
@@ -1410,6 +1418,49 @@ def create_app():
         db.session.commit()
         flash(f'Vehicle restored to active — {vehicle.display_name}.', 'success')
         return redirect(url_for('vehicles_detail', vehicle_id=vehicle_id))
+
+    # ── Daily Release List (Lawrence — end-of-shift book reconciliation) ─────────
+
+    @app.route('/release-list')
+    @login_required
+    def release_list():
+        """Large-text, printable list of every vehicle that reached RELEASED on a
+        given day, for Lawrence's third-shift reconciliation against the paper
+        release book. Defaults to today; ?date=YYYY-MM-DD lets him check any day
+        (the shift straddles midnight, so prev/next-day links are provided).
+        Driven by Vehicle.released_at, stamped at every release path — vehicles
+        released before that column existed won't appear."""
+        if not current_user.can_see_release_list:
+            flash('That page is restricted to third-shift and management.', 'danger')
+            return redirect(url_for('dashboard'))
+
+        raw = (request.args.get('date') or '').strip()
+        try:
+            day = date.fromisoformat(raw) if raw else date.today()
+        except ValueError:
+            flash('Invalid date — showing today.', 'warning')
+            day = date.today()
+
+        start = datetime.combine(day, datetime.min.time())
+        end = start + timedelta(days=1)
+        vehicles = (
+            Vehicle.query
+            .filter(Vehicle.released_at >= start)
+            .filter(Vehicle.released_at < end)
+            .order_by(Vehicle.released_at.asc())
+            .all()
+        )
+
+        return render_template(
+            'reports/release_list.html',
+            vehicles=vehicles,
+            day=day,
+            prev_day=day - timedelta(days=1),
+            next_day=day + timedelta(days=1),
+            is_today=(day == date.today()),
+            printed_at=datetime.now(),
+            company_name=app.config['COMPANY_NAME'],
+        )
 
     # ── Valuation Report ───────────────────────────────────────────────────────
 

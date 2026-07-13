@@ -219,6 +219,13 @@
         </a>
       {% endif %}
 
+      {# ── Daily Release List (third-shift + management) ── #}
+      {% if current_user.can_see_release_list %}
+        <a href="{{ url_for('release_list') }}" class="nav-link text-white px-2">
+          <i class="bi bi-box-arrow-right"></i> Release List
+        </a>
+      {% endif %}
+
       {# ── Driver / VIN Snap (all authenticated users) ── #}
       <a href="{{ url_for('driver_snap.index') }}" class="nav-link text-white px-2">
         <i class="bi bi-geo-alt-fill"></i> VIN Snap

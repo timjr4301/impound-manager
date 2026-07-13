@@ -103,6 +103,12 @@ class User(UserMixin, db.Model):
         return self.role in ('heather', 'tina', 'tim', 'brady', 'jim')
 
     @property
+    def can_see_release_list(self):
+        """Lawrence's end-of-shift Daily Release List — third-shift book
+        reconciliation, plus Lori and management oversight."""
+        return self.role in ('lawrence', 'lori', 'tim', 'brady', 'jim')
+
+    @property
     def can_use_damage_photos(self):
         return self.role in ('tim', 'heather', 'tina', 'brady', 'jim')
 
@@ -399,6 +405,15 @@ class Vehicle(db.Model):
     unreleased_by = db.Column(db.String(50))
     unreleased_reason = db.Column(db.String(255))
 
+    # Stamped at the moment a vehicle reaches its final RELEASED status, by any
+    # path (customer pickup confirmation, Tina sale/junk disposition, audit bulk
+    # release, or Towbook auto-sync). Powers Lawrence's end-of-shift Daily
+    # Release List (vehicles released "today"), which needs a precise release
+    # timestamp — updated_at is unreliable since any later edit bumps it.
+    # released_by records who/what finalized it (username or 'System').
+    released_at = db.Column(db.DateTime)
+    released_by = db.Column(db.String(50))
+
     @property
     def pending_pickup_hours(self):
         if self.status != 'PENDING_PICKUP' or not self.pending_pickup_since:
@@ -651,6 +666,17 @@ class Vehicle(db.Model):
                 return f'VIN ...{self.vin[-6:]}'
             return f'Vehicle #{self.id}'
         return name
+
+    @property
+    def release_type_label(self):
+        """How a released vehicle left the lot — shown on Lawrence's Daily
+        Release List. Disposition sales/junk carry a disposition_outcome;
+        everything else is a straight owner/customer release."""
+        return {
+            'SOLD': 'Sold at Auction',
+            'JUNKED': 'Junked / Scrapped',
+            'RELEASED_TO_OWNER': 'Released to Owner',
+        }.get(self.disposition_outcome, 'Released / Pickup')
 
     @property
     def sorted_notes(self):

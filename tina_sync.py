@@ -154,9 +154,12 @@ def mark_released(vehicle_id, actor=None):
     if not vehicle:
         return False
     prior_status = vehicle.status
+    now = datetime.utcnow()
     vehicle.status = 'RELEASED'
     vehicle.possible_release = False
-    vehicle.updated_at = datetime.utcnow()
+    vehicle.released_at = now
+    vehicle.released_by = actor or 'System'
+    vehicle.updated_at = now
     if actor:
         body = (f'Confirmed released by {actor} on '
                 f'{datetime.utcnow().strftime("%m/%d/%Y")}')
