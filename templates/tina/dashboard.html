@@ -8,15 +8,30 @@
     <h2 class="h4 mb-0 fw-bold"><i class="bi bi-file-earmark-check me-2"></i>Tina's Dashboard</h2>
     <small class="text-muted">{{ today.strftime('%A, %B ') + today.day|string + ', ' + today.year|string if today else '' }}</small>
   </div>
-  <div class="ms-auto d-flex gap-2 align-items-center">
+  <div class="ms-auto d-flex gap-2 align-items-center flex-wrap">
+    <a href="{{ url_for('tina.pipeline') }}" class="btn btn-outline-primary btn-sm"><i class="bi bi-kanban"></i> Pipeline</a>
+    <a href="{{ url_for('tina.auctions') }}" class="btn btn-outline-primary btn-sm"><i class="bi bi-hammer"></i> Auctions</a>
+    <a href="{{ url_for('tina.junk_reconciliation') }}" class="btn btn-outline-secondary btn-sm"><i class="bi bi-recycle"></i> Junk Recon</a>
     <a href="{{ url_for('staff_guide', role='tina') }}" class="btn btn-outline-secondary btn-sm" target="_blank">
-      <i class="bi bi-book"></i> Training Guide
-    </a>
-    <a href="{{ url_for('vehicles_new') }}" class="btn btn-success btn-sm">
-      <i class="bi bi-plus-lg"></i> New Impound
+      <i class="bi bi-book"></i> Guide
     </a>
   </div>
 </div>
+
+{% if flyer_due %}
+<div class="alert alert-warning d-flex align-items-center gap-2">
+  <i class="bi bi-megaphone-fill"></i>
+  <div>
+    <strong>Post the flyer{{ 's' if flyer_due|length > 1 }}:</strong>
+    {% for e in flyer_due %}
+      {{ e.venue_label.split('—')[0]|trim if e.venue else 'Auction' }} on {{ e.event_date|mdY }}
+      ({{ e.days_until }}d out){{ ', ' if not loop.last }}
+    {% endfor %}
+    — advertise at least a week ahead.
+    <a href="{{ url_for('tina.auctions') }}" class="alert-link">Manage auctions</a>
+  </div>
+</div>
+{% endif %}
 
 <div class="row g-3 mb-4">
   <div class="col-6 col-md-3">

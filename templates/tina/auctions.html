@@ -1,0 +1,147 @@
+{% extends 'base.html' %}
+{% block title %}Auctions — Impound Manager{% endblock %}
+
+{% block content %}
+<div class="d-flex align-items-center mb-3 gap-2 flex-wrap">
+  <div>
+    <h2 class="h4 mb-0 fw-bold"><i class="bi bi-hammer me-2"></i>Auctions</h2>
+    <small class="text-muted">1st &amp; 3rd Saturday · online (Peacock) or live (Fifth Ave)</small>
+  </div>
+  <div class="ms-auto d-flex gap-2">
+    <a href="{{ url_for('tina.pipeline') }}" class="btn btn-sm btn-outline-primary"><i class="bi bi-kanban me-1"></i>Board</a>
+    <a href="{{ url_for('tina.dashboard') }}" class="btn btn-sm btn-outline-secondary"><i class="bi bi-arrow-left me-1"></i>Dashboard</a>
+  </div>
+</div>
+
+<div class="row g-4">
+  <div class="col-lg-7">
+    {# ── Upcoming events ── #}
+    <div class="card shadow-sm mb-3">
+      <div class="card-header fw-semibold d-flex align-items-center">
+        <span><i class="bi bi-calendar-event me-2"></i>Upcoming Auctions</span>
+      </div>
+      <div class="card-body p-0">
+        {% if not upcoming %}
+        <div class="text-center text-muted py-4">No upcoming auctions. Add some below.</div>
+        {% else %}
+        <table class="table table-sm mb-0 align-middle">
+          <thead><tr><th>Date</th><th>Venue</th><th>Cars</th><th>Flyer</th><th></th></tr></thead>
+          <tbody>
+          {% for e in upcoming %}
+          <tr class="{% if e.flyer_due %}table-warning{% endif %}">
+            <td class="fw-semibold">{{ e.event_date|mdY }}<div class="small text-muted">{{ e.days_until }}d out</div></td>
+            <td>
+              {% if e.venue == 'ONLINE' %}<span class="badge bg-info text-dark">Online · Peacock</span>
+              {% elif e.venue == 'LIVE' %}<span class="badge bg-primary">Live · Fifth Ave</span>
+              {% else %}<span class="badge bg-secondary">TBD</span>{% endif %}
+            </td>
+            <td>{{ e.vehicles.count() }}</td>
+            <td>
+              {% if e.advertised %}<span class="text-success"><i class="bi bi-check-circle"></i> Posted</span>
+              {% elif e.flyer_due %}<span class="text-danger fw-semibold"><i class="bi bi-megaphone"></i> Post now</span>
+              {% else %}<span class="text-muted">by {{ e.advertise_by|mdY }}</span>{% endif %}
+            </td>
+            <td class="text-end">
+              {% if not e.advertised %}
+              <form method="post" action="{{ url_for('tina.auction_advertised', event_id=e.id) }}" class="d-inline">
+                <button class="btn btn-sm btn-outline-success py-0" title="Mark flyer posted"><i class="bi bi-megaphone"></i></button>
+              </form>
+              {% endif %}
+              <form method="post" action="{{ url_for('tina.auction_delete', event_id=e.id) }}" class="d-inline"
+                    onsubmit="return confirm('Delete this auction? Assigned cars go back to Auction Ready.');">
+                <button class="btn btn-sm btn-outline-danger py-0"><i class="bi bi-trash"></i></button>
+              </form>
+            </td>
+          </tr>
+          {% endfor %}
+          </tbody>
+        </table>
+        {% endif %}
+      </div>
+    </div>
+
+    {# ── Add events ── #}
+    <div class="card shadow-sm mb-3">
+      <div class="card-header fw-semibold"><i class="bi bi-plus-circle me-2"></i>Add Auctions</div>
+      <div class="card-body">
+        <form method="post" action="{{ url_for('tina.auction_create') }}" class="row g-2 align-items-end mb-3">
+          <div class="col-sm-4">
+            <label class="form-label small fw-semibold mb-1">Date</label>
+            <input type="date" name="event_date" class="form-control form-control-sm" required>
+          </div>
+          <div class="col-sm-4">
+            <label class="form-label small fw-semibold mb-1">Venue</label>
+            <select name="venue" class="form-select form-select-sm">
+              <option value="">TBD</option>
+              {% for key, label in venues %}<option value="{{ key }}">{{ label }}</option>{% endfor %}
+            </select>
+          </div>
+          <div class="col-sm-4">
+            <button class="btn btn-sm btn-primary w-100"><i class="bi bi-plus-lg"></i> Add</button>
+          </div>
+        </form>
+        <form method="post" action="{{ url_for('tina.auction_generate') }}" class="d-flex gap-2 align-items-end">
+          <div class="flex-grow-1">
+            <label class="form-label small fw-semibold mb-1">Quick-add next 6 (1st &amp; 3rd Saturdays)</label>
+            <select name="venue" class="form-select form-select-sm">
+              <option value="">TBD venue</option>
+              {% for key, label in venues %}<option value="{{ key }}">{{ label }}</option>{% endfor %}
+            </select>
+          </div>
+          <button class="btn btn-sm btn-outline-secondary"><i class="bi bi-calendar-plus"></i> Generate</button>
+        </form>
+        <div class="small text-muted mt-2">Suggested: {% for d in suggested %}{{ d.strftime('%b %-d') }}{{ ', ' if not loop.last }}{% endfor %}</div>
+      </div>
+    </div>
+  </div>
+
+  {# ── Assign auction-ready cars ── #}
+  <div class="col-lg-5">
+    <div class="card shadow-sm">
+      <div class="card-header fw-semibold"><i class="bi bi-tag me-2"></i>Ready to Assign ({{ ready|length }})</div>
+      <div class="card-body p-0">
+        {% if not ready %}
+        <div class="text-center text-muted py-4">No auction-ready cars waiting.</div>
+        {% else %}
+        <div class="list-group list-group-flush">
+          {% for v in ready %}
+          <div class="list-group-item">
+            <div class="fw-semibold">{{ v.display_name }}</div>
+            <div class="small text-muted mb-2">
+              {% if v.plate %}{{ v.plate }} · {% endif %}{{ v.effective_nada_value|currency if v.effective_nada_value else '' }}
+            </div>
+            {% if upcoming %}
+            <form method="post" action="{{ url_for('tina.auction_assign', vehicle_id=v.id) }}" class="d-flex gap-2">
+              <select name="event_id" class="form-select form-select-sm" required>
+                <option value="">— auction —</option>
+                {% for e in upcoming %}<option value="{{ e.id }}">{{ e.event_date.strftime('%b %-d') }}{% if e.venue %} ({{ 'Online' if e.venue=='ONLINE' else 'Live' }}){% endif %}</option>{% endfor %}
+              </select>
+              <button class="btn btn-sm btn-success"><i class="bi bi-arrow-right"></i></button>
+            </form>
+            {% else %}
+            <div class="small text-danger">Add an auction date first.</div>
+            {% endif %}
+          </div>
+          {% endfor %}
+        </div>
+        {% endif %}
+      </div>
+    </div>
+
+    {% if past %}
+    <div class="card shadow-sm mt-3">
+      <div class="card-header fw-semibold"><i class="bi bi-clock-history me-2"></i>Past Auctions</div>
+      <div class="card-body p-0">
+        <table class="table table-sm mb-0">
+          <tbody>
+          {% for e in past %}
+          <tr><td>{{ e.event_date|mdY }}</td><td>{{ e.venue_label.split('—')[0]|trim if e.venue else 'TBD' }}</td><td class="text-end">{{ e.vehicles.count() }} cars</td></tr>
+          {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+    {% endif %}
+  </div>
+</div>
+{% endblock %}

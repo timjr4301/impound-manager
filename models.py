@@ -252,6 +252,7 @@ class Vehicle(db.Model):
     auction_lot = db.Column(db.String(50))
     auction_date = db.Column(db.Date)
     auction_venue = db.Column(db.String(10))   # ONLINE (Peacock) | LIVE (Fifth Ave)
+    auction_event_id = db.Column(db.Integer, db.ForeignKey('auction_events.id'))
 
     # Catalytic converter — documented by the driver at locate time so the
     # Ohio Steel reconciliation report can dispute after-the-fact deductions.
@@ -1269,6 +1270,49 @@ class UpsPollLog(db.Model):
     def summary(self):
         return (f'{self.letters_checked} checked · {self.newly_delivered} delivered · '
                 f'{self.newly_returned} returned · {self.pods_pulled} PODs')
+
+
+class AuctionEvent(db.Model):
+    """A scheduled auction (typically 1st & 3rd Saturday). Cars in the sell
+    track get assigned to one; the event drives the 'post the flyer 7 days out'
+    reminder and the online (Peacock) vs live (Fifth Ave) routing."""
+    __tablename__ = 'auction_events'
+
+    id = db.Column(db.Integer, primary_key=True)
+    event_date = db.Column(db.Date, nullable=False, index=True)
+    venue = db.Column(db.String(10))          # ONLINE (Peacock) | LIVE (Fifth Ave)
+    label = db.Column(db.String(100))
+    notes = db.Column(db.Text)
+    advertised = db.Column(db.Boolean, default=False)
+    advertised_at = db.Column(db.DateTime)
+    advertised_by = db.Column(db.String(50))
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+    vehicles = db.relationship('Vehicle', backref='auction_event', lazy='dynamic')
+
+    @property
+    def venue_label(self):
+        from disposition import AUCTION_VENUE_LABELS
+        return AUCTION_VENUE_LABELS.get(self.venue, self.venue or '—')
+
+    @property
+    def advertise_by(self):
+        from datetime import timedelta as _td
+        return self.event_date - _td(days=7)
+
+    @property
+    def days_until(self):
+        return (self.event_date - date.today()).days
+
+    @property
+    def is_past(self):
+        return self.event_date < date.today()
+
+    @property
+    def flyer_due(self):
+        """True when the flyer should already be posted (within 7 days) and
+        hasn't been — the whole point of the reminder."""
+        return (not self.advertised) and (not self.is_past) and self.days_until <= 7
 
 
 class CustodyEvent(db.Model):

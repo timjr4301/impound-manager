@@ -1,0 +1,70 @@
+{% extends 'base.html' %}
+{% block title %}Junk / Ohio Steel Reconciliation — Impound Manager{% endblock %}
+
+{% block content %}
+<div class="d-flex align-items-center mb-3 gap-2 flex-wrap">
+  <div>
+    <h2 class="h4 mb-0 fw-bold"><i class="bi bi-recycle me-2"></i>Junk Reconciliation</h2>
+    <small class="text-muted">Documented converter status on every junked car — your record vs. Ohio Steel's deductions</small>
+  </div>
+  <div class="ms-auto">
+    <a href="{{ url_for('tina.dashboard') }}" class="btn btn-sm btn-outline-secondary"><i class="bi bi-arrow-left me-1"></i>Dashboard</a>
+  </div>
+</div>
+
+<div class="row g-2 mb-4">
+  <div class="col-4">
+    <div class="card border-0 shadow-sm text-center py-3 bg-success text-white">
+      <div class="h3 fw-bold mb-0">{{ n_present }}</div>
+      <div class="small fw-semibold">CONVERTER PRESENT</div>
+    </div>
+  </div>
+  <div class="col-4">
+    <div class="card border-0 shadow-sm text-center py-3 bg-danger text-white">
+      <div class="h3 fw-bold mb-0">{{ n_missing }}</div>
+      <div class="small fw-semibold">NO CONVERTER</div>
+    </div>
+  </div>
+  <div class="col-4">
+    <div class="card border-0 shadow-sm text-center py-3 bg-secondary text-white">
+      <div class="h3 fw-bold mb-0">{{ n_unchecked }}</div>
+      <div class="small fw-semibold">NOT CHECKED</div>
+    </div>
+  </div>
+</div>
+
+<div class="alert alert-light border small">
+  <i class="bi bi-info-circle me-1"></i>
+  When Ohio Steel deducts for "cars with no converter," cross-check it here. Each row shows what the
+  driver documented at pickup — the <strong>NO CONVERTER</strong> count is what a legitimate deduction
+  should match. Rows with a camera icon have a photo on file.
+</div>
+
+<div class="card shadow-sm">
+  <div class="card-body p-0">
+    {% if not junked %}
+    <div class="text-center text-muted py-4">No junked vehicles yet.</div>
+    {% else %}
+    <table class="table table-sm table-hover mb-0 align-middle">
+      <thead><tr><th>Vehicle</th><th>Converter</th><th>Documented by</th><th>When</th><th>Notes</th></tr></thead>
+      <tbody>
+      {% for v in junked %}
+      <tr>
+        <td><a href="{{ url_for('vehicles_detail', vehicle_id=v.id) }}" class="row-link fw-semibold">{{ v.display_name }}</a></td>
+        <td>
+          {% if v.converter_present is true %}<span class="badge bg-success">Present</span>
+          {% elif v.converter_present is false %}<span class="badge bg-danger">None</span>
+          {% else %}<span class="badge bg-secondary">Not checked</span>{% endif %}
+          {% if v.converter_photo %}<i class="bi bi-camera-fill text-primary ms-1" title="Photo on file"></i>{% endif %}
+        </td>
+        <td class="small">{{ v.converter_checked_by or '—' }}</td>
+        <td class="small">{{ v.converter_checked_at|datetime_et if v.converter_checked_at else '—' }}</td>
+        <td class="small text-muted">{{ v.converter_notes or '' }}</td>
+      </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+    {% endif %}
+  </div>
+</div>
+{% endblock %}

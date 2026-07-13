@@ -10,7 +10,7 @@ from flask_login import LoginManager, login_required, current_user
 from models import (db, User, Vehicle, CertifiedLetter, TitleFiling,
                     VehicleNote, DamageItem, SyncLog, VehicleDocument, StaffFeedback,
                     StaffTodo, PoliceDepartment, VehicleCharge, GeneralDocument, VehicleDamagePhoto,
-                    UpsPollLog, CustodyEvent,
+                    UpsPollLog, CustodyEvent, AuctionEvent,
                     PPI_LETTER1_DAYS, PPI_LETTER2_DAYS, POLICE_LETTER1_DAYS)
 from werkzeug.utils import secure_filename
 
@@ -181,6 +181,7 @@ def run_migrations(app):
                     ('auction_lot',             'VARCHAR(50)'),
                     ('auction_date',            'DATE'),
                     ('auction_venue',           'VARCHAR(10)'),
+                    ('auction_event_id',        'INTEGER REFERENCES auction_events(id)'),
                     # Converter documentation
                     ('converter_present',       'BOOLEAN'),
                     ('converter_checked_by',    'VARCHAR(50)'),
@@ -338,6 +339,9 @@ def run_migrations(app):
 
             if 'custody_events' not in existing_tables:
                 CustodyEvent.__table__.create(db.engine)
+
+            if 'auction_events' not in existing_tables:
+                AuctionEvent.__table__.create(db.engine)
 
 
 def parse_quantum_view_csv(content: str):

@@ -2,11 +2,12 @@
 Tina's dashboard — title pipeline, court process tracker,
 police affidavit tracker, junk/sell decisions, invoice creation.
 """
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from flask import (Blueprint, render_template, request, redirect,
                    url_for, flash, current_app, send_file)
 from flask_login import login_required, current_user
-from models import db, Vehicle, TitleFiling, Invoice, VehicleNote, DamageReport, CustodyEvent
+from models import (db, Vehicle, TitleFiling, Invoice, VehicleNote, DamageReport,
+                    CustodyEvent, AuctionEvent)
 import disposition as dispo
 import pipeline_ops as ops
 from pipeline_ops import move_stage as _move_stage, record_custody as _custody
@@ -85,6 +86,11 @@ def dashboard():
         .all()
     )
 
+    # Auctions whose flyer should be posted now (within 7 days, not advertised)
+    flyer_due = [e for e in AuctionEvent.query
+                 .filter(AuctionEvent.event_date >= today)
+                 .order_by(AuctionEvent.event_date.asc()).all() if e.flyer_due]
+
     # Court dates coming up
     court_upcoming = (
         Vehicle.query
@@ -120,6 +126,7 @@ def dashboard():
         title_eligible=title_eligible,
         disposition_needed=disposition_needed,
         repairs_pending=repairs_pending,
+        flyer_due=flyer_due,
         court_upcoming=court_upcoming,
         recent_invoices=recent_invoices,
         damage_reports=damage_reports,
@@ -556,6 +563,160 @@ def disposition_report():
         sold_total=sold_total,
         junk_total=junk_total,
     )
+
+
+# ── Auction events (1st & 3rd Saturday) ─────────────────────────────────────
+
+def _first_and_third_saturdays(count):
+    """Return the next `count` upcoming 1st- and 3rd-Saturday dates."""
+    out = []
+    today = date.today()
+    y, mo = today.year, today.month
+    while len(out) < count:
+        # Saturdays in month y-mo
+        d = date(y, mo, 1)
+        sats = []
+        while d.month == mo:
+            if d.weekday() == 5:  # Saturday
+                sats.append(d)
+            d += timedelta(days=1)
+        for idx in (0, 2):  # 1st and 3rd
+            if idx < len(sats) and sats[idx] >= today and len(out) < count:
+                out.append(sats[idx])
+        mo += 1
+        if mo > 12:
+            mo = 1; y += 1
+    return out
+
+
+@bp.route('/auctions')
+@_tina_required
+def auctions():
+    today = date.today()
+    upcoming = (AuctionEvent.query
+                .filter(AuctionEvent.event_date >= today)
+                .order_by(AuctionEvent.event_date.asc()).all())
+    past = (AuctionEvent.query
+            .filter(AuctionEvent.event_date < today)
+            .order_by(AuctionEvent.event_date.desc()).limit(10).all())
+    # Cars diagnosed auction-ready but not yet on an event
+    ready = (Vehicle.query
+             .filter(Vehicle.tina_stage == 'AUCTION_READY')
+             .filter(Vehicle.possible_release.isnot(True))
+             .order_by(Vehicle.tina_stage_at.asc().nullslast()).all())
+    return render_template('tina/auctions.html',
+        today=today, upcoming=upcoming, past=past, ready=ready,
+        venues=dispo.AUCTION_VENUES,
+        suggested=_first_and_third_saturdays(6))
+
+
+@bp.route('/auctions/create', methods=['POST'])
+@_tina_required
+def auction_create():
+    d = request.form.get('event_date', '').strip()
+    venue = request.form.get('venue', '').strip()
+    label = request.form.get('label', '').strip()
+    if not d:
+        flash('Pick a date.', 'danger')
+        return redirect(url_for('tina.auctions'))
+    ev = AuctionEvent(event_date=date.fromisoformat(d),
+                      venue=venue if venue in dispo.AUCTION_VENUE_LABELS else None,
+                      label=label or None, created_at=datetime.utcnow())
+    db.session.add(ev)
+    db.session.commit()
+    flash(f'Auction added for {ev.event_date.strftime("%b %-d")}.', 'success')
+    return redirect(url_for('tina.auctions'))
+
+
+@bp.route('/auctions/generate', methods=['POST'])
+@_tina_required
+def auction_generate():
+    """Add the next 6 first/third-Saturday dates that don't already exist."""
+    venue = request.form.get('venue', '').strip()
+    venue = venue if venue in dispo.AUCTION_VENUE_LABELS else None
+    existing = {e.event_date for e in AuctionEvent.query.all()}
+    added = 0
+    for d in _first_and_third_saturdays(6):
+        if d not in existing:
+            db.session.add(AuctionEvent(event_date=d, venue=venue, created_at=datetime.utcnow()))
+            added += 1
+    db.session.commit()
+    flash(f'Added {added} auction date(s).', 'success')
+    return redirect(url_for('tina.auctions'))
+
+
+@bp.route('/auctions/<int:event_id>/advertised', methods=['POST'])
+@_tina_required
+def auction_advertised(event_id):
+    ev = db.get_or_404(AuctionEvent, event_id)
+    ev.advertised = True
+    ev.advertised_at = datetime.utcnow()
+    ev.advertised_by = ops.actor()
+    db.session.commit()
+    flash('Marked as advertised.', 'success')
+    return redirect(url_for('tina.auctions'))
+
+
+@bp.route('/auctions/<int:event_id>/delete', methods=['POST'])
+@_tina_required
+def auction_delete(event_id):
+    ev = db.get_or_404(AuctionEvent, event_id)
+    # Unhook any assigned cars first
+    for v in ev.vehicles.all():
+        v.auction_event_id = None
+    db.session.delete(ev)
+    db.session.commit()
+    flash('Auction removed.', 'info')
+    return redirect(url_for('tina.auctions'))
+
+
+@bp.route('/auctions/assign/<int:vehicle_id>', methods=['POST'])
+@_tina_required
+def auction_assign(vehicle_id):
+    """Put an auction-ready car onto an event → moves it to At Auction and sets
+    the venue from the event."""
+    vehicle = db.get_or_404(Vehicle, vehicle_id)
+    event_id = request.form.get('event_id', '')
+    ev = db.session.get(AuctionEvent, int(event_id)) if event_id.isdigit() else None
+    if not ev:
+        flash('Pick an auction to assign to.', 'danger')
+        return redirect(url_for('tina.auctions'))
+    vehicle.auction_event_id = ev.id
+    vehicle.auction_venue = ev.venue
+    vehicle.auction_date = ev.event_date
+    _move_stage(vehicle, 'AT_AUCTION',
+                note=f'assigned to {ev.venue_label} auction {ev.event_date.strftime("%b %-d")}')
+    db.session.commit()
+    flash(f'{vehicle.display_name} → At Auction ({ev.event_date.strftime("%b %-d")}).', 'success')
+    return redirect(url_for('tina.auctions'))
+
+
+@bp.route('/auctions/unassign/<int:vehicle_id>', methods=['POST'])
+@_tina_required
+def auction_unassign(vehicle_id):
+    vehicle = db.get_or_404(Vehicle, vehicle_id)
+    vehicle.auction_event_id = None
+    _move_stage(vehicle, 'AUCTION_READY', note='pulled from auction')
+    db.session.commit()
+    flash(f'{vehicle.display_name} pulled back to Auction Ready.', 'info')
+    return redirect(url_for('tina.auctions'))
+
+
+@bp.route('/junk-reconciliation')
+@_tina_required
+def junk_reconciliation():
+    """Ohio Steel reconciliation — every junked car with its documented
+    converter status, so a later 'these had no converters' deduction can be
+    checked against our own record instead of taken on faith."""
+    junked = (Vehicle.query
+              .filter(Vehicle.disposition_outcome == 'JUNKED')
+              .order_by(Vehicle.updated_at.desc()).limit(300).all())
+    present = [v for v in junked if v.converter_present is True]
+    missing = [v for v in junked if v.converter_present is False]
+    unchecked = [v for v in junked if v.converter_present is None]
+    return render_template('tina/junk_reconciliation.html',
+        today=date.today(), junked=junked,
+        n_present=len(present), n_missing=len(missing), n_unchecked=len(unchecked))
 
 
 @bp.route('/invoice/<int:invoice_id>/print')
