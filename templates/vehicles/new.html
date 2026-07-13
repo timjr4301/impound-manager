@@ -321,5 +321,28 @@
   document.querySelectorAll('input[name="impound_type"]').forEach(r => r.addEventListener('change', updateTimeline));
   document.getElementById('impound_date').addEventListener('change', updateTimeline);
   updateTimeline();
+
+  // Suggest the PPI daily storage rate from the selected weight class. Purely a
+  // convenience — the field stays fully editable for special circumstances.
+  const PPI_STORAGE_BY_CLASS = { light: 22, medium: 37, heavy: 82 };
+  function suggestStorageRate() {
+    const vcEl = document.getElementById('vehicle_class');
+    const rateEl = document.getElementById('daily_storage_rate');
+    if (!vcEl || !rateEl) return;
+    const type = document.querySelector('input[name="impound_type"]:checked')?.value;
+    if (type && type !== 'PPI') { rateEl.placeholder = '35.00'; return; }
+    const def = PPI_STORAGE_BY_CLASS[vcEl.value];
+    if (def == null) return;
+    rateEl.placeholder = def.toFixed(2) + ' (class default)';
+    const cur = rateEl.value.trim();
+    // Fill when empty, or replace a value that is itself just another class
+    // default — so switching class updates the suggestion but a custom rate
+    // typed by staff is left alone.
+    const isClassDefault = Object.values(PPI_STORAGE_BY_CLASS).some(v => parseFloat(cur) === v);
+    if (cur === '' || isClassDefault) rateEl.value = def.toFixed(2);
+  }
+  document.getElementById('vehicle_class').addEventListener('change', suggestStorageRate);
+  document.querySelectorAll('input[name="impound_type"]').forEach(r => r.addEventListener('change', suggestStorageRate));
+  suggestStorageRate();
 </script>
 {% endblock %}

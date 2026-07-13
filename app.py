@@ -1304,6 +1304,23 @@ def create_app():
         rate_str = form.get('daily_storage_rate', '').strip()
         nada_str = form.get('nada_value', '').strip()
         dept_str = form.get('police_department_id', '').strip()
+
+        vclass = form.get('vehicle_class', '').strip().lower()
+        if vclass not in Vehicle.VEHICLE_CLASSES:
+            vclass = 'light'
+
+        # Storage rate: an explicit entry always wins (editable on the fly). If
+        # left blank on a PPI impound, seed the weight-class default so the
+        # amount owed and the notice letters both reflect the class rate. POLICE
+        # keeps its existing behavior (department rate), so leave it None here.
+        impound_type = (form.get('impound_type', '').strip()
+                        or (vehicle.impound_type if vehicle else '')).upper()
+        if rate_str:
+            storage_rate = float(rate_str)
+        elif impound_type == 'PPI':
+            storage_rate = Vehicle.ppi_storage_rate_for_class(vclass)
+        else:
+            storage_rate = None
         fields = dict(
             vin=form.get('vin', '').strip() or None,
             plate=form.get('plate', '').strip() or None,
@@ -1328,11 +1345,9 @@ def create_app():
             lienholder_2_address=form.get('lienholder_2_address', '').strip() or None,
             mileage=int(mile_str.replace(',', '')) if mile_str.replace(',', '').isdigit() else None,
             tow_fee=float(tow_str) if tow_str else None,
-            daily_storage_rate=float(rate_str) if rate_str else None,
+            daily_storage_rate=storage_rate,
             nada_value=float(nada_str) if nada_str else None,
-            vehicle_class=(form.get('vehicle_class', '').strip().lower()
-                           if form.get('vehicle_class', '').strip().lower() in Vehicle.VEHICLE_CLASSES
-                           else 'light'),
+            vehicle_class=vclass,
             notes=form.get('notes', '').strip() or None,
         )
         if vehicle:

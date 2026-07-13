@@ -511,28 +511,42 @@ class Vehicle(db.Model):
     police_department_id = db.Column(db.Integer, db.ForeignKey('police_departments.id'))
     police_department = db.relationship('PoliceDepartment', back_populates='vehicles')
 
-    # PUCO fee caps for PPI impounds — hardcoded, unlike POLICE rates which
-    # vary by department and live in the police_departments table.
-    # Read ONLY by effective_tow_rate/effective_storage_rate below, which in
-    # turn are read ONLY by the letter template — total_owed and the invoice
-    # /title-packet paths use the per-vehicle tow_fee/daily_storage_rate
-    # columns instead, so changing these numbers moves letter copy alone.
+    # PUCO fee references for PPI impounds — unlike POLICE rates, which vary by
+    # department and live in the police_departments table.
     PPI_TOW_RATE = 144.00
-    PPI_STORAGE_RATE = 22.00
-    NOTIFICATION_FEE = 25.00  # flat per-letter fee cited on Owner/Lienholder notices
+    # PPI daily storage rate scales with vehicle weight class. These are the
+    # DEFAULTS a class seeds into the per-vehicle daily_storage_rate on intake;
+    # staff can override that field on the fly for special circumstances, and
+    # the override then drives both the amount owed and the letter copy.
+    PPI_STORAGE_RATE_BY_CLASS = {'light': 22.00, 'medium': 37.00, 'heavy': 82.00}
+    PPI_STORAGE_RATE = 22.00   # light default; kept as the fallback for a missing class
+    NOTIFICATION_FEE = 25.00   # flat per-letter fee cited on Owner/Lienholder notices
+
+    @classmethod
+    def ppi_storage_rate_for_class(cls, vehicle_class):
+        """Default PPI daily storage rate for a weight class."""
+        vc = (vehicle_class or 'light').lower()
+        return cls.PPI_STORAGE_RATE_BY_CLASS.get(vc, cls.PPI_STORAGE_RATE)
 
     @property
     def effective_tow_rate(self):
+        # PPI: the edited per-vehicle tow fee wins (editable on the fly), else
+        # the standard PPI rate. POLICE is unchanged — it reads the requesting
+        # department's rate and leaves rate_pending intact.
         if self.impound_type == 'PPI':
-            return self.PPI_TOW_RATE
+            return float(self.tow_fee) if self.tow_fee is not None else self.PPI_TOW_RATE
         if self.police_department and self.police_department.tow_rate is not None:
             return float(self.police_department.tow_rate)
         return None
 
     @property
     def effective_storage_rate(self):
+        # PPI: the edited per-vehicle daily rate wins (editable on the fly),
+        # else the weight-class default. POLICE is unchanged — department rate.
         if self.impound_type == 'PPI':
-            return self.PPI_STORAGE_RATE
+            if self.daily_storage_rate is not None:
+                return float(self.daily_storage_rate)
+            return self.ppi_storage_rate_for_class(self.vehicle_class)
         if self.police_department and self.police_department.storage_rate is not None:
             return float(self.police_department.storage_rate)
         return None
