@@ -237,6 +237,8 @@ def get_vehicle_by_vin(vin):
         'flagged': v.disposition == 'SELL',
         'disposition': v.disposition,
         'tina_stage': v.tina_stage,
+        'stage_label': v.stage_label,
+        'outcome': v.disposition_outcome,
     }
 
     # Open UPS notices

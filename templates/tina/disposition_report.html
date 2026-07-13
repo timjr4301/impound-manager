@@ -1,0 +1,141 @@
+{% extends 'base.html' %}
+{% block title %}Disposition Report — Impound Manager{% endblock %}
+
+{% block content %}
+<div class="d-flex align-items-center mb-3 gap-2 flex-wrap">
+  <div>
+    <h2 class="h4 mb-0 fw-bold"><i class="bi bi-graph-up me-2"></i>Disposition Report</h2>
+    <small class="text-muted">Where every vehicle stands after title — in the pipeline, sold, or junked</small>
+  </div>
+  <div class="ms-auto d-flex gap-2">
+    <a href="{{ url_for('tina.pipeline') }}" class="btn btn-sm btn-outline-primary">
+      <i class="bi bi-kanban me-1"></i>Board
+    </a>
+    <a href="{{ url_for('tina.dashboard') }}" class="btn btn-sm btn-outline-secondary">
+      <i class="bi bi-arrow-left me-1"></i>Dashboard
+    </a>
+  </div>
+</div>
+
+{# ── Top-line tiles ── #}
+<div class="row g-2 mb-4">
+  <div class="col-6 col-md-3">
+    <div class="card border-0 shadow-sm text-center py-3 bg-light">
+      <div class="h2 fw-bold mb-0">{{ in_flight_count }}</div>
+      <div class="small fw-semibold">IN PIPELINE</div>
+    </div>
+  </div>
+  <div class="col-6 col-md-3">
+    <div class="card border-0 shadow-sm text-center py-3 bg-success text-white">
+      <div class="h2 fw-bold mb-0">{{ sold|length }}</div>
+      <div class="small fw-semibold">SOLD</div>
+    </div>
+  </div>
+  <div class="col-6 col-md-3">
+    <div class="card border-0 shadow-sm text-center py-3 bg-dark text-white">
+      <div class="h2 fw-bold mb-0">{{ junked|length }}</div>
+      <div class="small fw-semibold">JUNKED</div>
+    </div>
+  </div>
+  <div class="col-6 col-md-3">
+    <div class="card border-0 shadow-sm text-center py-3 bg-white">
+      <div class="h4 fw-bold mb-0 text-success">{{ (sold_total + junk_total)|currency }}</div>
+      <div class="small fw-semibold text-muted">GROSS PROCEEDS</div>
+    </div>
+  </div>
+</div>
+
+{# ── In-pipeline by stage ── #}
+<div class="card shadow-sm mb-4">
+  <div class="card-header fw-semibold"><i class="bi bi-hourglass-split me-2"></i>Still in the Pipeline</div>
+  <div class="card-body p-0">
+    {% set any_flight = stage_summary|selectattr('vehicles')|list %}
+    {% if not any_flight %}
+      <div class="text-center text-muted py-4"><i class="bi bi-check2-circle me-1"></i>Nothing in the pipeline right now.</div>
+    {% else %}
+    <table class="table table-sm table-hover mb-0 align-middle">
+      <thead><tr><th>Stage</th><th>Vehicle</th><th>Disposition</th><th>Days in Stage</th><th></th></tr></thead>
+      <tbody>
+      {% for s in stage_summary %}{% for v in s.vehicles %}
+        <tr>
+          <td>{% if loop.first %}<span class="badge bg-info text-dark">{{ s.label }}</span>{% endif %}</td>
+          <td><a href="{{ url_for('vehicles_detail', vehicle_id=v.id) }}" class="row-link fw-semibold">{{ v.display_name }}</a></td>
+          <td>
+            <span class="badge {% if v.disposition == 'SELL' %}bg-success{% elif v.disposition == 'JUNK' %}bg-warning text-dark{% elif v.disposition == 'HOLD' %}bg-danger{% else %}bg-light text-dark border{% endif %}">
+              {{ v.disposition or 'undecided' }}
+            </span>
+          </td>
+          <td>{% if v.days_in_stage is not none %}{{ v.days_in_stage }}d{% else %}—{% endif %}</td>
+          <td class="text-end"><a href="{{ url_for('vehicles_detail', vehicle_id=v.id) }}" class="btn btn-sm btn-outline-secondary py-0">View</a></td>
+        </tr>
+      {% endfor %}{% endfor %}
+      </tbody>
+    </table>
+    {% endif %}
+  </div>
+</div>
+
+<div class="row g-4">
+  {# ── Sold ── #}
+  <div class="col-lg-6">
+    <div class="card shadow-sm h-100">
+      <div class="card-header fw-semibold bg-success text-white d-flex">
+        <span><i class="bi bi-cash-coin me-2"></i>Sold</span>
+        <span class="ms-auto">{{ sold_total|currency }}</span>
+      </div>
+      <div class="card-body p-0">
+        {% if not sold %}
+          <div class="text-center text-muted py-4">No sold vehicles yet.</div>
+        {% else %}
+        <table class="table table-sm table-hover mb-0">
+          <thead><tr><th>Vehicle</th><th>Sold</th><th>Buyer</th><th class="text-end">Price</th></tr></thead>
+          <tbody>
+          {% for v in sold %}
+          <tr>
+            <td><a href="{{ url_for('vehicles_detail', vehicle_id=v.id) }}" class="row-link fw-semibold">{{ v.display_name }}</a>
+              {% if v.auctioneer %}<div class="small text-muted">{{ v.auctioneer }}{% if v.auction_lot %} · lot {{ v.auction_lot }}{% endif %}</div>{% endif %}
+            </td>
+            <td class="small">{{ v.sale_date|mdY if v.sale_date else (v.auction_date|mdY if v.auction_date else '—') }}</td>
+            <td class="small">{{ v.buyer_name or '—' }}</td>
+            <td class="text-end fw-semibold">{{ v.sale_price|currency if v.sale_price else '—' }}</td>
+          </tr>
+          {% endfor %}
+          </tbody>
+        </table>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+
+  {# ── Junked ── #}
+  <div class="col-lg-6">
+    <div class="card shadow-sm h-100">
+      <div class="card-header fw-semibold bg-dark text-white d-flex">
+        <span><i class="bi bi-recycle me-2"></i>Junked</span>
+        <span class="ms-auto">{{ junk_total|currency }}</span>
+      </div>
+      <div class="card-body p-0">
+        {% if not junked %}
+          <div class="text-center text-muted py-4">No junked vehicles yet.</div>
+        {% else %}
+        <table class="table table-sm table-hover mb-0">
+          <thead><tr><th>Vehicle</th><th>Yard</th><th>Weight</th><th class="text-end">Scrap</th></tr></thead>
+          <tbody>
+          {% for v in junked %}
+          <tr>
+            <td><a href="{{ url_for('vehicles_detail', vehicle_id=v.id) }}" class="row-link fw-semibold">{{ v.display_name }}</a></td>
+            <td class="small">{{ v.junk_yard_name or '—' }}</td>
+            <td class="small">{% if v.junk_weight_lbs %}{{ '%.0f'|format(v.junk_weight_lbs) }} lb{% else %}—{% endif %}</td>
+            <td class="text-end fw-semibold">
+              {% if v.junk_weight_lbs and v.junk_price_per_ton %}{{ ((v.junk_weight_lbs / 2000) * v.junk_price_per_ton)|currency }}{% else %}—{% endif %}
+            </td>
+          </tr>
+          {% endfor %}
+          </tbody>
+        </table>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}

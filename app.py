@@ -174,10 +174,45 @@ def run_migrations(app):
                     ('last_location_at',        'TIMESTAMP'),
                     ('last_location_by',        'VARCHAR(100)'),
                     ('police_department_id',    'INTEGER REFERENCES police_departments(id)'),
+                    # Unified disposition pipeline (see disposition.py)
+                    ('tina_stage_at',           'TIMESTAMP'),
+                    ('disposition_outcome',     'VARCHAR(20)'),
+                    ('auctioneer',              'VARCHAR(100)'),
+                    ('auction_lot',             'VARCHAR(50)'),
+                    ('auction_date',            'DATE'),
                 ]
                 for col_name, col_type in new_cols:
                     if col_name not in cols:
                         conn.execute(text(f'ALTER TABLE vehicles ADD COLUMN {col_name} {col_type}'))
+
+                # One-time remap of legacy tina_stage values to the unified
+                # disposition ladder. Idempotent — only rewrites known-old keys,
+                # so it no-ops once every row is already on a new value.
+                from disposition import LEGACY_STAGE_MAP
+                for old_key, new_key in LEGACY_STAGE_MAP.items():
+                    conn.execute(
+                        text('UPDATE vehicles SET tina_stage = :new, '
+                             'tina_stage_at = COALESCE(tina_stage_at, updated_at) '
+                             'WHERE tina_stage = :old'),
+                        {'new': new_key, 'old': old_key},
+                    )
+                # Legacy terminal 'COMPLETE' rows: infer the outcome from their
+                # invoice/disposition so the report and board show Sold vs Junked.
+                conn.execute(text("""
+                    UPDATE vehicles SET tina_stage = 'SOLD',
+                        disposition_outcome = COALESCE(disposition_outcome, 'SOLD')
+                    WHERE tina_stage = 'COMPLETE' AND disposition = 'SELL'
+                """))
+                conn.execute(text("""
+                    UPDATE vehicles SET tina_stage = 'JUNKED',
+                        disposition_outcome = COALESCE(disposition_outcome, 'JUNKED')
+                    WHERE tina_stage = 'COMPLETE' AND disposition = 'JUNK'
+                """))
+                # Any remaining COMPLETE (no clear disposition) → mark released-to-owner.
+                conn.execute(text("""
+                    UPDATE vehicles SET disposition_outcome = COALESCE(disposition_outcome, 'RELEASED_TO_OWNER')
+                    WHERE tina_stage = 'COMPLETE'
+                """))
 
             if 'certified_letters' in existing_tables:
                 cols = {c['name'] for c in inspector.get_columns('certified_letters')}
@@ -1985,6 +2020,13 @@ def create_app():
                 created_at=datetime.utcnow(),
             ))
             vehicle.status = 'TITLE_FILED'
+            # Advance the disposition pipeline: title is now in hand, so the
+            # vehicle moves to the "decide SELL/JUNK" stage unless it's already
+            # further along or parked on HOLD.
+            from disposition import PRE_TITLE_STAGES
+            if not vehicle.tina_stage or vehicle.tina_stage in PRE_TITLE_STAGES:
+                vehicle.tina_stage = 'TITLE_FILED'
+                vehicle.tina_stage_at = datetime.utcnow()
             vehicle.updated_at = datetime.utcnow()
             db.session.commit()
             flash(f'Title filing recorded for {vehicle.display_name}.', 'success')

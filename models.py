@@ -218,7 +218,15 @@ class Vehicle(db.Model):
     disposition = db.Column(db.String(10))  # SELL, JUNK, HOLD
     disposition_set_date = db.Column(db.Date)
     disposition_notes = db.Column(db.Text)
-    tina_stage = db.Column(db.String(20))  # QUEUED, TITLE_WORK, COURT, READY, COMPLETE
+    # Unified post-title pipeline stage — see disposition.py STAGES for the full
+    # ladder (AWAITING_TITLE, TITLE_FILED, AUCTION_PREP, AUCTION_READY,
+    # AT_AUCTION, SOLD, JUNK_PREP, JUNKED, HOLD).
+    tina_stage = db.Column(db.String(20))
+    tina_stage_at = db.Column(db.DateTime)   # when the current stage was entered
+    # Final disposition outcome for reporting — status stays RELEASED (umbrella)
+    # so all existing released-tab/audit/API logic keeps working; this records
+    # HOW it left: SOLD | JUNKED | RELEASED_TO_OWNER.
+    disposition_outcome = db.Column(db.String(20))
 
     # Court / police affidavit tracking (Tina)
     court_date = db.Column(db.Date)
@@ -233,6 +241,28 @@ class Vehicle(db.Model):
     junk_weight_lbs = db.Column(db.Float)
     junk_price_per_ton = db.Column(db.Float)
     junk_yard_name = db.Column(db.String(100))
+    # Auction outcome capture (SELL track terminal)
+    auctioneer = db.Column(db.String(100))
+    auction_lot = db.Column(db.String(50))
+    auction_date = db.Column(db.Date)
+
+    @property
+    def stage_label(self):
+        """Human label for the current disposition-pipeline stage."""
+        from disposition import STAGE_LABELS
+        return STAGE_LABELS.get(self.tina_stage, self.tina_stage or '—')
+
+    @property
+    def stage_is_terminal(self):
+        from disposition import TERMINAL_STAGES
+        return self.tina_stage in TERMINAL_STAGES
+
+    @property
+    def days_in_stage(self):
+        """Whole days since the current stage was entered (None if unknown)."""
+        if not self.tina_stage_at:
+            return None
+        return (datetime.utcnow() - self.tina_stage_at).days
 
     # Payment
     storage_paid = db.Column(db.Float, default=0.0)

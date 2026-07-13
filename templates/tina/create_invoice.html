@@ -53,6 +53,20 @@
               <label class="form-label fw-semibold">Buyer Address</label>
               <textarea name="buyer_address" class="form-control" rows="2" placeholder="Street, City, State ZIP"></textarea>
             </div>
+            <div class="row g-3 mb-3">
+              <div class="col-6">
+                <label class="form-label fw-semibold">Auctioneer</label>
+                <input type="text" name="auctioneer" class="form-control" placeholder="Auction house / seller">
+              </div>
+              <div class="col-3">
+                <label class="form-label fw-semibold">Lot #</label>
+                <input type="text" name="auction_lot" class="form-control" placeholder="e.g. 42">
+              </div>
+              <div class="col-3">
+                <label class="form-label fw-semibold">Auction Date</label>
+                <input type="date" name="auction_date" class="form-control" value="{{ today.isoformat() }}">
+              </div>
+            </div>
           </div>
 
           {# Junk fields #}

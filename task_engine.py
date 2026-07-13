@@ -244,7 +244,8 @@ def recalculate_all() -> dict:
                 v.task4_triggered = True
                 v.task4_triggered_date = today
                 if not v.tina_stage:
-                    v.tina_stage = 'QUEUED'
+                    v.tina_stage = 'AWAITING_TITLE'
+                    v.tina_stage_at = datetime.utcnow()
                 v.updated_at = datetime.utcnow()
 
             counts[urgency] = counts.get(urgency, 0) + 1

@@ -105,11 +105,12 @@ _HELP = {
                 ],
             },
             {
-                'heading': 'Sending to Base44 (Tina Tracker)',
+                'heading': 'Disposition Pipeline (title → auction or junk)',
                 'items': [
-                    'When a vehicle reaches "Title Received" stage in your tracker, the system auto-pushes it to Base44.',
-                    'Base44 is where you track cars through: Car Pulled → Initial Photos → Review → Decision → Windshield → Key Made → Inspection → Detail → Final Photos → Auction Ready → Sold/Junked.',
-                    'Log in to Base44 directly for that stage-by-stage work.',
+                    'Once you file the title, the vehicle lands on the Disposition Pipeline board at the "Title Filed" stage.',
+                    'Set the disposition (Sell or Junk) and drag the card down its track: Auction Prep → Auction Ready → At Auction → Sold, or Junk Prep → Junked. Use Hold to park a car for court/lien.',
+                    'To finish a car, use the "record outcome" link (or the Invoice button) — it captures the sale/scrap details (auctioneer, lot, price, or yard/weight) and marks it Sold or Junked.',
+                    'This replaces the old external Base44 tracker — everything now lives in-app. The Disposition Report shows where every post-title vehicle stands and total proceeds.',
                 ],
             },
             {
@@ -223,7 +224,7 @@ _HELP = {
                     'Impound Manager → this app (full fleet view).',
                     'TowCommand → dispatch and truck management.',
                     'BJ Books → accounting and payroll.',
-                    'Tina\'s Base44 → title and auction pipeline.',
+                    'Disposition Pipeline → in-app title and auction/junk pipeline (replaces Tina\'s old Base44 tracker).',
                 ],
             },
             {

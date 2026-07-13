@@ -1,49 +1,38 @@
 {% extends 'base.html' %}
-{% block title %}Tina Pipeline Board — Impound Manager{% endblock %}
+{% block title %}Disposition Pipeline — Impound Manager{% endblock %}
 
 {% block content %}
 {#
-  AJAX Move Endpoint
+  Disposition Pipeline Board
   ─────────────────────────────────────────────────────────────────────────────
-  POST  /tina/pipeline/move/<vehicle_id>
-  Headers: Content-Type: application/json
-           X-Requested-With: XMLHttpRequest
-  Body:    { "stage": "STAGE_KEY" }
+  One unified ladder (see disposition.py STAGES):
+    Awaiting Title → Title Filed → { Auction Prep → Auction Ready → At Auction
+    → Sold }  or  { Junk Prep → Junked },  with Hold off to the side.
 
-  Returns (success): { "ok": true, "stage": "STAGE_KEY",
-                       "label": "Stage Label", "vehicle_name": "2019 Ford F-150" }
-  Returns (error):   { "ok": false, "error": "Error message" }
-
-  On success the JS moves the card DOM node into the target column, rebuilds
-  the "Move To" dropdown for the new forward-only position, updates all count
-  badges in both the summary bar and column headers, and fires a Bootstrap
-  Toast — no page reload.
-
-  Stage keys (in pipeline order):
-    TITLE_PENDING → TITLE_COMPLETE → SERVICE_EVAL → AUCTION_CAND
-    → KEY_INSPECT → ROUTED_LIVE → ROUTED_ONLINE → ROUTED_JUNK
+  Move endpoint: POST /tina/pipeline/move/<vehicle_id>  body { "stage": KEY }
+    success → { ok:true, stage, label, disposition, vehicle_name }
+    terminal (Sold/Junked) → 409 { error:'terminal', redirect } (handled by a
+    plain link, not AJAX — the invoice form captures the outcome data).
 #}
 
-{# ── Page Header ──────────────────────────────────────────────────────────── #}
 {% set ns = namespace(total=0) %}
 {% for s in stages %}{% set ns.total = ns.total + s.vehicles|length %}{% endfor %}
 
 <div class="d-flex align-items-center mb-3 gap-2 flex-wrap">
   <div>
     <h2 class="h4 mb-0 fw-bold">
-      <i class="bi bi-kanban me-2"></i>Vehicle Pipeline Board
+      <i class="bi bi-kanban me-2"></i>Disposition Pipeline
     </h2>
     <small class="text-muted">
-      {{ ns.total }} vehicle{{ 's' if ns.total != 1 }} across
-      {{ stages|length }} stages
+      {{ ns.total }} vehicle{{ 's' if ns.total != 1 }} · title → auction or junk
     </small>
   </div>
   <div class="ms-auto d-flex gap-2">
+    <a href="{{ url_for('tina.disposition_report') }}" class="btn btn-sm btn-outline-primary">
+      <i class="bi bi-graph-up me-1"></i>Report
+    </a>
     <a href="{{ url_for('tina.dashboard') }}" class="btn btn-sm btn-outline-secondary">
       <i class="bi bi-arrow-left me-1"></i>Dashboard
-    </a>
-    <a href="{{ url_for('vehicles_new') }}" class="btn btn-sm btn-success">
-      <i class="bi bi-plus-lg me-1"></i>New Impound
     </a>
   </div>
 </div>
@@ -71,51 +60,26 @@
   {% for stage in stages %}
 
     {# Per-stage colour + icon tokens ───────────────────────────────────────── #}
-    {% if stage.key == 'TITLE_PENDING' %}
-      {% set hdr_cls   = 'bg-secondary text-white'      %}
-      {% set card_bdr  = '#6c757d'                      %}
-      {% set badge_cls = 'bg-white text-dark'           %}
-      {% set col_icon  = 'bi-hourglass'                 %}
-    {% elif stage.key == 'TITLE_COMPLETE' %}
-      {% set hdr_cls   = 'bg-success text-white'        %}
-      {% set card_bdr  = '#198754'                      %}
-      {% set badge_cls = 'bg-white text-dark'           %}
-      {% set col_icon  = 'bi-file-earmark-check'        %}
-    {% elif stage.key == 'SERVICE_EVAL' %}
-      {% set hdr_cls   = 'bg-info text-dark'            %}
-      {% set card_bdr  = '#0dcaf0'                      %}
-      {% set badge_cls = 'bg-dark text-white'           %}
-      {% set col_icon  = 'bi-search'                    %}
-    {% elif stage.key == 'AUCTION_CAND' %}
-      {% set hdr_cls   = 'bg-warning text-dark'         %}
-      {% set card_bdr  = '#ffc107'                      %}
-      {% set badge_cls = 'bg-dark text-white'           %}
-      {% set col_icon  = 'bi-tag-fill'                  %}
-    {% elif stage.key == 'KEY_INSPECT' %}
-      {% set hdr_cls   = 'kanban-hdr-orange text-white' %}
-      {% set card_bdr  = '#fd7e14'                      %}
-      {% set badge_cls = 'bg-white text-dark'           %}
-      {% set col_icon  = 'bi-key-fill'                  %}
-    {% elif stage.key == 'ROUTED_LIVE' %}
-      {% set hdr_cls   = 'bg-primary text-white'        %}
-      {% set card_bdr  = '#0d6efd'                      %}
-      {% set badge_cls = 'bg-white text-dark'           %}
-      {% set col_icon  = 'bi-broadcast'                 %}
-    {% elif stage.key == 'ROUTED_ONLINE' %}
-      {% set hdr_cls   = 'bg-info text-dark'            %}
-      {% set card_bdr  = '#0dcaf0'                      %}
-      {% set badge_cls = 'bg-dark text-white'           %}
-      {% set col_icon  = 'bi-globe'                     %}
-    {% elif stage.key == 'ROUTED_JUNK' %}
-      {% set hdr_cls   = 'bg-dark text-white'           %}
-      {% set card_bdr  = '#212529'                      %}
-      {% set badge_cls = 'bg-white text-dark'           %}
-      {% set col_icon  = 'bi-trash3'                    %}
+    {% if stage.key == 'AWAITING_TITLE' %}
+      {% set hdr_cls = 'bg-secondary text-white' %}{% set card_bdr = '#6c757d' %}{% set col_icon = 'bi-hourglass' %}
+    {% elif stage.key == 'TITLE_FILED' %}
+      {% set hdr_cls = 'bg-success text-white' %}{% set card_bdr = '#198754' %}{% set col_icon = 'bi-file-earmark-check' %}
+    {% elif stage.key == 'AUCTION_PREP' %}
+      {% set hdr_cls = 'bg-info text-dark' %}{% set card_bdr = '#0dcaf0' %}{% set col_icon = 'bi-tools' %}
+    {% elif stage.key == 'AUCTION_READY' %}
+      {% set hdr_cls = 'bg-warning text-dark' %}{% set card_bdr = '#ffc107' %}{% set col_icon = 'bi-tag-fill' %}
+    {% elif stage.key == 'AT_AUCTION' %}
+      {% set hdr_cls = 'bg-primary text-white' %}{% set card_bdr = '#0d6efd' %}{% set col_icon = 'bi-hammer' %}
+    {% elif stage.key == 'SOLD' %}
+      {% set hdr_cls = 'kanban-hdr-green text-white' %}{% set card_bdr = '#146c43' %}{% set col_icon = 'bi-cash-coin' %}
+    {% elif stage.key == 'JUNK_PREP' %}
+      {% set hdr_cls = 'kanban-hdr-orange text-white' %}{% set card_bdr = '#fd7e14' %}{% set col_icon = 'bi-recycle' %}
+    {% elif stage.key == 'JUNKED' %}
+      {% set hdr_cls = 'bg-dark text-white' %}{% set card_bdr = '#212529' %}{% set col_icon = 'bi-trash3' %}
+    {% elif stage.key == 'HOLD' %}
+      {% set hdr_cls = 'bg-danger text-white' %}{% set card_bdr = '#dc3545' %}{% set col_icon = 'bi-pause-circle' %}
     {% else %}
-      {% set hdr_cls   = 'bg-secondary text-white'      %}
-      {% set card_bdr  = '#6c757d'                      %}
-      {% set badge_cls = 'bg-white text-dark'           %}
-      {% set col_icon  = 'bi-circle'                    %}
+      {% set hdr_cls = 'bg-secondary text-white' %}{% set card_bdr = '#6c757d' %}{% set col_icon = 'bi-circle' %}
     {% endif %}
 
     <div class="flex-shrink-0 kanban-col" data-stage="{{ stage.key }}" style="width:272px">
@@ -125,7 +89,7 @@
         <span class="fw-semibold lh-sm" style="font-size:.78rem;letter-spacing:.02em">
           <i class="bi {{ col_icon }} me-1"></i>{{ stage.label }}
         </span>
-        <span class="badge {{ badge_cls }} ms-auto"
+        <span class="badge bg-white text-dark ms-auto"
               data-col-count="{{ stage.key }}"
               style="min-width:1.7rem;font-size:.74rem">{{ stage.vehicles|length }}</span>
       </div>
@@ -134,118 +98,68 @@
       <div class="d-flex flex-column gap-2" id="col-{{ stage.key }}">
 
         {% if not stage.vehicles %}
-        <div class="text-center text-muted py-4"
-             id="empty-{{ stage.key }}"
-             style="font-size:.8rem">
+        <div class="text-center text-muted py-4" id="empty-{{ stage.key }}" style="font-size:.8rem">
           <i class="bi bi-inbox d-block mb-1" style="font-size:1.6rem;opacity:.35"></i>
           No vehicles
         </div>
         {% endif %}
 
         {% for v in stage.vehicles %}
-        <div class="card shadow-sm vehicle-card"
-             id="card-{{ v.id }}"
-             data-vehicle-id="{{ v.id }}"
+        <div class="card shadow-sm vehicle-card" id="card-{{ v.id }}"
+             data-vehicle-id="{{ v.id }}" data-stage="{{ stage.key }}"
              style="border-left:3px solid {{ card_bdr }}">
           <div class="card-body p-2">
 
-            {# Vehicle name + plate + urgency badge ─────────────────────── #}
             <div class="d-flex align-items-start gap-1 mb-1">
               <div class="flex-grow-1 overflow-hidden">
-                <div class="fw-semibold text-truncate"
-                     style="font-size:.81rem"
+                <div class="fw-semibold text-truncate" style="font-size:.81rem"
                      title="{{ v.display_name }}">{{ v.display_name }}</div>
                 <div class="text-muted" style="font-size:.7rem">
-                  {% if v.plate %}
-                    {{ v.plate }}{% if v.plate_state %}&thinsp;/&thinsp;{{ v.plate_state }}{% endif %}
-                  {% else %}
-                    <span class="fst-italic">No plate</span>
-                  {% endif %}
+                  {% if v.plate %}{{ v.plate }}{% if v.plate_state %}&thinsp;/&thinsp;{{ v.plate_state }}{% endif %}
+                  {% else %}<span class="fst-italic">No plate</span>{% endif %}
                 </div>
               </div>
-              {# Urgency indicator driven by pre-computed letter_urgency field #}
-              {% if v.letter_urgency == 'RED' %}
-              <span class="badge bg-danger flex-shrink-0" title="Action overdue">
-                <i class="bi bi-exclamation-circle-fill"></i>
-              </span>
-              {% elif v.letter_urgency == 'YELLOW' %}
-              <span class="badge bg-warning text-dark flex-shrink-0" title="Due soon">
-                <i class="bi bi-clock-fill"></i>
-              </span>
-              {% elif v.letter_urgency == 'GREEN' %}
-              <span class="badge bg-success flex-shrink-0" title="On track">
-                <i class="bi bi-check-circle-fill"></i>
-              </span>
-              {% endif %}
             </div>
 
-            {# Stats chips: days in storage, tow fee, disposition ──────── #}
-            <div class="d-flex flex-wrap gap-1 mb-2 align-items-center"
-                 style="font-size:.69rem">
-              <span class="text-muted">
-                <i class="bi bi-clock me-1"></i>{{ v.days_in_storage }}d
+            <div class="d-flex flex-wrap gap-1 mb-2 align-items-center" style="font-size:.69rem">
+              <span class="text-muted" data-stage-days>
+                <i class="bi bi-clock me-1"></i>{% if v.days_in_stage is not none %}{{ v.days_in_stage }}d in stage{% else %}{{ v.days_in_storage }}d{% endif %}
               </span>
               {% if v.tow_fee %}
-              <span class="text-muted">
-                <i class="bi bi-currency-dollar"></i>{{ '%.0f'|format(v.tow_fee) }}&thinsp;tow
-              </span>
+              <span class="text-muted"><i class="bi bi-currency-dollar"></i>{{ '%.0f'|format(v.tow_fee) }}&thinsp;tow</span>
               {% endif %}
-              {% if v.disposition %}
-              <span class="badge
-                {% if v.disposition == 'SELL' %}bg-success
-                {% elif v.disposition == 'JUNK' %}bg-warning text-dark
-                {% else %}bg-secondary{% endif %}"
-                style="font-size:.62rem">{{ v.disposition }}</span>
-              {% endif %}
+              <span class="badge disposition-badge
+                {% if v.disposition == 'SELL' %}bg-success{% elif v.disposition == 'JUNK' %}bg-warning text-dark
+                {% elif v.disposition == 'HOLD' %}bg-danger{% else %}bg-light text-dark border{% endif %}"
+                style="font-size:.62rem">{{ v.disposition or 'undecided' }}</span>
             </div>
-
-            {# Stage-specific alert badges ──────────────────────────────── #}
-            {% if stage.key == 'KEY_INSPECT' %}
-            <div class="mb-2">
-              <span class="badge bg-warning text-dark w-100 text-start py-1"
-                    style="font-size:.67rem">
-                <i class="bi bi-key-fill me-1"></i>Key Inspection Needed
-              </span>
-            </div>
-            {% endif %}
-            {% if stage.key == 'TITLE_COMPLETE' %}
-            <div class="mb-2">
-              <span class="badge bg-success w-100 text-start py-1"
-                    style="font-size:.67rem">
-                <i class="bi bi-check-circle-fill me-1"></i>Ready for eval
-              </span>
-            </div>
-            {% endif %}
 
             {# Action buttons ─────────────────────────────────────────────── #}
             <div class="d-flex gap-1 pipeline-actions">
-
-              {# View — links to /vehicles/<id> detail page #}
               <a href="{{ url_for('vehicles_detail', vehicle_id=v.id) }}"
-                 class="btn btn-outline-secondary btn-sm py-0 flex-shrink-0"
-                 style="font-size:.7rem">
+                 class="btn btn-outline-secondary btn-sm py-0 flex-shrink-0" style="font-size:.7rem">
                 <i class="bi bi-eye"></i> View
               </a>
-
-              {# Move To dropdown — forward (right) stages only #}
-              {% set ahead = stages[loop.index0 + 1:] %}
-              {% if ahead %}
+              {% set targets = transitions[stage.key] %}
+              {% if targets %}
               <div class="dropdown flex-grow-1">
-                <button class="btn btn-sm btn-outline-primary dropdown-toggle w-100 py-0"
-                        type="button"
-                        data-bs-toggle="dropdown"
-                        aria-expanded="false"
-                        style="font-size:.7rem">
+                <button class="btn btn-sm btn-outline-primary dropdown-toggle w-100 py-0" type="button"
+                        data-bs-toggle="dropdown" aria-expanded="false" style="font-size:.7rem">
                   Move To <i class="bi bi-arrow-right ms-1"></i>
                 </button>
-                <ul class="dropdown-menu dropdown-menu-end shadow-sm"
-                    style="font-size:.79rem;min-width:172px">
-                  {% for target in ahead %}
+                <ul class="dropdown-menu dropdown-menu-end shadow-sm" style="font-size:.79rem;min-width:184px">
+                  {% for tkey, tlabel, tterm in targets %}
                   <li>
+                    {% if tterm %}
+                    <a class="dropdown-item py-1" href="{{ url_for('tina.create_invoice', vehicle_id=v.id) }}">
+                      <i class="bi bi-receipt text-success me-1"></i>{{ tlabel }} — record outcome
+                    </a>
+                    {% else %}
                     <button class="dropdown-item py-1" type="button"
-                            onclick="moveVehicle({{ v.id }}, '{{ target.key }}', '{{ target.label }}', '{{ stage.key }}')">
-                      <i class="bi bi-arrow-right text-primary me-1"></i>{{ target.label }}
+                            onclick="moveVehicle({{ v.id }}, '{{ tkey }}', '{{ tlabel }}', '{{ stage.key }}')">
+                      <i class="bi bi-arrow-right text-primary me-1"></i>{{ tlabel }}
                     </button>
+                    {% endif %}
                   </li>
                   {% endfor %}
                 </ul>
@@ -256,97 +170,53 @@
                 <i class="bi bi-check-all me-1"></i>Final Stage
               </button>
               {% endif %}
+            </div>
 
-            </div>{# /.pipeline-actions #}
+          </div>
+        </div>
+        {% endfor %}
 
-          </div>{# /.card-body #}
-        </div>{# /.vehicle-card #}
-        {% endfor %}{# for v in stage.vehicles #}
+      </div>
+    </div>
 
-      </div>{# /.col-<STAGE> #}
-    </div>{# /.kanban-col #}
+  {% endfor %}
 
-  {% endfor %}{# for stage in stages #}
-
-</div>{# /#kanban-board #}
-
-{# ── Bootstrap Toast Container ───────────────────────────────────────────── #}
-<div class="toast-container position-fixed bottom-0 end-0 p-3" style="z-index:9999">
 </div>
+
+<div class="toast-container position-fixed bottom-0 end-0 p-3" style="z-index:9999"></div>
 
 {% endblock %}
 
 
 {% block scripts %}
 <style>
-  /* ── Kanban board ────────────────────────────────────────────────────────── */
-  #kanban-board {
-    min-height: 56vh;
-    scrollbar-width: thin;
-    scrollbar-color: #dee2e6 transparent;
-  }
-  #kanban-board::-webkit-scrollbar        { height: 6px; }
-  #kanban-board::-webkit-scrollbar-track  { background: transparent; }
-  #kanban-board::-webkit-scrollbar-thumb  { background: #dee2e6; border-radius: 3px; }
-
-  /* ── Summary bar: suppress scrollbar ────────────────────────────────────── */
-  .pipeline-summary-bar                    { scrollbar-width: none; }
+  #kanban-board { min-height: 56vh; scrollbar-width: thin; scrollbar-color: #dee2e6 transparent; }
+  #kanban-board::-webkit-scrollbar { height: 6px; }
+  #kanban-board::-webkit-scrollbar-track { background: transparent; }
+  #kanban-board::-webkit-scrollbar-thumb { background: #dee2e6; border-radius: 3px; }
+  .pipeline-summary-bar { scrollbar-width: none; }
   .pipeline-summary-bar::-webkit-scrollbar { display: none; }
-
-  /* ── Column body min-height ─────────────────────────────────────────────── */
   .kanban-col > div:last-child { min-height: 72px; }
-
-  /* ── KEY_INSPECT orange column header ───────────────────────────────────── */
   .kanban-hdr-orange { background-color: #fd7e14 !important; }
-
-  /* ── Card hover lift ─────────────────────────────────────────────────────── */
-  .vehicle-card {
-    transition: box-shadow .14s ease, transform .14s ease;
-  }
-  .vehicle-card:hover {
-    box-shadow: 0 .3rem .9rem rgba(0,0,0,.14) !important;
-    transform: translateY(-1px);
-  }
-
-  /* ── Busy state while AJAX is in-flight ─────────────────────────────────── */
-  .vehicle-card.is-moving {
-    pointer-events: none;
-    opacity: .5;
-  }
-
-  /* ── Mobile snap-scroll ──────────────────────────────────────────────────── */
+  .kanban-hdr-green  { background-color: #146c43 !important; }
+  .vehicle-card { transition: box-shadow .14s ease, transform .14s ease; }
+  .vehicle-card:hover { box-shadow: 0 .3rem .9rem rgba(0,0,0,.14) !important; transform: translateY(-1px); }
+  .vehicle-card.is-moving { pointer-events: none; opacity: .5; }
   @media (max-width: 575.98px) {
     #kanban-board { scroll-snap-type: x mandatory; }
-    .kanban-col   { scroll-snap-align: start; }
+    .kanban-col { scroll-snap-align: start; }
   }
 </style>
 
 <script>
-// ─────────────────────────────────────────────────────────────────────────────
-//  Stage metadata — mirrors the 8 Tina pipeline stages in pipeline order.
-//  Rendered server-side so JS always matches what Python sends.
-// ─────────────────────────────────────────────────────────────────────────────
-const STAGE_ORDER = [
-  {% for stage in stages %}'{{ stage.key }}'{% if not loop.last %}, {% endif %}{% endfor %}
+// Directed transitions + labels, rendered server-side (single source of truth
+// is disposition.py). Terminal targets are handled by plain links, not here.
+const TRANSITIONS = {{ transitions|tojson }};
 
-];
-
-const STAGE_LABELS = {
-  {% for stage in stages %}  '{{ stage.key }}': '{{ stage.label }}'{% if not loop.last %},{% endif %}
-
-  {% endfor %}
-};
-
-// ─────────────────────────────────────────────────────────────────────────────
-//  showToast(message, type)
-//  Creates and auto-shows a Bootstrap 5 Toast.
-//  type: 'success' | 'danger' | 'warning'
-// ─────────────────────────────────────────────────────────────────────────────
 function showToast(message, type) {
   const t = type || 'success';
   const container = document.querySelector('.toast-container');
   if (!container) return;
-
   const iconMap = {
     success: 'bi-check-circle-fill text-success',
     danger:  'bi-exclamation-triangle-fill text-danger',
@@ -354,199 +224,121 @@ function showToast(message, type) {
   };
   const iconCls = iconMap[t] || iconMap.success;
   const id = 'toast-' + Date.now();
-
   container.insertAdjacentHTML('beforeend',
-    `<div id="${id}" class="toast align-items-center border-0 shadow-sm"
-          role="alert" aria-live="assertive" aria-atomic="true">
+    `<div id="${id}" class="toast align-items-center border-0 shadow-sm" role="alert" aria-live="assertive" aria-atomic="true">
        <div class="d-flex">
          <div class="toast-body d-flex align-items-center gap-2 small">
-           <i class="bi ${iconCls} flex-shrink-0" style="font-size:1rem"></i>
-           <span>${message}</span>
+           <i class="bi ${iconCls} flex-shrink-0" style="font-size:1rem"></i><span>${message}</span>
          </div>
-         <button type="button" class="btn-close me-2 m-auto"
-                 data-bs-dismiss="toast" aria-label="Close"></button>
+         <button type="button" class="btn-close me-2 m-auto" data-bs-dismiss="toast" aria-label="Close"></button>
        </div>
-     </div>`
-  );
-
-  const el  = document.getElementById(id);
-  const bst = new bootstrap.Toast(el, { delay: 4500 });
-  bst.show();
+     </div>`);
+  const el = document.getElementById(id);
+  new bootstrap.Toast(el, { delay: 4500 }).show();
   el.addEventListener('hidden.bs.toast', () => el.remove());
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-//  updateColumnCount(stageKey, delta)
-//  Adjusts every count badge for a given stage key by delta (±1).
-//  Hits both the summary bar (data-summary-count) and the column header
-//  badge (data-col-count) in a single querySelectorAll pass.
-// ─────────────────────────────────────────────────────────────────────────────
 function updateColumnCount(stageKey, delta) {
-  document.querySelectorAll(
-    `[data-summary-count="${stageKey}"], [data-col-count="${stageKey}"]`
-  ).forEach(el => {
-    const n = parseInt(el.textContent, 10) || 0;
-    el.textContent = Math.max(0, n + delta);
-  });
+  document.querySelectorAll(`[data-summary-count="${stageKey}"], [data-col-count="${stageKey}"]`)
+    .forEach(el => { const n = parseInt(el.textContent, 10) || 0; el.textContent = Math.max(0, n + delta); });
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-//  buildMoveDropdownHTML(vehicleId, newStageKey)
-//  Returns the full HTML for a "Move To →" dropdown at the given position.
-//  Only lists stages that come AFTER newStageKey in STAGE_ORDER (forward-only).
-//  If newStageKey is the final stage, returns a disabled "Final Stage" button.
-// ─────────────────────────────────────────────────────────────────────────────
-function buildMoveDropdownHTML(vehicleId, newStageKey) {
-  const idx = STAGE_ORDER.indexOf(newStageKey);
-  const fwd = STAGE_ORDER.slice(idx + 1);
-
-  if (fwd.length === 0) {
-    return `<button class="btn btn-sm btn-outline-secondary w-100 py-0 btn-final-stage"
-                    disabled style="font-size:.7rem">
-              <i class="bi bi-check-all me-1"></i>Final Stage
-            </button>`;
+// Rebuild the Move To control for a card now sitting in `stageKey`.
+function buildMoveControlHTML(vehicleId, stageKey) {
+  const targets = TRANSITIONS[stageKey] || [];
+  if (targets.length === 0) {
+    return `<button class="btn btn-sm btn-outline-secondary w-100 py-0 btn-final-stage" disabled style="font-size:.7rem">
+              <i class="bi bi-check-all me-1"></i>Final Stage</button>`;
   }
-
-  const items = fwd.map(sk =>
-    `<li>
-       <button class="dropdown-item py-1" type="button"
-               onclick="moveVehicle(${vehicleId}, '${sk}', '${STAGE_LABELS[sk]}', '${newStageKey}')">
-         <i class="bi bi-arrow-right text-primary me-1"></i>${STAGE_LABELS[sk]}
-       </button>
-     </li>`
+  const items = targets.map(([tkey, tlabel, tterm]) => tterm
+    ? `<li><a class="dropdown-item py-1" href="/tina/create-invoice/${vehicleId}">
+         <i class="bi bi-receipt text-success me-1"></i>${tlabel} — record outcome</a></li>`
+    : `<li><button class="dropdown-item py-1" type="button"
+         onclick="moveVehicle(${vehicleId}, '${tkey}', '${tlabel}', '${stageKey}')">
+         <i class="bi bi-arrow-right text-primary me-1"></i>${tlabel}</button></li>`
   ).join('');
-
   return `<div class="dropdown flex-grow-1">
-            <button class="btn btn-sm btn-outline-primary dropdown-toggle w-100 py-0"
-                    type="button" data-bs-toggle="dropdown" aria-expanded="false"
-                    style="font-size:.7rem">
-              Move To <i class="bi bi-arrow-right ms-1"></i>
-            </button>
-            <ul class="dropdown-menu dropdown-menu-end shadow-sm"
-                style="font-size:.79rem;min-width:172px">
-              ${items}
-            </ul>
+            <button class="btn btn-sm btn-outline-primary dropdown-toggle w-100 py-0" type="button"
+                    data-bs-toggle="dropdown" aria-expanded="false" style="font-size:.7rem">
+              Move To <i class="bi bi-arrow-right ms-1"></i></button>
+            <ul class="dropdown-menu dropdown-menu-end shadow-sm" style="font-size:.79rem;min-width:184px">${items}</ul>
           </div>`;
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-//  moveVehicle(vehicleId, targetStage, targetLabel, sourceStage)
-//
-//  Sends AJAX move to POST /tina/pipeline/move/<vehicleId>.
-//  On success (data.ok === true):
-//    1. Fades card out of source column (translateX + opacity CSS transition).
-//    2. Detaches from source; inserts "No vehicles" placeholder if source empty.
-//    3. Rebuilds the "Move To" dropdown in the card for the new forward stages.
-//    4. Appends card to the bottom of the target column with a fade-in.
-//    5. Removes "No vehicles" placeholder from target if present.
-//    6. Calls updateColumnCount for both source (−1) and target (+1).
-//    7. Shows a Bootstrap Toast with the vehicle name and target stage label.
-// ─────────────────────────────────────────────────────────────────────────────
+function updateDispositionBadge(cardEl, disposition) {
+  const badge = cardEl.querySelector('.disposition-badge');
+  if (!badge) return;
+  badge.className = 'badge disposition-badge ' + (
+    disposition === 'SELL' ? 'bg-success' :
+    disposition === 'JUNK' ? 'bg-warning text-dark' :
+    disposition === 'HOLD' ? 'bg-danger' : 'bg-light text-dark border');
+  badge.style.fontSize = '.62rem';
+  badge.textContent = disposition || 'undecided';
+}
+
 async function moveVehicle(vehicleId, targetStage, targetLabel, sourceStage) {
   const cardEl = document.getElementById('card-' + vehicleId);
   if (!cardEl) return;
-
-  // Prevent duplicate submissions
   cardEl.classList.add('is-moving');
-
   try {
     const resp = await fetch('/tina/pipeline/move/' + vehicleId, {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'X-Requested-With': 'XMLHttpRequest'
-      },
+      headers: { 'Content-Type': 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
       body: JSON.stringify({ stage: targetStage })
     });
-
     const data = await resp.json();
 
+    // Terminal stages come back 409 with a redirect to the invoice form.
+    if (resp.status === 409 && data.redirect) { window.location = data.redirect; return; }
+
     if (resp.ok && data.ok) {
-
-      // 1. Fade out of source
       cardEl.style.transition = 'opacity .22s ease, transform .22s ease';
-      cardEl.style.opacity    = '0';
-      cardEl.style.transform  = 'translateX(-14px) scale(0.93)';
+      cardEl.style.opacity = '0';
+      cardEl.style.transform = 'translateX(-14px) scale(0.93)';
+      await new Promise(r => setTimeout(r, 250));
 
-      await new Promise(resolve => setTimeout(resolve, 250));
-
-      // 2. Detach; add empty-column placeholder to source if now empty
       const sourceCardsEl = document.getElementById('col-' + sourceStage);
       cardEl.remove();
-
-      if (sourceCardsEl && !sourceCardsEl.querySelector('.vehicle-card')) {
-        if (!document.getElementById('empty-' + sourceStage)) {
-          const ph     = document.createElement('div');
-          ph.id        = 'empty-' + sourceStage;
-          ph.className = 'text-center text-muted py-4';
-          ph.style.fontSize = '.8rem';
-          ph.innerHTML =
-            '<i class="bi bi-inbox d-block mb-1" style="font-size:1.6rem;opacity:.35"></i>'
-            + 'No vehicles';
-          sourceCardsEl.appendChild(ph);
-        }
+      if (sourceCardsEl && !sourceCardsEl.querySelector('.vehicle-card') && !document.getElementById('empty-' + sourceStage)) {
+        const ph = document.createElement('div');
+        ph.id = 'empty-' + sourceStage; ph.className = 'text-center text-muted py-4'; ph.style.fontSize = '.8rem';
+        ph.innerHTML = '<i class="bi bi-inbox d-block mb-1" style="font-size:1.6rem;opacity:.35"></i>No vehicles';
+        sourceCardsEl.appendChild(ph);
       }
 
-      // 3. Rebuild the Move To dropdown for the new position
+      // Rebuild the move control + disposition badge for the new position.
+      cardEl.dataset.stage = targetStage;
       const actionsRow = cardEl.querySelector('.pipeline-actions');
-      if (actionsRow) {
-        const oldCtrl = actionsRow.querySelector('.dropdown, .btn-final-stage');
-        if (oldCtrl) {
-          const tmp     = document.createElement('div');
-          tmp.innerHTML = buildMoveDropdownHTML(vehicleId, targetStage);
-          const newEl   = tmp.firstElementChild;
-          if (newEl) oldCtrl.replaceWith(newEl);
-        }
+      const oldCtrl = actionsRow && actionsRow.querySelector('.dropdown, .btn-final-stage');
+      if (oldCtrl) {
+        const tmp = document.createElement('div');
+        tmp.innerHTML = buildMoveControlHTML(vehicleId, targetStage);
+        if (tmp.firstElementChild) oldCtrl.replaceWith(tmp.firstElementChild);
       }
+      if (typeof data.disposition !== 'undefined') updateDispositionBadge(cardEl, data.disposition);
 
-      // 4. Attach to target column with fade-in from right
       const targetCardsEl = document.getElementById('col-' + targetStage);
       if (targetCardsEl) {
-
-        // Remove "No vehicles" placeholder from target
         const emptyPh = document.getElementById('empty-' + targetStage);
         if (emptyPh) emptyPh.remove();
-
-        cardEl.style.opacity   = '0';
-        cardEl.style.transform = 'translateX(14px) scale(0.93)';
+        cardEl.style.opacity = '0'; cardEl.style.transform = 'translateX(14px) scale(0.93)';
         cardEl.classList.remove('is-moving');
         targetCardsEl.appendChild(cardEl);
-
-        // Trigger reflow then animate in
         void cardEl.offsetHeight;
-        cardEl.style.opacity   = '1';
-        cardEl.style.transform = 'translateX(0) scale(1)';
-
-        // Strip inline styles after transition settles
-        setTimeout(() => {
-          cardEl.style.transition = '';
-          cardEl.style.transform  = '';
-          cardEl.style.opacity    = '';
-        }, 280);
-
+        cardEl.style.opacity = '1'; cardEl.style.transform = 'translateX(0) scale(1)';
+        setTimeout(() => { cardEl.style.transition = ''; cardEl.style.transform = ''; cardEl.style.opacity = ''; }, 280);
       } else {
         cardEl.classList.remove('is-moving');
       }
 
-      // 5 & 6. Update count badges for both columns
       updateColumnCount(sourceStage, -1);
-      updateColumnCount(targetStage,  +1);
-
-      // 7. Bootstrap Toast
+      updateColumnCount(targetStage, +1);
       const safeName = (data.vehicle_name || 'Vehicle').replace(/</g, '&lt;');
-      showToast(
-        `<strong>${safeName}</strong> moved to <strong>${targetLabel}</strong>`,
-        'success'
-      );
-
+      showToast(`<strong>${safeName}</strong> moved to <strong>${targetLabel}</strong>`, 'success');
     } else {
       cardEl.classList.remove('is-moving');
-      showToast(
-        (data && data.error) ? data.error : 'Move failed — please try again.',
-        'danger'
-      );
+      showToast((data && data.error) ? data.error : 'Move failed — please try again.', 'danger');
     }
-
   } catch (err) {
     cardEl.classList.remove('is-moving');
     showToast('Network error — please check your connection.', 'danger');

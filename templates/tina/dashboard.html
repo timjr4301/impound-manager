@@ -90,12 +90,15 @@
                 <div class="mb-3">
                   <label class="form-label fw-semibold">Stage</label>
                   <select name="stage" class="form-select" required>
-                    <option value="TITLE_WORK">Title Work — preparing filing</option>
-                    <option value="COURT">Court Process — needs hearing</option>
-                    <option value="AFFIDAVIT">Police Affidavit — pending</option>
-                    <option value="READY">Ready — awaiting final step</option>
-                    <option value="COMPLETE">Complete</option>
+                    <option value="AWAITING_TITLE">Awaiting Title — working the title</option>
+                    <option value="TITLE_FILED">Title Filed — decide Sell/Junk</option>
+                    <option value="AUCTION_PREP">Auction Prep — photos/keys/inspect/detail</option>
+                    <option value="AUCTION_READY">Auction Ready</option>
+                    <option value="AT_AUCTION">At Auction — routed live/online</option>
+                    <option value="JUNK_PREP">Junk Prep — ready to scrap</option>
+                    <option value="HOLD">Hold — court/lien/other</option>
                   </select>
+                  <div class="form-text">To record a Sold or Junked outcome, use the <strong>Invoice</strong> button instead — it captures the sale/scrap details.</div>
                 </div>
                 <div class="mb-3">
                   <label class="form-label fw-semibold">Notes</label>
@@ -217,11 +220,13 @@
       <tr>
         <td><a href="{{ url_for('vehicles_detail', vehicle_id=v.id) }}" class="row-link fw-semibold">{{ v.display_name }}</a></td>
         <td>
-          <span class="badge {% if v.tina_stage == 'COURT' %}bg-danger
-                              {% elif v.tina_stage == 'AFFIDAVIT' %}bg-warning text-dark
+          <span class="badge {% if v.tina_stage in ('AT_AUCTION','AUCTION_READY') %}bg-primary
+                              {% elif v.tina_stage == 'HOLD' %}bg-danger
+                              {% elif v.tina_stage == 'JUNK_PREP' %}bg-warning text-dark
                               {% else %}bg-info{% endif %}">
-            {{ v.tina_stage or '—' }}
+            {{ v.stage_label }}
           </span>
+          {% if v.days_in_stage is not none %}<div class="small text-muted">{{ v.days_in_stage }}d in stage</div>{% endif %}
         </td>
         <td>
           {% if v.court_date %}
