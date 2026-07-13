@@ -76,189 +76,42 @@
 
     <div class="d-flex align-items-center gap-1 flex-wrap">
 
-      {# ── TIM: full nav ── #}
-      {% if current_user.can_see_all %}
-        <a href="{{ url_for('hub') }}" class="nav-link text-white px-2">
-          <i class="bi bi-grid-3x3-gap"></i> Hub
-        </a>
-        <a href="{{ url_for('dashboard') }}" class="nav-link text-white px-2">
-          <i class="bi bi-speedometer2"></i> Overview
-        </a>
-        <a href="{{ url_for('heather.dashboard') }}" class="nav-link text-white px-2">
-          <i class="bi bi-envelope-check"></i> Heather
-        </a>
-        <a href="{{ url_for('tina.dashboard') }}" class="nav-link text-white px-2">
-          <i class="bi bi-file-earmark-check"></i> Tina
-        </a>
-        <a href="{{ url_for('tina.pipeline') }}" class="nav-link text-white px-2">
-          <i class="bi bi-kanban"></i> Pipeline
-        </a>
-        <a href="{{ url_for('tina.title_eligibility') }}" class="nav-link text-white px-2">
-          <i class="bi bi-file-earmark-arrow-up"></i> Title Eligibility
-        </a>
-        <a href="{{ url_for('drivers.dashboard') }}" class="nav-link text-white px-2">
-          <i class="bi bi-people"></i> Drivers
-        </a>
-        <a href="{{ url_for('heather.letters') }}" class="nav-link text-white px-2">
-          <i class="bi bi-envelope"></i> Letters
-        </a>
-        <a href="{{ url_for('vehicles_list') }}" class="nav-link text-white px-2">
-          <i class="bi bi-list-ul"></i> Vehicles
-        </a>
-        <a href="{{ url_for('invoice_camera.index') }}" class="nav-link text-white px-2">
-          <i class="bi bi-camera"></i> Invoice Cam
-        </a>
-        <a href="{{ url_for('vehicles_new') }}" class="btn btn-success btn-sm px-2 ms-1">
-          <i class="bi bi-plus-lg"></i> New
-        </a>
+      {# ── Persistent: Hub + All Vehicles (everyone) ── #}
+      <a href="{{ url_for('hub') }}" class="nav-link text-white px-2" title="Hub">
+        <i class="bi bi-grid-3x3-gap"></i> Hub
+      </a>
+      <a href="{{ url_for('vehicles_list') }}" class="nav-link text-white px-2" title="All Vehicles">
+        <i class="bi bi-list-ul"></i> Vehicles
+      </a>
 
-      {# ── TINA: vehicles + pipeline + heather view ── #}
-      {% elif current_user.role == 'tina' %}
-        <a href="{{ url_for('tina.dashboard') }}" class="nav-link text-white px-2">
-          <i class="bi bi-house-door"></i> My Dashboard
-        </a>
-        <a href="{{ url_for('tina.pipeline') }}" class="nav-link text-white px-2">
-          <i class="bi bi-kanban"></i> Pipeline
-        </a>
-        <a href="{{ url_for('tina.title_eligibility') }}" class="nav-link text-white px-2">
-          <i class="bi bi-file-earmark-arrow-up"></i> Title Eligibility
-        </a>
-        <a href="{{ url_for('heather.dashboard') }}" class="nav-link text-white px-2">
-          <i class="bi bi-envelope-check"></i> Heather Queue
-        </a>
-        <a href="{{ url_for('vehicles_list') }}" class="nav-link text-white px-2">
-          <i class="bi bi-list-ul"></i> Vehicles
-        </a>
-        <a href="{{ url_for('pipeline') }}" class="nav-link text-white px-2">
-          <i class="bi bi-calendar3"></i> Letters
-        </a>
-        <a href="{{ url_for('vehicles_new') }}" class="btn btn-success btn-sm px-2 ms-1">
-          <i class="bi bi-plus-lg"></i> New
-        </a>
+      {# ── Four domain sections — each auto-hidden when the role has no links.
+           Built per-user in app.build_top_nav / injected as nav_sections. ── #}
+      {% for sec in nav_sections %}
+      <div class="dropdown">
+        <button class="btn btn-sm btn-outline-light dropdown-toggle" type="button" data-bs-toggle="dropdown">
+          <i class="bi {{ sec.icon }} me-1"></i>{{ sec.title }}
+        </button>
+        <ul class="dropdown-menu">
+          {% for it in sec.links %}
+          <li><a class="dropdown-item" href="{{ it.url }}"><i class="bi {{ it.icon }} me-2"></i>{{ it.label }}</a></li>
+          {% endfor %}
+        </ul>
+      </div>
+      {% endfor %}
 
-      {# ── HEATHER: own dashboard + letters + vehicles + notices ── #}
-      {% elif current_user.role == 'heather' %}
-        <a href="{{ url_for('heather.dashboard') }}" class="nav-link text-white px-2">
-          <i class="bi bi-house-door"></i> My Dashboard
-        </a>
-        <a href="{{ url_for('heather.letters') }}" class="nav-link text-white px-2">
-          <i class="bi bi-envelope"></i> Letters
-        </a>
-        <a href="{{ url_for('vehicles_list') }}" class="nav-link text-white px-2">
-          <i class="bi bi-list-ul"></i> Vehicles
-        </a>
-        <a href="{{ url_for('heather.notices_search') }}" class="nav-link text-white px-2">
-          <i class="bi bi-truck"></i> Notices
-        </a>
-
-      {# ── LAWRENCE / LORI: hub + invoice + vehicles ── #}
-      {% elif current_user.role in ('lawrence', 'lori') %}
-        <a href="{{ url_for('hub') }}" class="nav-link text-white px-2">
-          <i class="bi bi-grid-3x3-gap"></i> Hub
-        </a>
-        <a href="{{ url_for('vehicles_list') }}" class="nav-link text-white px-2">
-          <i class="bi bi-list-ul"></i> Vehicles
-        </a>
-        <a href="{{ url_for('invoice_camera.index') }}" class="nav-link text-white px-2">
-          <i class="bi bi-camera"></i> Invoice Cam
-        </a>
-
-      {# ── DISPATCHER: dispatch board + vehicles ── #}
-      {% elif current_user.role == 'dispatcher' %}
-        <a href="{{ url_for('dispatch_board') }}" class="nav-link text-white px-2">
-          <i class="bi bi-broadcast"></i> Dispatch Board
-        </a>
-        <a href="{{ url_for('vehicles_list') }}" class="nav-link text-white px-2">
-          <i class="bi bi-list-ul"></i> Vehicles
-        </a>
-
-      {# ── BRADY (Wally): same as Lawrence/Lori ── #}
-      {% elif current_user.role == 'brady' %}
-        <a href="{{ url_for('hub') }}" class="nav-link text-white px-2">
-          <i class="bi bi-grid-3x3-gap"></i> Hub
-        </a>
-        <a href="{{ url_for('vehicles_list') }}" class="nav-link text-white px-2">
-          <i class="bi bi-list-ul"></i> Vehicles
-        </a>
-        <a href="{{ url_for('invoice_camera.index') }}" class="nav-link text-white px-2">
-          <i class="bi bi-camera"></i> Invoice Cam
-        </a>
-
-      {# ── DEMO: full preview nav, no HR/payroll/admin ── #}
-      {% elif current_user.role == 'demo' %}
-        <a href="{{ url_for('hub') }}" class="nav-link text-white px-2">
-          <i class="bi bi-grid-3x3-gap"></i> Hub
-        </a>
-        <a href="{{ url_for('dashboard') }}" class="nav-link text-white px-2">
-          <i class="bi bi-speedometer2"></i> Overview
-        </a>
-        <a href="{{ url_for('heather.dashboard') }}" class="nav-link text-white px-2">
-          <i class="bi bi-envelope-check"></i> Heather
-        </a>
-        <a href="{{ url_for('tina.dashboard') }}" class="nav-link text-white px-2">
-          <i class="bi bi-file-earmark-check"></i> Tina
-        </a>
-        <a href="{{ url_for('tina.pipeline') }}" class="nav-link text-white px-2">
-          <i class="bi bi-kanban"></i> Pipeline
-        </a>
-        <a href="{{ url_for('heather.letters') }}" class="nav-link text-white px-2">
-          <i class="bi bi-envelope"></i> Letters
-        </a>
-        <a href="{{ url_for('vehicles_list') }}" class="nav-link text-white px-2">
-          <i class="bi bi-list-ul"></i> Vehicles
-        </a>
-        <a href="{{ url_for('invoice_camera.index') }}" class="nav-link text-white px-2">
-          <i class="bi bi-camera"></i> Invoice Cam
-        </a>
+      {# ── Persistent utility actions ── #}
+      {% if current_user.can_edit_vehicles %}
+      <a href="{{ url_for('vehicles_new') }}" class="btn btn-success btn-sm px-2 ms-1" title="New Impound">
+        <i class="bi bi-plus-lg"></i> New
+      </a>
       {% endif %}
-
-      {# ── Daily Intake (tim, heather, lori, brady only) ── #}
-      {% if current_user.role in ('tim', 'heather', 'lori', 'brady', 'jim') %}
-        <a href="{{ url_for('heather.daily_intake') }}" class="nav-link text-white px-2">
-          <i class="bi bi-inboxes"></i> Daily Intake
-        </a>
-      {% endif %}
-
-      {# ── Daily Release List (third-shift + management) ── #}
-      {% if current_user.can_see_release_list %}
-        <a href="{{ url_for('release_list') }}" class="nav-link text-white px-2">
-          <i class="bi bi-box-arrow-right"></i> Release List
-        </a>
-      {% endif %}
-
-      {# ── Driver / VIN Snap (all authenticated users) ── #}
-      <a href="{{ url_for('driver_snap.index') }}" class="nav-link text-white px-2">
+      <a href="{{ url_for('driver_snap.index') }}" class="nav-link text-white px-2" title="VIN Snap">
         <i class="bi bi-geo-alt-fill"></i> VIN Snap
       </a>
-
-      {# ── My To-Dos (all authenticated users) ── #}
-      <a href="{{ url_for('todos') }}" class="nav-link text-white px-2">
-        <i class="bi bi-check2-square"></i> My To-Dos
+      <a href="{{ url_for('todos') }}" class="nav-link text-white px-2" title="My To-Dos">
+        <i class="bi bi-check2-square"></i> To-Dos
       </a>
-
-      {# ── Envelopes tab (heather, tim, brady, jim only) ── #}
-      {% if current_user.role in ('heather', 'tim', 'brady', 'jim') %}
-      <a href="{{ url_for('envelopes.index') }}" class="nav-link text-white px-2">
-        <i class="bi bi-envelope-open-fill"></i> Envelopes
-      </a>
-      {% endif %}
-
-      {# ── Damage Photos bulk upload (tim, heather, tina, brady, jim) ── #}
-      {% if current_user.can_use_damage_photos %}
-      <a href="{{ url_for('damage_photos.bulk_upload') }}" class="nav-link text-white px-2">
-        <i class="bi bi-images"></i> Photo Upload
-      </a>
-      {% endif %}
-
-      {# ── UPS Reference Lookup (same access as Heather actions generally) ── #}
-      {% if current_user.is_heather %}
-      <a href="{{ url_for('heather.ups_lookup') }}" class="nav-link text-white px-2">
-        <i class="bi bi-search"></i> UPS Lookup
-      </a>
-      {% endif %}
-
-      {# ── Chat (all authenticated users) ── #}
-      <a href="{{ url_for('chat.index') }}" class="nav-link text-white px-2">
+      <a href="{{ url_for('chat.index') }}" class="nav-link text-white px-2" title="Chat">
         <i class="bi bi-chat-dots"></i> Chat
       </a>
 
@@ -266,23 +119,6 @@
       {% if current_user.role == 'driver' %}
         <a href="{{ url_for('damage_docs.damage_form') }}" class="btn btn-warning btn-sm px-2 ms-1">
           <i class="bi bi-camera-fill"></i> Damage Report
-        </a>
-      {% endif %}
-
-      {# ── Status Audit Tool (tim / brady / jim) ── #}
-      {% if current_user.role in ('tim', 'brady', 'jim') %}
-        <a href="{{ url_for('audit.index') }}" class="nav-link text-white px-2">
-          <i class="bi bi-clipboard-check"></i> Audit
-        </a>
-      {% endif %}
-
-      {# ── Admin (Tim only) ── #}
-      {% if current_user.role == 'tim' %}
-        <a href="{{ url_for('admin.users') }}" class="nav-link text-white px-2">
-          <i class="bi bi-gear"></i> Admin
-        </a>
-        <a href="{{ url_for('admin.departments') }}" class="nav-link text-white px-2">
-          <i class="bi bi-shield-lock"></i> PD Rates
         </a>
       {% endif %}
 

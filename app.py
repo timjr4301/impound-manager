@@ -555,6 +555,85 @@ def _run_towbook_sync_job():
     return log
 
 
+def build_top_nav(user):
+    """Grouped top-nav for the base template — four domain sections, each
+    carrying only the links the current user can actually reach. Empty sections
+    are dropped, so a role only sees the menus that apply to it. Per-link access
+    mirrors exactly what the old flat per-role nav enforced.
+
+    Any endpoint that isn't registered (e.g. Chat/Invoice Camera when their
+    optional blueprints fail to import) is silently skipped rather than raising
+    a BuildError that would take the whole page down."""
+    from flask import url_for
+    from werkzeug.routing import BuildError
+
+    if not getattr(user, 'is_authenticated', False):
+        return []
+
+    r = user.role
+
+    def item(label, icon, endpoint):
+        try:
+            return {'label': label, 'icon': icon, 'url': url_for(endpoint)}
+        except BuildError:
+            return None
+
+    def section(title, icon, *candidate_items):
+        # Key is 'links' not 'items' — Jinja's `sec.items` would resolve to the
+        # dict's built-in .items() method instead of the value.
+        links = [i for i in candidate_items if i]
+        return {'title': title, 'icon': icon, 'links': links} if links else None
+
+    sections = []
+
+    # 1) Morning Workflow — Heather's daily intake pipeline
+    mw = section('Morning Workflow', 'bi-sunrise',
+        item('Overview', 'bi-speedometer2', 'dashboard') if (user.can_see_all or r == 'demo') else None,
+        item('Heather Queue', 'bi-envelope-check', 'heather.dashboard') if user.can_see_heather_dashboard else None,
+        item('Daily Intake / CSV', 'bi-inboxes', 'heather.daily_intake') if r in ('tim', 'heather', 'lori', 'brady', 'jim') else None,
+        item('First & Second Letters', 'bi-envelope', 'heather.letters') if r in ('tim', 'heather', 'jim', 'demo') else None,
+        item('Notices', 'bi-truck', 'heather.notices_search') if r == 'heather' else None,
+        item('Envelopes', 'bi-envelope-open-fill', 'envelopes.index') if r in ('heather', 'tim', 'brady', 'jim') else None,
+        item('UPS Lookup', 'bi-search', 'heather.ups_lookup') if user.is_heather else None,
+    )
+    if mw:
+        sections.append(mw)
+
+    # 2) Letters & Titles — Tina's domain
+    lt = section('Letters & Titles', 'bi-file-earmark-text',
+        item('Tina Dashboard', 'bi-file-earmark-check', 'tina.dashboard') if user.can_see_tina_dashboard else None,
+        item('Disposition Pipeline', 'bi-kanban', 'tina.pipeline') if user.can_see_tina_dashboard else None,
+        item('Title Eligibility', 'bi-file-earmark-arrow-up', 'tina.title_eligibility') if r in ('tim', 'tina', 'jim') else None,
+        item('Letter Calendar', 'bi-calendar3', 'pipeline') if r == 'tina' else None,
+    )
+    if lt:
+        sections.append(lt)
+
+    # 3) Field Ops
+    fo = section('Field Ops', 'bi-truck-front',
+        item('Field Board', 'bi-geo', 'field_ops.index') if (user.is_dispatcher or user.is_tina) else None,
+        item('Key Row', 'bi-key', 'field_ops.keys') if user.is_key_maker else None,
+        item('Dispatch Board', 'bi-broadcast', 'dispatch_board') if user.can_see_dispatch else None,
+        item('Drivers', 'bi-people', 'drivers.dashboard') if user.can_see_drivers else None,
+        item('Invoice Cam', 'bi-camera', 'invoice_camera.index') if r in ('tim', 'lawrence', 'lori', 'brady', 'jim', 'demo') else None,
+        item('Photo Upload', 'bi-images', 'damage_photos.bulk_upload') if user.can_use_damage_photos else None,
+        item('Release List', 'bi-box-arrow-right', 'release_list') if user.can_see_release_list else None,
+    )
+    if fo:
+        sections.append(fo)
+
+    # 4) Management — Tim / admin
+    mg = section('Management', 'bi-sliders',
+        item('Status Audit', 'bi-clipboard-check', 'audit.index') if r in ('tim', 'brady', 'jim') else None,
+        item('Admin / Users', 'bi-gear', 'admin.users') if r == 'tim' else None,
+        item('PD Rates', 'bi-shield-lock', 'admin.departments') if r == 'tim' else None,
+    )
+    if mg:
+        sections.append(mg)
+
+    return sections
+
+
 def create_app():
     app = Flask(__name__)
 
@@ -754,11 +833,14 @@ def create_app():
             except Exception:
                 pass
 
+        nav_sections = build_top_nav(_cu) if _cu.is_authenticated else []
+
         return {
             'company_name': app.config['COMPANY_NAME'],
             'company_phone': app.config['COMPANY_PHONE'],
             'timedelta': _td,
             'towbook_sync_status': sync_status,
+            'nav_sections': nav_sections,
         }
 
     # ── Dashboard ──────────────────────────────────────────────────────────────
