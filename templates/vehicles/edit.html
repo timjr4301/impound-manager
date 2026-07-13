@@ -60,6 +60,16 @@
               <input type="text" class="form-control" id="color" name="color"
                 value="{{ vehicle.color or '' }}">
             </div>
+            <div class="col-sm-4">
+              <label for="vehicle_class" class="form-label fw-semibold">Vehicle Class</label>
+              <select class="form-select" id="vehicle_class" name="vehicle_class">
+                {% for vc in ['light', 'medium', 'heavy'] %}
+                <option value="{{ vc }}" {% if (vehicle.vehicle_class or 'light') == vc %}selected{% endif %}>
+                  {{ {'light':'Light (car / pickup / SUV)','medium':'Medium (box truck / large van)','heavy':'Heavy (semi / bus / equipment)'}[vc] }}
+                </option>
+                {% endfor %}
+              </select>
+            </div>
             <div class="col-sm-8">
               <label for="storage_location" class="form-label fw-semibold">Storage Location</label>
               <input type="text" class="form-control" id="storage_location" name="storage_location"

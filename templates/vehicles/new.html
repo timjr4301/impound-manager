@@ -118,6 +118,16 @@
               <input type="text" class="form-control" id="color" name="color"
                 value="{{ form.get('color','') }}" placeholder="Silver">
             </div>
+            <div class="col-sm-4">
+              <label for="vehicle_class" class="form-label fw-semibold">Vehicle Class</label>
+              <select class="form-select" id="vehicle_class" name="vehicle_class">
+                {% for vc in ['light', 'medium', 'heavy'] %}
+                <option value="{{ vc }}" {% if form.get('vehicle_class','light') == vc %}selected{% endif %}>
+                  {{ {'light':'Light (car / pickup / SUV)','medium':'Medium (box truck / large van)','heavy':'Heavy (semi / bus / equipment)'}[vc] }}
+                </option>
+                {% endfor %}
+              </select>
+            </div>
             <div class="col-12">
               <label for="notes" class="form-label fw-semibold">Notes</label>
               <textarea class="form-control" id="notes" name="notes" rows="2"

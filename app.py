@@ -167,6 +167,7 @@ def run_migrations(app):
                     ('unreleased_reason',          'VARCHAR(255)'),
                     ('released_at',                'TIMESTAMP'),
                     ('released_by',                'VARCHAR(50)'),
+                    ('vehicle_class',              "VARCHAR(10) DEFAULT 'light'"),
                     ('snoozed_until',           'DATE'),
                     ('snoozed_at',              'TIMESTAMP'),
                     ('snoozed_by',              'VARCHAR(50)'),
@@ -1247,6 +1248,9 @@ def create_app():
             tow_fee=float(tow_str) if tow_str else None,
             daily_storage_rate=float(rate_str) if rate_str else None,
             nada_value=float(nada_str) if nada_str else None,
+            vehicle_class=(form.get('vehicle_class', '').strip().lower()
+                           if form.get('vehicle_class', '').strip().lower() in Vehicle.VEHICLE_CLASSES
+                           else 'light'),
             notes=form.get('notes', '').strip() or None,
         )
         if vehicle:

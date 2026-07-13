@@ -203,6 +203,13 @@ class Vehicle(db.Model):
     nada_value_override = db.Column(db.Float)
     mileage = db.Column(db.Integer)
 
+    # Vehicle weight class (light/medium/heavy). Defaults to light. PUCO tow &
+    # storage caps scale with class, so this is captured on intake for future
+    # class-based fee logic; today's tow_fee/daily_storage_rate are still entered
+    # per-vehicle (PPI) or read from the department (POLICE) — see
+    # vehicle_class_label / VEHICLE_CLASSES.
+    vehicle_class = db.Column(db.String(10), default='light')
+
     @property
     def effective_nada_value(self):
         """The value to use in financial calcs: manual override wins over the API/fallback value."""
@@ -666,6 +673,19 @@ class Vehicle(db.Model):
                 return f'VIN ...{self.vin[-6:]}'
             return f'Vehicle #{self.id}'
         return name
+
+    # Weight classes offered on the intake/edit form. Order is display order.
+    VEHICLE_CLASSES = ('light', 'medium', 'heavy')
+    VEHICLE_CLASS_LABELS = {
+        'light':  'Light (car / pickup / SUV)',
+        'medium': 'Medium (box truck / large van)',
+        'heavy':  'Heavy (semi / bus / equipment)',
+    }
+
+    @property
+    def vehicle_class_label(self):
+        vc = (self.vehicle_class or 'light').lower()
+        return self.VEHICLE_CLASS_LABELS.get(vc, self.VEHICLE_CLASS_LABELS['light'])
 
     @property
     def release_type_label(self):
