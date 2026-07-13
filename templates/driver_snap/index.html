@@ -79,6 +79,28 @@
   .no-match-icon { text-align: center; font-size: 3rem; color: #e5534b; margin-bottom: 10px; }
 
   #camera-input { display: none; }
+
+  /* Mode toggle (Photo VIN / Scan QR) */
+  .mode-toggle {
+    display: flex; background: #161b22; border: 1px solid #2a2f38;
+    border-radius: 12px; padding: 4px; margin-bottom: 20px; gap: 4px;
+  }
+  .mode-toggle button {
+    flex: 1; border: none; background: transparent; color: #9aa4b2;
+    font-weight: 700; font-size: 1rem; padding: 12px 8px; border-radius: 9px;
+    cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 8px;
+  }
+  .mode-toggle button.active { background: #2f6fed; color: #fff; }
+  .mode-toggle button i { font-size: 1.2rem; }
+
+  /* QR live scanner */
+  #qr-video-wrap { position: relative; border-radius: 14px; overflow: hidden; background: #000; margin-bottom: 18px; }
+  #qr-video { width: 100%; display: block; max-height: 60vh; object-fit: cover; }
+  #qr-frame {
+    position: absolute; inset: 14% 12%; border: 3px solid #4caf8a; border-radius: 14px;
+    box-shadow: 0 0 0 2000px rgba(0,0,0,.28); pointer-events: none;
+  }
+  #qr-canvas { display: none; }
   .alert-inline {
     background: #2a1e1e; border: 1px solid #e5534b; color: #ffb4ae;
     border-radius: 10px; padding: 12px 14px; font-size: .9rem; margin-bottom: 16px;
@@ -94,8 +116,16 @@
 
 <main>
 
-  <!-- SCREEN 1: Camera -->
+  <!-- SCREEN 1: Camera (Photo VIN) -->
   <div class="screen active" id="screen-camera">
+    <div class="mode-toggle">
+      <button type="button" class="active" onclick="setMode('photo')">
+        <i class="bi bi-camera-fill"></i> Photo VIN
+      </button>
+      <button type="button" onclick="setMode('qr')">
+        <i class="bi bi-qr-code-scan"></i> Scan QR
+      </button>
+    </div>
     <h2 class="title">Scan a Vehicle VIN</h2>
     <p class="sub">Point the camera at the VIN plate (dash or door jamb) and capture.</p>
 
@@ -113,6 +143,27 @@
     <div id="reading-state" class="spinner-row" style="display:none;">
       <div class="spinner"></div> Reading VIN…
     </div>
+  </div>
+
+  <!-- SCREEN 1b: QR Scan -->
+  <div class="screen" id="screen-qr">
+    <div class="mode-toggle">
+      <button type="button" onclick="setMode('photo')">
+        <i class="bi bi-camera-fill"></i> Photo VIN
+      </button>
+      <button type="button" class="active" onclick="setMode('qr')">
+        <i class="bi bi-qr-code-scan"></i> Scan QR
+      </button>
+    </div>
+    <h2 class="title">Scan the Towbook QR</h2>
+    <p class="sub">Hold the windshield QR flyer inside the frame.</p>
+    <div id="qr-video-wrap">
+      <video id="qr-video" playsinline muted></video>
+      <div id="qr-frame"></div>
+    </div>
+    <canvas id="qr-canvas"></canvas>
+    <div id="qr-status" class="spinner-row"><div class="spinner"></div> Starting camera…</div>
+    <div id="qr-error" class="alert-inline" style="display:none;"></div>
   </div>
 
   <!-- SCREEN 2: Confirm match -->
@@ -274,9 +325,135 @@ async function saveLocation(zone, lat, lng) {
   }
 }
 
+// ── QR Scan mode ──────────────────────────────────────────────────────────
+let qrStream = null;
+let qrRafId = null;
+let qrBusy = false;
+
+function setMode(mode) {
+  if (mode === 'qr') {
+    showScreen('screen-qr');
+    startQrScan();
+  } else {
+    stopQrScan();
+    resetToCamera();
+  }
+}
+
+async function startQrScan() {
+  const statusEl = document.getElementById('qr-status');
+  const errEl = document.getElementById('qr-error');
+  errEl.style.display = 'none';
+  statusEl.style.display = 'flex';
+  statusEl.innerHTML = '<div class="spinner"></div> Starting camera…';
+
+  if (typeof jsQR === 'undefined') {
+    statusEl.style.display = 'none';
+    errEl.style.display = 'block';
+    errEl.textContent = 'QR scanner failed to load. Use Photo VIN instead.';
+    return;
+  }
+
+  try {
+    qrStream = await navigator.mediaDevices.getUserMedia({
+      video: { facingMode: { ideal: 'environment' } }, audio: false,
+    });
+  } catch (e) {
+    statusEl.style.display = 'none';
+    errEl.style.display = 'block';
+    errEl.textContent = 'Could not open the camera (' + (e.name || 'error') + '). Check permissions or use Photo VIN.';
+    return;
+  }
+
+  const video = document.getElementById('qr-video');
+  video.srcObject = qrStream;
+  video.setAttribute('playsinline', true);
+  await video.play();
+  statusEl.innerHTML = '<div class="spinner"></div> Point at the QR code…';
+  qrBusy = false;
+  qrTick();
+}
+
+function qrTick() {
+  const video = document.getElementById('qr-video');
+  if (!qrStream) return;  // scanning was stopped
+  if (video.readyState === video.HAVE_ENOUGH_DATA && !qrBusy) {
+    const canvas = document.getElementById('qr-canvas');
+    const ctx = canvas.getContext('2d', { willReadFrequently: true });
+    canvas.width = video.videoWidth;
+    canvas.height = video.videoHeight;
+    ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+    try {
+      const img = ctx.getImageData(0, 0, canvas.width, canvas.height);
+      const code = jsQR(img.data, img.width, img.height, { inversionAttempts: 'dontInvert' });
+      if (code && code.data) {
+        qrBusy = true;
+        handleQrDecoded(code.data);
+        return;  // stop the loop until reset
+      }
+    } catch (e) { /* keep scanning */ }
+  }
+  qrRafId = requestAnimationFrame(qrTick);
+}
+
+function stopQrScan() {
+  if (qrRafId) { cancelAnimationFrame(qrRafId); qrRafId = null; }
+  if (qrStream) {
+    qrStream.getTracks().forEach(t => t.stop());
+    qrStream = null;
+  }
+  const video = document.getElementById('qr-video');
+  if (video) video.srcObject = null;
+}
+
+async function handleQrDecoded(text) {
+  stopQrScan();
+  const statusEl = document.getElementById('qr-status');
+  statusEl.style.display = 'flex';
+  statusEl.innerHTML = '<div class="spinner"></div> Matching vehicle…';
+  try {
+    const resp = await fetch('/driver/match-qr', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ text }),
+    });
+    const json = await resp.json();
+    if (!resp.ok || json.error) {
+      showQrError(json.error || 'Match failed.');
+      return;
+    }
+    if (json.matched_vehicle) {
+      const v = json.matched_vehicle;
+      matchedVehicleId = v.id;
+      matchedVehicleName = v.display_name;
+      document.getElementById('c-vin').textContent = v.stock_number ? ('Stock ' + v.stock_number) : (json.decoded || '');
+      document.getElementById('c-name').textContent = v.display_name;
+      document.getElementById('c-plate').textContent = v.plate || v.stock_number || '—';
+      document.getElementById('c-zone').textContent = v.current_zone || 'Not yet logged';
+      showScreen('screen-confirm');
+    } else {
+      document.getElementById('nomatch-detail').textContent =
+        'Scanned "' + (json.decoded || '') + '" but no active vehicle matched.';
+      showScreen('screen-nomatch');
+    }
+  } catch (e) {
+    showQrError('Network error: ' + e.message);
+  }
+}
+
+function showQrError(msg) {
+  showScreen('screen-qr');
+  document.getElementById('qr-status').style.display = 'none';
+  const errEl = document.getElementById('qr-error');
+  errEl.style.display = 'block';
+  errEl.innerHTML = msg + '<br><br><button class="big-btn outline" onclick="startQrScan()">' +
+    '<i class="bi bi-arrow-counterclockwise"></i> Try Again</button>';
+}
+
 function resetToCamera() {
   matchedVehicleId = null;
   matchedVehicleName = null;
+  stopQrScan();
   document.getElementById('camera-input').value = '';
   document.getElementById('preview-wrap').style.display = 'none';
   document.getElementById('capture-controls').style.display = 'block';
@@ -284,6 +461,7 @@ function resetToCamera() {
   showScreen('screen-camera');
 }
 </script>
+<script src="{{ url_for('static', filename='js/jsQR.min.js') }}"></script>
 
 </body>
 </html>
