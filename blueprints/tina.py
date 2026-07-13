@@ -491,6 +491,10 @@ def create_invoice(vehicle_id):
             author=current_user.display_name or 'Tina',
             created_at=datetime.utcnow(),
         ))
+        # Both disposition branches (SELL / JUNK) set status RELEASED above —
+        # stamp the release timestamp so it lands on Lawrence's Daily Release List.
+        vehicle.released_at = datetime.utcnow()
+        vehicle.released_by = current_user.username
         vehicle.updated_at = datetime.utcnow()
         db.session.commit()
         flash(f'Invoice {inv_num} created successfully.', 'success')

@@ -1,5 +1,5 @@
 # [IMPOUND MANAGER — MASTER CONTEXT DOC]
-_Last updated: July 13, 2026 (end-of-day) — regenerated after the disposition-pipeline + UPS Phase 2 build._
+_Last updated: July 13, 2026 (late) — regenerated after the queue-clearing session (Daily Release List, vehicle-class fees, QR scan, nav overhaul)._
 
 ---
 
@@ -31,7 +31,21 @@ _Last updated: July 13, 2026 (end-of-day) — regenerated after the disposition-
 ## COMPLETED BUILDS (through July 13, 2026)
 Foundation, CSV import, role-based permissions (now 10 roles), auto-seed users, possible-release flagging, Opus damage photos, Base44 API, NADA override, unified nav at /hub, envelope scanner, help system, ghost-vehicle alerts, file restart logic, document viewer, VIN photo verification, /vin-lookup, reference search, task backlog snooze, staff feedback, staff guides, /driver VIN-snap, additional charges, owner/lienholder-2 fields, UPS Phase 1 (labels/POD), damage-photo bulk uploader, staff to-do lists, undo-release, status audit tool + bulk release, police-department rates, 5-letter templates.
 
-### ✅ NEW — July 13, 2026 (this session)
+### ✅ NEW — July 13, 2026 (queue-clearing session — PR #1)
+
+An audit against the codebase found most of the old BUILD QUEUE was already shipped (audit bulk release, release hard-stop gate, Build A/C/E, Build B's letter/police-dept system). These items were what remained:
+
+**Daily Release List for Lawrence** — printable, large-text page at `/release-list` listing every vehicle that reached RELEASED on a given day (date picker + prev/next; the third shift crosses midnight) with a book-reconciliation footer. Restricted to third-shift + management (`can_see_release_list` = lawrence/lori/tim/brady/jim). Backed by new `Vehicle.released_at`/`released_by`, stamped at **every** release path (customer pickup, Tina sale/junk, audit bulk, Towbook sync) and cleared on Undo Release.
+
+**Vehicle class → PPI storage fees** (completes Build B) — `vehicle_class` (light/medium/heavy, defaults light) on the intake/edit forms and the ticket detail. Drives the PPI daily storage rate that feeds **both** the amount owed and the notice-letter copy: **light $22 / medium $37 / heavy $82 per day**. Class only seeds the default — the rate stays editable per ticket (blank PPI storage auto-fills from class server-side + a live form suggestion; an entered value always wins; a custom rate is preserved when class changes). `effective_tow_rate`/`effective_storage_rate` return the actual per-vehicle rate when set so the letter matches the bill. POLICE untouched (department rates; `rate_pending` intact). The ticket **Financial** panel now shows the exact fees that print on the letter. One-time correction of existing PPI tickets: `python3 backfill_ppi_storage.py [--apply]` (dry-run by default; active PPI only; leaves POLICE/released alone).
+
+**QR Scan mode on `/driver`** (Build Q) — a mode toggle adds a live QR scanner (vendored `static/js/jsQR.min.js`, no CDN at scan time) that reads the Towbook windshield QR, decodes client-side, and matches active vehicles by VIN → stock → plate via `/driver/match-qr` (tolerant of delimited or URL-form payloads). A match reuses the existing confirm → zone → GPS-save flow; the camera stream is released on leave.
+
+**Top-nav overhaul into 4 sections** — flat per-role nav replaced by four auto-hiding dropdowns (Morning Workflow, Letters & Titles, Field Ops, Management) + a persistent utility bar (Search, + New, VIN Snap, To-Dos, Chat). Built per-user in `app.build_top_nav` (injected as `nav_sections`); per-link access mirrors the old nav, empty sections drop out, missing endpoints are skipped via BuildError guard. Also surfaces Robert's **Key Row** link, which the old flat nav never exposed.
+
+---
+
+### ✅ July 13, 2026 (earlier — disposition pipeline + UPS Phase 2)
 
 **UPS Phase 2 — manual bulk tracking refresh** (commit 31894b1)
 - "Refresh UPS Tracking" button on the Letters page (`/heather/letters`) sweeps every in-flight certified letter, confirms deliveries (starts Letter 2's 30-day clock), marks RTS, and pulls newly-available signed PODs — one pass, no 6am cron, no Render cost.
@@ -71,13 +85,21 @@ Awaiting Title → To Locate → Key Row → Inspection Pool → Needs Repairs
 - 🅿 PPI Sales tracker (John Payne) — deferred.
 - 🅿 Base44 rebuild — **DONE** this session (in-house disposition pipeline). External Base44 retired.
 
-## BUILD QUEUE (open items, not started)
-- ⬜ Release compliance hard-stop gate (block release unless required letters sent OR title filed)
-- ⬜ Daily release list for Lawrence (printable end-of-shift book reconciliation)
-- ⬜ Build E: General Documents Upload (partially present — `vehicle_general_documents`)
-- ⬜ Build A: Envelope Tab + image attachment (Matched/Unmatched/Cleared tabs)
-- ⬜ Build Q: QR scanner tab on /driver (jsQR, reads Towbook QR codes)
-- ⬜ Possible follow-ups on tonight's work: auction-event edit page; per-load Ohio Steel batch grouping; push/SMS on repair alerts; a "repairs in progress" sub-state between approve and auction-ready.
+## BUILD QUEUE
+
+### ✅ Recently completed (verify then clear)
+- ✅ Release compliance hard-stop gate — DONE (`Vehicle.release_to_customer_blocked_reason`, enforced in `/vehicles/<id>/release`).
+- ✅ Daily release list for Lawrence — DONE (`/release-list`, PR #1).
+- ✅ Build E: General Documents Upload — DONE (`vehicle_general_documents`, detail-page section).
+- ✅ Build A: Envelope Tab + image attachment — DONE (`/envelopes` Matched/Unmatched/Cleared + dashboard badge).
+- ✅ Build C: Staff Guide VIN-Snap sections — DONE (both guides).
+- ✅ Build B: 5-letter templates + police-dept rates + vehicle class — DONE (class-based PPI storage fees, PR #1).
+- ✅ Build Q: QR scanner on /driver — DONE (PR #1).
+- ✅ Top-nav 4-section overhaul — DONE (PR #1).
+
+### ⬜ Open / not started
+- ⬜ Per-class **tow** rates (only storage is class-based so far; tow is flat $144, editable per ticket). Awaiting Tim's light/medium/heavy tow numbers if tow should scale too.
+- ⬜ Possible follow-ups on the disposition build: auction-event edit page; per-load Ohio Steel batch grouping; push/SMS on repair alerts; a "repairs in progress" sub-state between approve and auction-ready.
 
 ---
 
@@ -86,10 +108,10 @@ Awaiting Title → To Locate → Key Row → Inspection Pool → Needs Repairs
 - Letter 2 clock anchored to proof of delivery of Letter 1 (`task_engine.letter_delivery_date`).
 - Electronic POD (UPS POD or scanned DELIVERED envelope) satisfies certified-mail requirement.
 - NADA wholesale value must be less than total fees owed.
-- PUCO maximums: tow $129, storage $17/day. B&J BMV vendor #: 25-186078.
+- B&J BMV vendor #: 25-186078.
 - BMV 4202 = private property; BMV 4205 = police. PO Box → compliance flag. Out-of-state → court process.
 - `impound_date` is the permanent 60-day clock — NEVER use as a restart source (`restart_date` re-anchors letters only).
-- Vehicle class (light/medium/heavy) drives fees; defaults to light.
+- **PPI fees:** tow flat $144 (editable per ticket). Daily storage by vehicle class — **light $22 / medium $37 / heavy $82** (`Vehicle.PPI_STORAGE_RATE_BY_CLASS`; seeded on intake, editable per ticket, feeds both the bill and the letter). POLICE fees come from the requesting department (`police_departments` table); a POLICE ticket with no department shows RATE PENDING.
 - Every notice goes to every party (owner1/owner2/lienholder1/lienholder2).
 
 ## KEY STAFF & ROLES
@@ -111,8 +133,9 @@ Awaiting Title → To Locate → Key Row → Inspection Pool → Needs Repairs
 ## IMPORTANT TABLE NOTES
 - `damage_photos` → driver damage-report wizard (blueprints/damage_docs.py) — DO NOT touch.
 - `vehicle_damage_photos` → bulk upload feature — separate table.
-- **NEW tables this session:** `ups_poll_log`, `custody_events`, `auction_events`.
-- **NEW Vehicle columns:** `tina_stage_at`, `disposition_outcome`; auction (`auctioneer`, `auction_lot`, `auction_date`, `auction_venue`, `auction_event_id`); converter (`converter_present`, `converter_checked_by/at`, `converter_photo`, `converter_notes`); custody (`custody_location*`, `key_location*`); key (`key_made`, `key_type`, `key_cost`, `key_made_by/at`); inspection (`inspection_claimed_by/at`, `inspection_done`, `inspection_diagnosis`, `inspection_notes`, `inspected_by/at`); repair (`repair_estimate`, `repair_notes`, `repair_approved`, `repair_decided_by/at`).
+- **NEW Vehicle columns (queue-clearing session):** `released_at`, `released_by` (final-release stamp → Daily Release List), `vehicle_class` (light/medium/heavy → PPI storage fee). All auto-migrate on boot. Vendored `static/js/jsQR.min.js` for the /driver QR scanner.
+- **Tables from the disposition session:** `ups_poll_log`, `custody_events`, `auction_events`.
+- **Vehicle columns (disposition session):** `tina_stage_at`, `disposition_outcome`; auction (`auctioneer`, `auction_lot`, `auction_date`, `auction_venue`, `auction_event_id`); converter (`converter_present`, `converter_checked_by/at`, `converter_photo`, `converter_notes`); custody (`custody_location*`, `key_location*`); key (`key_made`, `key_type`, `key_cost`, `key_made_by/at`); inspection (`inspection_claimed_by/at`, `inspection_done`, `inspection_diagnosis`, `inspection_notes`, `inspected_by/at`); repair (`repair_estimate`, `repair_notes`, `repair_approved`, `repair_decided_by/at`).
 - `tina_stage` legacy values (QUEUED/TITLE_WORK/ROUTED_* and the interim AUCTION_PREP/JUNK_PREP/TITLE_FILED) are auto-remapped to the new ladder on boot (`disposition.LEGACY_STAGE_MAP`).
 
 ## KEY CODE MAP (this session)

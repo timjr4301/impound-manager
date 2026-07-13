@@ -103,6 +103,12 @@ class User(UserMixin, db.Model):
         return self.role in ('heather', 'tina', 'tim', 'brady', 'jim')
 
     @property
+    def can_see_release_list(self):
+        """Lawrence's end-of-shift Daily Release List — third-shift book
+        reconciliation, plus Lori and management oversight."""
+        return self.role in ('lawrence', 'lori', 'tim', 'brady', 'jim')
+
+    @property
     def can_use_damage_photos(self):
         return self.role in ('tim', 'heather', 'tina', 'brady', 'jim')
 
@@ -196,6 +202,13 @@ class Vehicle(db.Model):
     nada_value_is_default = db.Column(db.Boolean, default=False)
     nada_value_override = db.Column(db.Float)
     mileage = db.Column(db.Integer)
+
+    # Vehicle weight class (light/medium/heavy). Defaults to light. PUCO tow &
+    # storage caps scale with class, so this is captured on intake for future
+    # class-based fee logic; today's tow_fee/daily_storage_rate are still entered
+    # per-vehicle (PPI) or read from the department (POLICE) — see
+    # vehicle_class_label / VEHICLE_CLASSES.
+    vehicle_class = db.Column(db.String(10), default='light')
 
     @property
     def effective_nada_value(self):
@@ -399,6 +412,15 @@ class Vehicle(db.Model):
     unreleased_by = db.Column(db.String(50))
     unreleased_reason = db.Column(db.String(255))
 
+    # Stamped at the moment a vehicle reaches its final RELEASED status, by any
+    # path (customer pickup confirmation, Tina sale/junk disposition, audit bulk
+    # release, or Towbook auto-sync). Powers Lawrence's end-of-shift Daily
+    # Release List (vehicles released "today"), which needs a precise release
+    # timestamp — updated_at is unreliable since any later edit bumps it.
+    # released_by records who/what finalized it (username or 'System').
+    released_at = db.Column(db.DateTime)
+    released_by = db.Column(db.String(50))
+
     @property
     def pending_pickup_hours(self):
         if self.status != 'PENDING_PICKUP' or not self.pending_pickup_since:
@@ -489,28 +511,42 @@ class Vehicle(db.Model):
     police_department_id = db.Column(db.Integer, db.ForeignKey('police_departments.id'))
     police_department = db.relationship('PoliceDepartment', back_populates='vehicles')
 
-    # PUCO fee caps for PPI impounds — hardcoded, unlike POLICE rates which
-    # vary by department and live in the police_departments table.
-    # Read ONLY by effective_tow_rate/effective_storage_rate below, which in
-    # turn are read ONLY by the letter template — total_owed and the invoice
-    # /title-packet paths use the per-vehicle tow_fee/daily_storage_rate
-    # columns instead, so changing these numbers moves letter copy alone.
+    # PUCO fee references for PPI impounds — unlike POLICE rates, which vary by
+    # department and live in the police_departments table.
     PPI_TOW_RATE = 144.00
-    PPI_STORAGE_RATE = 22.00
-    NOTIFICATION_FEE = 25.00  # flat per-letter fee cited on Owner/Lienholder notices
+    # PPI daily storage rate scales with vehicle weight class. These are the
+    # DEFAULTS a class seeds into the per-vehicle daily_storage_rate on intake;
+    # staff can override that field on the fly for special circumstances, and
+    # the override then drives both the amount owed and the letter copy.
+    PPI_STORAGE_RATE_BY_CLASS = {'light': 22.00, 'medium': 37.00, 'heavy': 82.00}
+    PPI_STORAGE_RATE = 22.00   # light default; kept as the fallback for a missing class
+    NOTIFICATION_FEE = 25.00   # flat per-letter fee cited on Owner/Lienholder notices
+
+    @classmethod
+    def ppi_storage_rate_for_class(cls, vehicle_class):
+        """Default PPI daily storage rate for a weight class."""
+        vc = (vehicle_class or 'light').lower()
+        return cls.PPI_STORAGE_RATE_BY_CLASS.get(vc, cls.PPI_STORAGE_RATE)
 
     @property
     def effective_tow_rate(self):
+        # PPI: the edited per-vehicle tow fee wins (editable on the fly), else
+        # the standard PPI rate. POLICE is unchanged — it reads the requesting
+        # department's rate and leaves rate_pending intact.
         if self.impound_type == 'PPI':
-            return self.PPI_TOW_RATE
+            return float(self.tow_fee) if self.tow_fee is not None else self.PPI_TOW_RATE
         if self.police_department and self.police_department.tow_rate is not None:
             return float(self.police_department.tow_rate)
         return None
 
     @property
     def effective_storage_rate(self):
+        # PPI: the edited per-vehicle daily rate wins (editable on the fly),
+        # else the weight-class default. POLICE is unchanged — department rate.
         if self.impound_type == 'PPI':
-            return self.PPI_STORAGE_RATE
+            if self.daily_storage_rate is not None:
+                return float(self.daily_storage_rate)
+            return self.ppi_storage_rate_for_class(self.vehicle_class)
         if self.police_department and self.police_department.storage_rate is not None:
             return float(self.police_department.storage_rate)
         return None
@@ -651,6 +687,30 @@ class Vehicle(db.Model):
                 return f'VIN ...{self.vin[-6:]}'
             return f'Vehicle #{self.id}'
         return name
+
+    # Weight classes offered on the intake/edit form. Order is display order.
+    VEHICLE_CLASSES = ('light', 'medium', 'heavy')
+    VEHICLE_CLASS_LABELS = {
+        'light':  'Light (car / pickup / SUV)',
+        'medium': 'Medium (box truck / large van)',
+        'heavy':  'Heavy (semi / bus / equipment)',
+    }
+
+    @property
+    def vehicle_class_label(self):
+        vc = (self.vehicle_class or 'light').lower()
+        return self.VEHICLE_CLASS_LABELS.get(vc, self.VEHICLE_CLASS_LABELS['light'])
+
+    @property
+    def release_type_label(self):
+        """How a released vehicle left the lot — shown on Lawrence's Daily
+        Release List. Disposition sales/junk carry a disposition_outcome;
+        everything else is a straight owner/customer release."""
+        return {
+            'SOLD': 'Sold at Auction',
+            'JUNKED': 'Junked / Scrapped',
+            'RELEASED_TO_OWNER': 'Released to Owner',
+        }.get(self.disposition_outcome, 'Released / Pickup')
 
     @property
     def sorted_notes(self):

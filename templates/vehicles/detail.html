@@ -689,6 +689,9 @@ function showGeneralDocImage(btn) {
           <dt class="col-sm-5 text-muted">Color</dt>
           <dd class="col-sm-7">{{ vehicle.color or '—' }}</dd>
 
+          <dt class="col-sm-5 text-muted">Vehicle Class</dt>
+          <dd class="col-sm-7">{{ vehicle.vehicle_class_label }}</dd>
+
           <dt class="col-sm-5 text-muted">Impound Type</dt>
           <dd class="col-sm-7"><span class="badge bg-secondary">{{ vehicle.impound_type }}</span></dd>
 
@@ -787,9 +790,22 @@ function showGeneralDocImage(btn) {
       <div class="card-body">
         <dl class="row mb-0 small">
           <dt class="col-sm-6 text-muted">Tow Fee</dt>
-          <dd class="col-sm-6">{{ '$%.2f'|format(vehicle.tow_fee) if vehicle.tow_fee else '—' }}</dd>
-          <dt class="col-sm-6 text-muted">Daily Storage Rate</dt>
-          <dd class="col-sm-6">{{ '$%.2f/day'|format(vehicle.daily_storage_rate) if vehicle.daily_storage_rate else '—' }}</dd>
+          <dd class="col-sm-6">
+            {% if vehicle.effective_tow_rate is not none %}{{ '$%.2f'|format(vehicle.effective_tow_rate) }}
+            {%- elif vehicle.rate_pending %}<span class="text-danger fw-semibold">RATE PENDING</span>
+            {%- else %}—{% endif %}
+          </dd>
+          <dt class="col-sm-6 text-muted">Daily Storage</dt>
+          <dd class="col-sm-6">
+            {% if vehicle.effective_storage_rate is not none %}{{ '$%.2f/day'|format(vehicle.effective_storage_rate) }}
+            {%- elif vehicle.rate_pending %}<span class="text-danger fw-semibold">RATE PENDING</span>
+            {%- else %}—{% endif %}
+            {% if vehicle.impound_type == 'PPI' %}
+            <small class="text-muted d-block">{{ vehicle.vehicle_class_label }}{% if vehicle.daily_storage_rate is none %} — class default{% endif %}</small>
+            {% endif %}
+          </dd>
+          <dt class="col-sm-6 text-muted">Notification Fee</dt>
+          <dd class="col-sm-6">{{ '$%.2f'|format(vehicle.effective_admin_fee) if vehicle.effective_admin_fee is not none else '—' }}</dd>
           <dt class="col-sm-6 text-muted">Mileage</dt>
           <dd class="col-sm-6">{{ '{:,}'.format(vehicle.mileage) if vehicle.mileage else '—' }}</dd>
           <dt class="col-sm-6 text-muted">NADA Wholesale Value</dt>
@@ -799,6 +815,11 @@ function showGeneralDocImage(btn) {
             {% if vehicle.nada_value_override is not none %}<small class="text-muted">(manual override)</small>{% endif %}
           </dd>
         </dl>
+        <div class="text-muted small mt-2">
+          <i class="bi bi-info-circle"></i>
+          These fees print on the notice letter. Defaulted by call type{% if vehicle.impound_type == 'PPI' %} and vehicle class{% endif %} —
+          <a href="{{ url_for('vehicles_edit', vehicle_id=vehicle.id) }}">edit the ticket</a> to change them for this vehicle.
+        </div>
         {% if vehicle.nada_needs_verification %}
         <div class="alert alert-warning py-2 px-3 small mb-2">
           <i class="bi bi-exclamation-triangle"></i> Using fallback value — please verify

@@ -60,6 +60,16 @@
               <input type="text" class="form-control" id="color" name="color"
                 value="{{ vehicle.color or '' }}">
             </div>
+            <div class="col-sm-4">
+              <label for="vehicle_class" class="form-label fw-semibold">Vehicle Class</label>
+              <select class="form-select" id="vehicle_class" name="vehicle_class">
+                {% for vc in ['light', 'medium', 'heavy'] %}
+                <option value="{{ vc }}" {% if (vehicle.vehicle_class or 'light') == vc %}selected{% endif %}>
+                  {{ {'light':'Light (car / pickup / SUV)','medium':'Medium (box truck / large van)','heavy':'Heavy (semi / bus / equipment)'}[vc] }}
+                </option>
+                {% endfor %}
+              </select>
+            </div>
             <div class="col-sm-8">
               <label for="storage_location" class="form-label fw-semibold">Storage Location</label>
               <input type="text" class="form-control" id="storage_location" name="storage_location"
@@ -213,4 +223,29 @@
     </form>
   </div>
 </div>
+
+{% if vehicle.impound_type == 'PPI' %}
+<script>
+  // Suggest the PPI daily storage rate from the weight class. Editable — a
+  // custom rate typed by staff is preserved; only empty or class-default
+  // values get updated when the class changes.
+  const PPI_STORAGE_BY_CLASS = { light: 22, medium: 37, heavy: 82 };
+  (function () {
+    const vcEl = document.getElementById('vehicle_class');
+    const rateEl = document.getElementById('daily_storage_rate');
+    if (!vcEl || !rateEl) return;
+    function suggest() {
+      const def = PPI_STORAGE_BY_CLASS[vcEl.value];
+      if (def == null) return;
+      rateEl.placeholder = def.toFixed(2) + ' (class default)';
+      const cur = rateEl.value.trim();
+      const isClassDefault = Object.values(PPI_STORAGE_BY_CLASS).some(v => parseFloat(cur) === v);
+      if (cur === '' || isClassDefault) rateEl.value = def.toFixed(2);
+    }
+    vcEl.addEventListener('change', suggest);
+    // Set the placeholder on load without overwriting the saved rate.
+    rateEl.placeholder = (PPI_STORAGE_BY_CLASS[vcEl.value] || 35).toFixed(2) + ' (class default)';
+  })();
+</script>
+{% endif %}
 {% endblock %}

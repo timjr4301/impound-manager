@@ -3,9 +3,15 @@ Driver / VIN-snap mode — a driver on the lot photographs the VIN plate,
 Claude Opus reads it, and the app logs a GPS-tagged zone location against
 the matched vehicle. Ties into ghost-vehicle detection on the Tim dashboard
 (see Vehicle.location_stale in models.py).
+
+The QR Scan mode (Build Q) is a faster alternative to the photo-OCR path:
+the driver points the camera at the Towbook QR flyer on the windshield,
+jsQR decodes it client-side, and /driver/match-qr matches by stock number,
+VIN, or plate — then the same confirm → zone → save flow runs.
 """
 import json
 import os
+import re
 from datetime import datetime
 from flask import Blueprint, render_template, request, jsonify
 from flask_login import login_required, current_user
@@ -45,10 +51,80 @@ def _match_vehicle_by_vin(vin_read):
     )
 
 
+def _match_vehicle_by_qr(text):
+    """Match an active vehicle from a decoded Towbook QR payload. The flyer
+    encodes stock #, VIN, and plate; the exact framing varies (delimited text,
+    or a URL with query params), so we tokenize the whole string and try, in
+    order of reliability: 17-char VIN, then stock number, then plate — all
+    against active vehicles only. Returns (vehicle, matched_by) or (None, None)."""
+    if not text:
+        return None, None
+    tokens = [t for t in re.split(r'[\s,;:|/?&=#]+', text.strip().upper()) if t]
+    if not tokens:
+        return None, None
+
+    # 1) VIN — a 17-char alphanumeric token, exact match.
+    for t in tokens:
+        if len(t) == 17 and t.isalnum():
+            v = (Vehicle.query
+                 .filter(Vehicle.status == 'ACTIVE')
+                 .filter(Vehicle.vin.isnot(None))
+                 .filter(db.func.upper(Vehicle.vin) == t)
+                 .first())
+            if v:
+                return v, 'vin'
+
+    # 2) Stock number — exact match.
+    for t in tokens:
+        v = (Vehicle.query
+             .filter(Vehicle.status == 'ACTIVE')
+             .filter(Vehicle.stock_number.isnot(None))
+             .filter(db.func.upper(Vehicle.stock_number) == t)
+             .first())
+        if v:
+            return v, 'stock_number'
+
+    # 3) Plate — exact match, last resort (plates are the least unique).
+    for t in tokens:
+        v = (Vehicle.query
+             .filter(Vehicle.status == 'ACTIVE')
+             .filter(Vehicle.plate.isnot(None))
+             .filter(db.func.upper(Vehicle.plate) == t)
+             .first())
+        if v:
+            return v, 'plate'
+
+    return None, None
+
+
 @bp.route('/')
 @login_required
 def index():
     return render_template('driver_snap/index.html', zones=ZONES)
+
+
+@bp.route('/match-qr', methods=['POST'])
+@login_required
+def match_qr():
+    """Match an active vehicle from a client-side-decoded Towbook QR code."""
+    data = request.get_json() or {}
+    text = (data.get('text') or '').strip()
+    if not text:
+        return jsonify({'error': 'No QR text provided'}), 400
+
+    matched, matched_by = _match_vehicle_by_qr(text)
+    return jsonify({
+        'ok': True,
+        'decoded': text,
+        'matched_by': matched_by,
+        'matched_vehicle': {
+            'id': matched.id,
+            'display_name': matched.display_name,
+            'plate': matched.plate,
+            'stock_number': matched.stock_number,
+            'current_zone': matched.last_location_zone,
+        } if matched else None,
+    })
 
 
 @bp.route('/read-vin', methods=['POST'])
