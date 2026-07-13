@@ -6,32 +6,11 @@ from datetime import date, datetime
 from flask import (Blueprint, render_template, request, redirect,
                    url_for, flash, current_app, send_file)
 from flask_login import login_required, current_user
-from models import db, Vehicle, TitleFiling, Invoice, VehicleNote, DamageReport
+from models import db, Vehicle, TitleFiling, Invoice, VehicleNote, DamageReport, CustodyEvent
 import disposition as dispo
+from pipeline_ops import move_stage as _move_stage, record_custody as _custody
 
 bp = Blueprint('tina', __name__, url_prefix='/tina')
-
-
-def _move_stage(vehicle, new_stage, note=''):
-    """Move a vehicle to a disposition-pipeline stage: records the stage, stamps
-    the entry time (for days-in-stage), keeps disposition in sync when the stage
-    implies a track, and drops an audit note. Does not commit."""
-    vehicle.tina_stage = new_stage
-    vehicle.tina_stage_at = datetime.utcnow()
-    implied = dispo.disposition_for_stage(new_stage)
-    if implied and vehicle.disposition != implied:
-        vehicle.disposition = implied
-        vehicle.disposition_set_date = date.today()
-    vehicle.updated_at = datetime.utcnow()
-    body = f'Pipeline → {dispo.STAGE_LABELS.get(new_stage, new_stage)}'
-    if note:
-        body += f': {note}'
-    db.session.add(VehicleNote(
-        vehicle_id=vehicle.id,
-        body=body,
-        author=current_user.display_name or 'Tina',
-        created_at=datetime.utcnow(),
-    ))
 
 
 def _tina_required(f):
@@ -64,11 +43,11 @@ def dashboard():
         .all()
     )
 
-    # In-progress disposition work — title in hand, moving through auction/junk
+    # In-progress disposition work — title in hand, moving through the pipeline
     in_progress = (
         Vehicle.query
-        .filter(Vehicle.tina_stage.in_(['AUCTION_PREP', 'AUCTION_READY',
-                                        'AT_AUCTION', 'JUNK_PREP', 'HOLD']))
+        .filter(Vehicle.tina_stage.in_(['KEY_ROW', 'INSPECT_POOL', 'NEEDS_REPAIRS',
+                                        'AUCTION_READY', 'AT_AUCTION', 'JUNK_PENDING', 'HOLD']))
         .filter(Vehicle.status.in_(['ACTIVE', 'TITLE_FILED']))
         .filter(Vehicle.possible_release.isnot(True))
         .filter(Vehicle.not_snoozed_filter())
@@ -84,10 +63,10 @@ def dashboard():
         if v.is_title_eligible and v.title_filing is None
     ]
 
-    # Decision queue — title filed, needs a Sell/Junk/Hold decision
+    # Decision queue — title obtained, needs to be located + a Sell/Junk call
     disposition_needed = (
         Vehicle.query
-        .filter(Vehicle.tina_stage == 'TITLE_FILED')
+        .filter(Vehicle.tina_stage == 'TO_LOCATE')
         .filter(Vehicle.disposition.is_(None))
         .filter(Vehicle.possible_release.isnot(True))
         .filter(Vehicle.not_snoozed_filter())
@@ -489,8 +468,8 @@ def disposition_report():
     today = date.today()
 
     # In-flight — title in hand, on the pipeline, not yet a terminal outcome.
-    in_flight_stages = ['TITLE_FILED', 'AUCTION_PREP', 'AUCTION_READY',
-                        'AT_AUCTION', 'JUNK_PREP', 'HOLD']
+    in_flight_stages = ['TO_LOCATE', 'KEY_ROW', 'INSPECT_POOL', 'NEEDS_REPAIRS',
+                        'AUCTION_READY', 'AT_AUCTION', 'JUNK_PENDING', 'HOLD']
     in_flight = (
         Vehicle.query
         .filter(Vehicle.tina_stage.in_(in_flight_stages))

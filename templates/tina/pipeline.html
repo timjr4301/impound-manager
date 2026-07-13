@@ -62,17 +62,21 @@
     {# Per-stage colour + icon tokens ───────────────────────────────────────── #}
     {% if stage.key == 'AWAITING_TITLE' %}
       {% set hdr_cls = 'bg-secondary text-white' %}{% set card_bdr = '#6c757d' %}{% set col_icon = 'bi-hourglass' %}
-    {% elif stage.key == 'TITLE_FILED' %}
-      {% set hdr_cls = 'bg-success text-white' %}{% set card_bdr = '#198754' %}{% set col_icon = 'bi-file-earmark-check' %}
-    {% elif stage.key == 'AUCTION_PREP' %}
-      {% set hdr_cls = 'bg-info text-dark' %}{% set card_bdr = '#0dcaf0' %}{% set col_icon = 'bi-tools' %}
+    {% elif stage.key == 'TO_LOCATE' %}
+      {% set hdr_cls = 'bg-success text-white' %}{% set card_bdr = '#198754' %}{% set col_icon = 'bi-geo-alt' %}
+    {% elif stage.key == 'KEY_ROW' %}
+      {% set hdr_cls = 'bg-info text-dark' %}{% set card_bdr = '#0dcaf0' %}{% set col_icon = 'bi-key-fill' %}
+    {% elif stage.key == 'INSPECT_POOL' %}
+      {% set hdr_cls = 'bg-primary text-white' %}{% set card_bdr = '#0d6efd' %}{% set col_icon = 'bi-search' %}
+    {% elif stage.key == 'NEEDS_REPAIRS' %}
+      {% set hdr_cls = 'kanban-hdr-orange text-white' %}{% set card_bdr = '#fd7e14' %}{% set col_icon = 'bi-wrench-adjustable' %}
     {% elif stage.key == 'AUCTION_READY' %}
       {% set hdr_cls = 'bg-warning text-dark' %}{% set card_bdr = '#ffc107' %}{% set col_icon = 'bi-tag-fill' %}
     {% elif stage.key == 'AT_AUCTION' %}
       {% set hdr_cls = 'bg-primary text-white' %}{% set card_bdr = '#0d6efd' %}{% set col_icon = 'bi-hammer' %}
     {% elif stage.key == 'SOLD' %}
       {% set hdr_cls = 'kanban-hdr-green text-white' %}{% set card_bdr = '#146c43' %}{% set col_icon = 'bi-cash-coin' %}
-    {% elif stage.key == 'JUNK_PREP' %}
+    {% elif stage.key == 'JUNK_PENDING' %}
       {% set hdr_cls = 'kanban-hdr-orange text-white' %}{% set card_bdr = '#fd7e14' %}{% set col_icon = 'bi-recycle' %}
     {% elif stage.key == 'JUNKED' %}
       {% set hdr_cls = 'bg-dark text-white' %}{% set card_bdr = '#212529' %}{% set col_icon = 'bi-trash3' %}

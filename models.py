@@ -245,6 +245,69 @@ class Vehicle(db.Model):
     auctioneer = db.Column(db.String(100))
     auction_lot = db.Column(db.String(50))
     auction_date = db.Column(db.Date)
+    auction_venue = db.Column(db.String(10))   # ONLINE (Peacock) | LIVE (Fifth Ave)
+
+    # Catalytic converter — documented by the driver at locate time so the
+    # Ohio Steel reconciliation report can dispute after-the-fact deductions.
+    converter_present = db.Column(db.Boolean)   # None = not yet checked
+    converter_checked_by = db.Column(db.String(50))
+    converter_checked_at = db.Column(db.DateTime)
+    converter_photo = db.Column(db.Text)        # base64 data URL (optional)
+    converter_notes = db.Column(db.Text)
+
+    # Chain of custody — where the CAR is and where the KEY is, right now.
+    # Distinct from last_location_* (GPS drop from the /driver VIN-snap tool);
+    # these track the disposition-process areas (key row, inspection pool, etc.).
+    custody_location = db.Column(db.String(100))
+    custody_location_by = db.Column(db.String(50))
+    custody_location_at = db.Column(db.DateTime)
+    key_location = db.Column(db.String(20))      # see disposition.KEY_LOCATIONS
+    key_location_by = db.Column(db.String(50))
+    key_location_at = db.Column(db.DateTime)
+
+    # Key make (Key Row → key maker)
+    key_made = db.Column(db.Boolean, default=False)
+    key_type = db.Column(db.String(50))          # generic, BMW, etc.
+    key_cost = db.Column(db.Float)
+    key_made_by = db.Column(db.String(50))
+    key_made_at = db.Column(db.DateTime)
+
+    # Inspection pool — claim + diagnosis (prevents duplicate tech/night looks)
+    inspection_claimed_by = db.Column(db.String(50))
+    inspection_claimed_at = db.Column(db.DateTime)
+    inspection_done = db.Column(db.Boolean, default=False)
+    inspection_diagnosis = db.Column(db.String(20))   # AUCTION | REPAIRS | JUNK
+    inspection_notes = db.Column(db.Text)
+    inspected_by = db.Column(db.String(50))
+    inspected_at = db.Column(db.DateTime)
+
+    # Repair approval (tech says it needs work → Jim/Tina approve or deny)
+    repair_estimate = db.Column(db.Float)
+    repair_notes = db.Column(db.Text)
+    repair_approved = db.Column(db.Boolean)      # None = pending decision
+    repair_decided_by = db.Column(db.String(50))
+    repair_decided_at = db.Column(db.DateTime)
+
+    @property
+    def key_location_label(self):
+        from disposition import KEY_LOCATION_LABELS
+        return KEY_LOCATION_LABELS.get(self.key_location, self.key_location or '—')
+
+    @property
+    def diagnosis_label(self):
+        from disposition import DIAGNOSIS_LABELS
+        return DIAGNOSIS_LABELS.get(self.inspection_diagnosis, self.inspection_diagnosis or '—')
+
+    @property
+    def auction_venue_label(self):
+        from disposition import AUCTION_VENUE_LABELS
+        return AUCTION_VENUE_LABELS.get(self.auction_venue, self.auction_venue or '—')
+
+    @property
+    def converter_label(self):
+        if self.converter_present is None:
+            return 'Not checked'
+        return 'Converter present' if self.converter_present else 'NO converter'
 
     @property
     def stage_label(self):
@@ -1200,6 +1263,23 @@ class UpsPollLog(db.Model):
     def summary(self):
         return (f'{self.letters_checked} checked · {self.newly_delivered} delivered · '
                 f'{self.newly_returned} returned · {self.pods_pulled} PODs')
+
+
+class CustodyEvent(db.Model):
+    """Append-only chain-of-custody / audit trail for the disposition pipeline:
+    every car move, key move, stage change, converter check, key make,
+    inspection, and repair decision lands one row here so 'where has this car
+    and its key been' is always answerable."""
+    __tablename__ = 'custody_events'
+
+    id = db.Column(db.Integer, primary_key=True)
+    vehicle_id = db.Column(db.Integer, db.ForeignKey('vehicles.id'), nullable=False, index=True)
+    event_type = db.Column(db.String(30))   # car_move | key_move | stage | converter | key_made | inspection | repair
+    detail = db.Column(db.Text)
+    actor = db.Column(db.String(50))
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, index=True)
+
+    vehicle = db.relationship('Vehicle', backref=db.backref('custody_events', lazy='dynamic'))
 
 
 class DamageReport(db.Model):

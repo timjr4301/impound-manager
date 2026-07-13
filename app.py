@@ -10,7 +10,7 @@ from flask_login import LoginManager, login_required, current_user
 from models import (db, User, Vehicle, CertifiedLetter, TitleFiling,
                     VehicleNote, DamageItem, SyncLog, VehicleDocument, StaffFeedback,
                     StaffTodo, PoliceDepartment, VehicleCharge, GeneralDocument, VehicleDamagePhoto,
-                    UpsPollLog,
+                    UpsPollLog, CustodyEvent,
                     PPI_LETTER1_DAYS, PPI_LETTER2_DAYS, POLICE_LETTER1_DAYS)
 from werkzeug.utils import secure_filename
 
@@ -180,6 +180,40 @@ def run_migrations(app):
                     ('auctioneer',              'VARCHAR(100)'),
                     ('auction_lot',             'VARCHAR(50)'),
                     ('auction_date',            'DATE'),
+                    ('auction_venue',           'VARCHAR(10)'),
+                    # Converter documentation
+                    ('converter_present',       'BOOLEAN'),
+                    ('converter_checked_by',    'VARCHAR(50)'),
+                    ('converter_checked_at',    'TIMESTAMP'),
+                    ('converter_photo',         'TEXT'),
+                    ('converter_notes',         'TEXT'),
+                    # Chain of custody
+                    ('custody_location',        'VARCHAR(100)'),
+                    ('custody_location_by',     'VARCHAR(50)'),
+                    ('custody_location_at',     'TIMESTAMP'),
+                    ('key_location',            'VARCHAR(20)'),
+                    ('key_location_by',         'VARCHAR(50)'),
+                    ('key_location_at',         'TIMESTAMP'),
+                    # Key make
+                    ('key_made',                'BOOLEAN'),
+                    ('key_type',                'VARCHAR(50)'),
+                    ('key_cost',                'FLOAT'),
+                    ('key_made_by',             'VARCHAR(50)'),
+                    ('key_made_at',             'TIMESTAMP'),
+                    # Inspection pool
+                    ('inspection_claimed_by',   'VARCHAR(50)'),
+                    ('inspection_claimed_at',   'TIMESTAMP'),
+                    ('inspection_done',         'BOOLEAN'),
+                    ('inspection_diagnosis',    'VARCHAR(20)'),
+                    ('inspection_notes',        'TEXT'),
+                    ('inspected_by',            'VARCHAR(50)'),
+                    ('inspected_at',            'TIMESTAMP'),
+                    # Repair approval
+                    ('repair_estimate',         'FLOAT'),
+                    ('repair_notes',            'TEXT'),
+                    ('repair_approved',         'BOOLEAN'),
+                    ('repair_decided_by',       'VARCHAR(50)'),
+                    ('repair_decided_at',       'TIMESTAMP'),
                 ]
                 for col_name, col_type in new_cols:
                     if col_name not in cols:
@@ -301,6 +335,9 @@ def run_migrations(app):
 
             if 'ups_poll_log' not in existing_tables:
                 UpsPollLog.__table__.create(db.engine)
+
+            if 'custody_events' not in existing_tables:
+                CustodyEvent.__table__.create(db.engine)
 
 
 def parse_quantum_view_csv(content: str):
@@ -596,6 +633,7 @@ def create_app():
     from blueprints.help import bp as help_bp
     from blueprints.bmv_document_scanner import bp as bmv_scanner_bp
     from blueprints.driver_snap import bp as driver_snap_bp
+    from blueprints.field_ops import bp as field_ops_bp
     from blueprints.audit import bp as audit_bp
     from blueprints.envelopes import bp as envelopes_bp
     from blueprints.damage_photos import bp as damage_photos_bp
@@ -613,6 +651,7 @@ def create_app():
     app.register_blueprint(towbook_bp)
     app.register_blueprint(bmv_scanner_bp)
     app.register_blueprint(driver_snap_bp)
+    app.register_blueprint(field_ops_bp)
     app.register_blueprint(audit_bp)
     app.register_blueprint(envelopes_bp)
     app.register_blueprint(damage_photos_bp)
@@ -2021,11 +2060,11 @@ def create_app():
             ))
             vehicle.status = 'TITLE_FILED'
             # Advance the disposition pipeline: title is now in hand, so the
-            # vehicle moves to the "decide SELL/JUNK" stage unless it's already
-            # further along or parked on HOLD.
+            # vehicle drops onto the driver Find List (To Locate) unless it's
+            # already further along or parked on HOLD.
             from disposition import PRE_TITLE_STAGES
             if not vehicle.tina_stage or vehicle.tina_stage in PRE_TITLE_STAGES:
-                vehicle.tina_stage = 'TITLE_FILED'
+                vehicle.tina_stage = 'TO_LOCATE'
                 vehicle.tina_stage_at = datetime.utcnow()
             vehicle.updated_at = datetime.utcnow()
             db.session.commit()
