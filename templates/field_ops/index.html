@@ -42,10 +42,15 @@
     {% if find_count %}<span class="badge">{{ find_count }}</span>{% endif %}
   </a>
 
-  <div class="tile soon">
+  {% if current_user.is_key_maker %}
+  <a class="tile" href="{{ url_for('field_ops.keys') }}">
     <i class="bi bi-key-fill lead"></i>
-    <div><div class="t">Key Row</div><div class="s">Coming soon</div></div>
-  </div>
+    <div>
+      <div class="t">Key Row</div>
+      <div class="s">Cars waiting on a key · mark key made</div>
+    </div>
+  </a>
+  {% endif %}
 
   <div class="tile soon">
     <i class="bi bi-search lead"></i>

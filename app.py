@@ -416,6 +416,7 @@ STAFF_USER_DEFAULTS = [
     ('brady',    'BandJ2024!', 'brady',    'Brady'),
     ('jim',      'BandJ2024!', 'jim',      'Jim'),
     ('wally',    'BandJ2024!', 'tim',      'Wally'),
+    ('robert',   'BandJ2024!', 'robert',   'Robert'),
     ('test',     'BandJDemo!', 'demo',     'Demo'),
 ]
 
@@ -763,6 +764,8 @@ def create_app():
             return redirect(url_for('heather.dashboard'))
         if current_user.role == 'tina':
             return redirect(url_for('tina.dashboard'))
+        if current_user.role == 'robert':
+            return redirect(url_for('field_ops.keys'))
         if current_user.role == 'dispatcher':
             return redirect(url_for('dispatch_board'))
 

@@ -17,7 +17,7 @@ PPI_TITLE_FROM_LETTER2 = 30 # Must be 30 days since Letter 2
 POLICE_LETTER1_DAYS = 10    # Notification required within 10 days (ORC 4513.61)
 POLICE_TITLE_FROM_LETTER1 = 30
 
-ROLES = ['tim', 'heather', 'tina', 'dispatcher', 'lawrence', 'lori', 'brady', 'jim', 'demo']
+ROLES = ['tim', 'heather', 'tina', 'dispatcher', 'lawrence', 'lori', 'brady', 'jim', 'robert', 'demo']
 
 
 class User(UserMixin, db.Model):
@@ -87,6 +87,12 @@ class User(UserMixin, db.Model):
     def is_owner(self):
         """Jim is the owner — override actions should be visually flagged (purple)."""
         return self.role == 'jim'
+
+    @property
+    def is_key_maker(self):
+        """Robert cuts keys for auction cars — narrow access to the Key Row
+        screen only. Tina/Tim/Jim can also see/use it for oversight."""
+        return self.role in ('robert', 'tina', 'tim', 'jim')
 
     @property
     def is_demo(self):
