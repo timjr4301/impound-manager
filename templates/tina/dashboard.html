@@ -122,6 +122,40 @@
 </div>
 {% endif %}
 
+{# ── Repairs awaiting Jim/Tina approval ── #}
+{% if repairs_pending %}
+<div class="card shadow-sm mb-4 border-warning">
+  <div class="card-header bg-warning fw-semibold">
+    <i class="bi bi-wrench-adjustable me-2"></i>Repairs — Awaiting Your OK ({{ repairs_pending|length }})
+  </div>
+  <div class="card-body p-0">
+    <table class="table table-sm table-hover mb-0 align-middle">
+      <thead><tr><th>Vehicle</th><th>Estimate</th><th>Tech / Notes</th><th class="text-end">Decision</th></tr></thead>
+      <tbody>
+      {% for v in repairs_pending %}
+      <tr>
+        <td><a href="{{ url_for('vehicles_detail', vehicle_id=v.id) }}" class="row-link fw-semibold">{{ v.display_name }}</a></td>
+        <td>{{ v.repair_estimate|currency if v.repair_estimate else '—' }}</td>
+        <td class="small">
+          {% if v.inspected_by %}<span class="text-muted">{{ v.inspected_by }}:</span> {% endif %}{{ v.repair_notes or v.inspection_notes or '—' }}
+        </td>
+        <td class="text-end">
+          <form method="POST" action="{{ url_for('tina.repair_approve', vehicle_id=v.id) }}" class="d-inline">
+            <button class="btn btn-sm btn-success py-0"><i class="bi bi-check-lg"></i> Approve</button>
+          </form>
+          <form method="POST" action="{{ url_for('tina.repair_deny', vehicle_id=v.id) }}" class="d-inline"
+                onsubmit="return confirm('Deny repairs and send {{ v.display_name }} to junk?');">
+            <button class="btn btn-sm btn-outline-danger py-0"><i class="bi bi-x-lg"></i> Deny → Junk</button>
+          </form>
+        </td>
+      </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endif %}
+
 {# ── Title Eligible — Ready to File ── #}
 {% if title_eligible %}
 <div class="card shadow-sm mb-4 border-success">

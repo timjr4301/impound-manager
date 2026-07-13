@@ -60,3 +60,30 @@ def set_key_location(vehicle, key_loc, note=''):
     vehicle.key_location_at = datetime.utcnow()
     label = dispo.KEY_LOCATION_LABELS.get(key_loc, key_loc)
     record_custody(vehicle, 'key_move', f'Key: {label}' + (f' — {note}' if note else ''))
+
+
+# Roles that always sit in the Wally Alerts thread.
+_ALERT_BASE_ROLES = {'tim', 'jim', 'tina', 'lawrence', 'lori'}
+
+
+def post_alert(body, roles=None, alert_type='pipeline'):
+    """Post a message to the shared in-app 'Wally Alerts' thread (same channel
+    Wally alerts already use). Ensures the base roles plus any extra target
+    roles are members so they see it. Best-effort — never raises, since an alert
+    must not block the workflow. Does not commit (caller commits)."""
+    try:
+        from models import ChatThread, ChatMessage, ChatThreadMember, User
+        want_roles = _ALERT_BASE_ROLES | set(roles or [])
+        thread = ChatThread.query.filter_by(title='Wally Alerts').first()
+        if not thread:
+            thread = ChatThread(title='Wally Alerts', is_group=True)
+            db.session.add(thread)
+            db.session.flush()
+        existing = {m.user_id for m in ChatThreadMember.query.filter_by(thread_id=thread.id).all()}
+        for u in User.query.filter(User.role.in_(want_roles)).all():
+            if u.id not in existing:
+                db.session.add(ChatThreadMember(thread_id=thread.id, user_id=u.id))
+        db.session.add(ChatMessage(thread_id=thread.id, username='Wally',
+                                   is_wally=True, alert_type=alert_type, body=body))
+    except Exception:
+        pass

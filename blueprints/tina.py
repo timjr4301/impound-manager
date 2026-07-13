@@ -8,6 +8,7 @@ from flask import (Blueprint, render_template, request, redirect,
 from flask_login import login_required, current_user
 from models import db, Vehicle, TitleFiling, Invoice, VehicleNote, DamageReport, CustodyEvent
 import disposition as dispo
+import pipeline_ops as ops
 from pipeline_ops import move_stage as _move_stage, record_custody as _custody
 
 bp = Blueprint('tina', __name__, url_prefix='/tina')
@@ -74,6 +75,16 @@ def dashboard():
         .all()
     )
 
+    # Repairs awaiting Jim/Tina approval (inspection said "needs repairs")
+    repairs_pending = (
+        Vehicle.query
+        .filter(Vehicle.tina_stage == 'NEEDS_REPAIRS')
+        .filter(Vehicle.repair_approved.is_(None))
+        .filter(Vehicle.possible_release.isnot(True))
+        .order_by(Vehicle.tina_stage_at.asc().nullslast())
+        .all()
+    )
+
     # Court dates coming up
     court_upcoming = (
         Vehicle.query
@@ -108,6 +119,7 @@ def dashboard():
         in_progress=in_progress,
         title_eligible=title_eligible,
         disposition_needed=disposition_needed,
+        repairs_pending=repairs_pending,
         court_upcoming=court_upcoming,
         recent_invoices=recent_invoices,
         damage_reports=damage_reports,
@@ -256,28 +268,13 @@ def pipeline_move(vehicle_id):
                       'redirect': url_for('tina.create_invoice', vehicle_id=vehicle.id)}), 409
 
     _move_stage(vehicle, new_stage)
-    db.session.commit()
 
-    # Post Wally alert
-    try:
-        from models import ChatThread, ChatMessage, ChatThreadMember, User as _User
-        roles = PIPELINE_ALERT_TARGETS.get(new_stage)
-        if roles:
-            thread = ChatThread.query.filter_by(title='Wally Alerts').first()
-            if not thread:
-                thread = ChatThread(title='Wally Alerts', is_group=True)
-                db.session.add(thread)
-                db.session.flush()
-                for u in _User.query.filter(_User.role.in_({'tim', 'lawrence', 'lori', 'tina'})).all():
-                    db.session.add(ChatThreadMember(thread_id=thread.id, user_id=u.id))
-            body = PIPELINE_ALERT_MSGS.get(new_stage, '{name} moved to ' + new_stage).format(
-                name=vehicle.display_name
-            )
-            db.session.add(ChatMessage(thread_id=thread.id, username='Wally',
-                                       is_wally=True, alert_type='pipeline', body=body))
-            db.session.commit()
-    except Exception:
-        pass
+    roles = PIPELINE_ALERT_TARGETS.get(new_stage)
+    if roles:
+        body = PIPELINE_ALERT_MSGS.get(new_stage, '{name} moved to ' + new_stage).format(
+            name=vehicle.display_name)
+        ops.post_alert(body, roles=roles, alert_type='pipeline')
+    db.session.commit()
 
     return _json({'ok': True, 'stage': new_stage,
                   'label': dispo.STAGE_LABELS.get(new_stage, new_stage),
@@ -304,13 +301,58 @@ def set_disposition(vehicle_id):
         # Advance the pipeline to that track's first working stage, unless the
         # vehicle is already further along that same track.
         entry = dispo.DISPOSITION_ENTRY.get(disposition)
-        if entry and vehicle.tina_stage not in dispo.allowed_stages_for(disposition) - {'AWAITING_TITLE', 'TITLE_FILED'}:
+        if entry and vehicle.tina_stage not in dispo.allowed_stages_for(disposition) - {'AWAITING_TITLE', 'TO_LOCATE'}:
             _move_stage(vehicle, entry)
         else:
             vehicle.updated_at = datetime.utcnow()
         db.session.commit()
         flash(f'{vehicle.display_name} disposition set to {disposition}.', 'success')
     return redirect(url_for('tina.dashboard'))
+
+
+def _repair_decider_required(f):
+    from functools import wraps
+    @wraps(f)
+    def decorated(*args, **kwargs):
+        if not current_user.is_authenticated or current_user.role not in ('tina', 'tim', 'jim'):
+            flash('Only Jim or Tina can decide repairs.', 'danger')
+            return redirect(url_for('tina.dashboard'))
+        return f(*args, **kwargs)
+    return login_required(decorated)
+
+
+@bp.route('/repair/<int:vehicle_id>/approve', methods=['POST'])
+@_repair_decider_required
+def repair_approve(vehicle_id):
+    """Jim/Tina authorize repairs — the car is cleared to be fixed and auctioned."""
+    vehicle = db.get_or_404(Vehicle, vehicle_id)
+    vehicle.repair_approved = True
+    vehicle.repair_decided_by = ops.actor()
+    vehicle.repair_decided_at = datetime.utcnow()
+    _custody(vehicle, 'repair', f'Repairs APPROVED by {ops.actor()}')
+    _move_stage(vehicle, 'AUCTION_READY', note='repairs approved')
+    ops.post_alert(f'✅ {vehicle.display_name}: repairs approved — cleared for auction.',
+                   roles=['tina', 'tim', 'jim'], alert_type='repair')
+    db.session.commit()
+    flash(f'Repairs approved for {vehicle.display_name}.', 'success')
+    return redirect(request.referrer or url_for('tina.dashboard'))
+
+
+@bp.route('/repair/<int:vehicle_id>/deny', methods=['POST'])
+@_repair_decider_required
+def repair_deny(vehicle_id):
+    """Jim/Tina decline repairs — not worth it, send to junk."""
+    vehicle = db.get_or_404(Vehicle, vehicle_id)
+    vehicle.repair_approved = False
+    vehicle.repair_decided_by = ops.actor()
+    vehicle.repair_decided_at = datetime.utcnow()
+    _custody(vehicle, 'repair', f'Repairs DENIED by {ops.actor()} — to junk')
+    _move_stage(vehicle, 'JUNK_PENDING', note='repairs denied → junk')
+    ops.post_alert(f'🚫 {vehicle.display_name}: repairs denied — routed to junk.',
+                   roles=['tina', 'tim', 'jim'], alert_type='repair')
+    db.session.commit()
+    flash(f'Repairs denied for {vehicle.display_name} — sent to junk.', 'info')
+    return redirect(request.referrer or url_for('tina.dashboard'))
 
 
 @bp.route('/set-court/<int:vehicle_id>', methods=['POST'])

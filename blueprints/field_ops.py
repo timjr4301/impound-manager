@@ -186,3 +186,104 @@ def key_make(vehicle_id):
 
     return render_template('field_ops/key_make.html', vehicle=vehicle,
                            key_types=KEY_TYPES, key_locations=dispo.KEY_LOCATIONS)
+
+
+# ── Inspection Pool (service techs + night crew) ────────────────────────────
+
+@bp.route('/inspect')
+@_field_required
+def inspect():
+    """The inspection board — cars in the pool, showing who (if anyone) is
+    already looking at each one so service and third-shift don't collide."""
+    vehicles = (
+        Vehicle.query
+        .filter_by(tina_stage='INSPECT_POOL')
+        .filter(Vehicle.possible_release.isnot(True))
+        .order_by(Vehicle.inspection_claimed_at.desc().nullslast(),
+                  Vehicle.tina_stage_at.asc().nullslast())
+        .all()
+    )
+    unclaimed = [v for v in vehicles if not v.inspection_claimed_by]
+    claimed = [v for v in vehicles if v.inspection_claimed_by]
+    return render_template('field_ops/inspect.html',
+                           unclaimed=unclaimed, claimed=claimed,
+                           car_areas=CAR_AREAS, me=ops.actor())
+
+
+@bp.route('/inspect/<int:vehicle_id>/claim', methods=['POST'])
+@_field_required
+def inspect_claim(vehicle_id):
+    vehicle = db.get_or_404(Vehicle, vehicle_id)
+    area = request.form.get('area', '').strip()
+    prev = vehicle.inspection_claimed_by
+    vehicle.inspection_claimed_by = ops.actor()
+    vehicle.inspection_claimed_at = datetime.utcnow()
+    took = f' (took over from {prev})' if prev and prev != ops.actor() else ''
+    if area:
+        ops.set_car_location(vehicle, area, note='pulled for inspection')
+    ops.record_custody(vehicle, 'inspection', f'Claimed for inspection{took}')
+    db.session.commit()
+    flash(f'You are inspecting {vehicle.display_name}.', 'success')
+    return redirect(url_for('field_ops.inspect'))
+
+
+@bp.route('/inspect/<int:vehicle_id>/release', methods=['POST'])
+@_field_required
+def inspect_release(vehicle_id):
+    vehicle = db.get_or_404(Vehicle, vehicle_id)
+    vehicle.inspection_claimed_by = None
+    vehicle.inspection_claimed_at = None
+    ops.record_custody(vehicle, 'inspection', 'Released without a diagnosis')
+    db.session.commit()
+    flash(f'{vehicle.display_name} released back to the pool.', 'info')
+    return redirect(url_for('field_ops.inspect'))
+
+
+@bp.route('/inspect/<int:vehicle_id>/diagnose', methods=['POST'])
+@_field_required
+def inspect_diagnose(vehicle_id):
+    vehicle = db.get_or_404(Vehicle, vehicle_id)
+    diagnosis = request.form.get('diagnosis', '')      # AUCTION | REPAIRS | JUNK
+    notes = request.form.get('notes', '').strip()
+    if diagnosis not in dispo.DIAGNOSIS_LABELS:
+        flash('Please choose a diagnosis.', 'danger')
+        return redirect(url_for('field_ops.inspect'))
+
+    vehicle.inspection_done = True
+    vehicle.inspection_diagnosis = diagnosis
+    vehicle.inspection_notes = notes or None
+    vehicle.inspected_by = ops.actor()
+    vehicle.inspected_at = datetime.utcnow()
+    # inspection finished — clear the active claim
+    vehicle.inspection_claimed_by = None
+    vehicle.inspection_claimed_at = None
+    ops.record_custody(vehicle, 'inspection',
+                       f'Diagnosed {dispo.DIAGNOSIS_LABELS[diagnosis]}'
+                       + (f' — {notes}' if notes else ''))
+
+    if diagnosis == 'AUCTION':
+        ops.move_stage(vehicle, 'AUCTION_READY', note='inspection: auction-ready')
+        flash(f'{vehicle.display_name} → Auction Ready.', 'success')
+    elif diagnosis == 'JUNK':
+        ops.move_stage(vehicle, 'JUNK_PENDING', note='inspection: junk')
+        flash(f'{vehicle.display_name} → Junk (pending Tina).', 'warning')
+    else:  # REPAIRS
+        try:
+            est = float(request.form.get('repair_estimate', '') or 0)
+        except ValueError:
+            est = 0.0
+        vehicle.repair_estimate = est or None
+        vehicle.repair_notes = notes or None
+        vehicle.repair_approved = None   # awaiting Jim/Tina
+        vehicle.repair_decided_by = None
+        vehicle.repair_decided_at = None
+        ops.move_stage(vehicle, 'NEEDS_REPAIRS', note='inspection: needs repairs')
+        est_txt = f' (est ${est:.0f})' if est else ''
+        ops.post_alert(
+            f'🔧 {vehicle.display_name} needs repairs{est_txt} before auction — '
+            f'approve or deny? {notes}'.strip(),
+            roles=['tina', 'tim', 'jim'], alert_type='repair')
+        flash(f'{vehicle.display_name} → Needs Repairs. Jim/Tina alerted.', 'success')
+
+    db.session.commit()
+    return redirect(url_for('field_ops.inspect'))
