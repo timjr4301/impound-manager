@@ -18,6 +18,12 @@
       </a>
     </div>
     {% if can_act %}
+    <form method="post" action="{{ url_for('letters_refresh_all_tracking') }}" class="d-inline"
+          onsubmit="this.querySelector('button').disabled=true; this.querySelector('button').innerHTML='<span class=\'spinner-border spinner-border-sm me-1\'></span> Checking UPS…';">
+      <button type="submit" class="btn btn-outline-primary btn-sm" title="Query UPS for every in-flight letter, confirm deliveries and pull signed PODs">
+        <i class="bi bi-truck me-1"></i> Refresh UPS Tracking
+      </button>
+    </form>
     <button class="btn btn-primary btn-sm" data-bs-toggle="modal" data-bs-target="#scanModal">
       <i class="bi bi-camera-fill me-1"></i> Scan Envelope
     </button>
@@ -29,6 +35,18 @@
       <i class="bi bi-arrow-left me-1"></i> Back
     </a>
   </div>
+</div>
+
+{# ── Last UPS tracking sweep ── #}
+<div class="d-flex align-items-center gap-2 mb-3 small text-muted">
+  <i class="bi bi-truck"></i>
+  {% if last_ups_poll %}
+    <span>Last UPS tracking refresh: <strong>{{ last_ups_poll.run_at|datetime_et }}</strong>
+      by {{ last_ups_poll.triggered_by }} — {{ last_ups_poll.summary }}{% if last_ups_poll.errors %},
+      <span class="text-danger">{{ last_ups_poll.errors }} error(s)</span>{% endif %}.</span>
+  {% else %}
+    <span>UPS tracking has not been refreshed yet — click <strong>Refresh UPS Tracking</strong> to pull delivery status and signed PODs.</span>
+  {% endif %}
 </div>
 
 {# ── Summary badges ── #}

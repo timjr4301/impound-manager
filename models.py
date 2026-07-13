@@ -1151,6 +1151,27 @@ class SyncLog(db.Model):
         return 'Manual sync needed'
 
 
+class UpsPollLog(db.Model):
+    """One row per bulk 'Refresh all UPS tracking' run (UPS Phase 2, manual
+    trigger). Records what the sweep found so the Letters page can show the
+    last-run time and outcome without any 6am background job."""
+    __tablename__ = 'ups_poll_log'
+
+    id = db.Column(db.Integer, primary_key=True)
+    run_at = db.Column(db.DateTime, default=datetime.utcnow, index=True)
+    triggered_by = db.Column(db.String(50))   # username
+    letters_checked = db.Column(db.Integer, default=0)
+    newly_delivered = db.Column(db.Integer, default=0)
+    newly_returned = db.Column(db.Integer, default=0)
+    pods_pulled = db.Column(db.Integer, default=0)
+    errors = db.Column(db.Integer, default=0)
+
+    @property
+    def summary(self):
+        return (f'{self.letters_checked} checked · {self.newly_delivered} delivered · '
+                f'{self.newly_returned} returned · {self.pods_pulled} PODs')
+
+
 class DamageReport(db.Model):
     __tablename__ = 'damage_reports'
 

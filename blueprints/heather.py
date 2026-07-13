@@ -1026,6 +1026,10 @@ def letters():
         .all()
     )
 
+    # Last bulk UPS tracking sweep (UPS Phase 2 manual poll)
+    from models import UpsPollLog
+    last_ups_poll = UpsPollLog.query.order_by(UpsPollLog.run_at.desc()).first()
+
     return render_template('heather/letters.html',
         today=today,
         pending=pending,
@@ -1035,6 +1039,7 @@ def letters():
         recent_scans=recent_scans,
         can_act=current_user.is_heather,
         lot_sort=lot_sort,
+        last_ups_poll=last_ups_poll,
     )
 
 

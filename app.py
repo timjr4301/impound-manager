@@ -10,6 +10,7 @@ from flask_login import LoginManager, login_required, current_user
 from models import (db, User, Vehicle, CertifiedLetter, TitleFiling,
                     VehicleNote, DamageItem, SyncLog, VehicleDocument, StaffFeedback,
                     StaffTodo, PoliceDepartment, VehicleCharge, GeneralDocument, VehicleDamagePhoto,
+                    UpsPollLog,
                     PPI_LETTER1_DAYS, PPI_LETTER2_DAYS, POLICE_LETTER1_DAYS)
 from werkzeug.utils import secure_filename
 
@@ -262,6 +263,9 @@ def run_migrations(app):
 
             if 'vehicle_general_documents' not in existing_tables:
                 GeneralDocument.__table__.create(db.engine)
+
+            if 'ups_poll_log' not in existing_tables:
+                UpsPollLog.__table__.create(db.engine)
 
 
 def parse_quantum_view_csv(content: str):
@@ -633,6 +637,17 @@ def create_app():
         if value is None:
             return '—'
         return f'${value:,.2f}'
+
+    @app.template_filter('datetime_et')
+    def datetime_et(value):
+        """Format a naive-UTC datetime (as stored by datetime.utcnow) in
+        Eastern time, e.g. 'Jul 13, 2:05 PM ET'. Returns '' for None."""
+        if not value:
+            return ''
+        from zoneinfo import ZoneInfo
+        from datetime import timezone as _tz
+        aware = value.replace(tzinfo=_tz.utc).astimezone(ZoneInfo('America/New_York'))
+        return f"{aware.strftime('%b')} {aware.day}, {aware.strftime('%-I:%M %p')} ET"
 
     @app.context_processor
     def inject_globals():
@@ -1728,6 +1743,54 @@ def create_app():
             letter.pod_image_type_2 = pod_type
         return True
 
+    def _refresh_letter_tracking(letter):
+        """Poll UPS for one letter's tracking number(s), updating delivery/RTS
+        status and pulling any newly-available POD(s). Returns a dict describing
+        what changed. Does NOT commit, flash, or redirect — callers do that.
+        Never raises; UPS/network errors are captured in result['error']. Shared
+        by the single-letter refresh route and the bulk 'refresh all' sweep."""
+        import ups_api
+        result = {'checked': False, 'newly_delivered': False, 'newly_returned': False,
+                  'pods_pulled': 0, 'error': None, 'no_record': False}
+        if not letter.tracking_number:
+            result['error'] = 'no tracking number'
+            return result
+        try:
+            pkg = ups_api.lookup_by_tracking_number(letter.tracking_number, trans_id=f'refresh-{letter.id}')
+        except Exception as exc:
+            result['error'] = str(exc)
+            return result
+        if not pkg:
+            result['no_record'] = True
+            return result
+
+        result['checked'] = True
+        letter.ups_status = pkg['status_description'] or letter.ups_status
+        was_delivered = letter.delivery_confirmed_date is not None
+        was_rts = letter.return_to_sender
+        if pkg['is_rts']:
+            letter.return_to_sender = True
+            if not was_rts:
+                result['newly_returned'] = True
+        elif pkg['is_delivered'] and pkg['delivered_date']:
+            letter.delivery_confirmed_date = datetime.strptime(pkg['delivered_date'], '%Y%m%d').date()
+            if not was_delivered:
+                result['newly_delivered'] = True
+
+        if letter.delivery_confirmed_date and not letter.pod_image_data:
+            if _try_fetch_pod(letter, letter.tracking_number, 'primary', trans_id=f'pod-auto-{letter.id}'):
+                result['pods_pulled'] += 1
+
+        if letter.tracking_number_2 and not letter.pod_image_data_2:
+            try:
+                pkg2 = ups_api.lookup_by_tracking_number(letter.tracking_number_2, trans_id=f'refresh2-{letter.id}')
+            except Exception:
+                pkg2 = None
+            if pkg2 and pkg2['is_delivered']:
+                if _try_fetch_pod(letter, letter.tracking_number_2, '2nd', trans_id=f'pod-auto-{letter.id}-2nd'):
+                    result['pods_pulled'] += 1
+        return result
+
     @app.route('/letters/<int:letter_id>/confirm-delivery', methods=['POST'])
     @login_required
     def letters_confirm_delivery(letter_id):
@@ -1764,37 +1827,81 @@ def create_app():
             flash('This letter has no tracking number yet.', 'danger')
             return redirect(url_for('vehicles_detail', vehicle_id=letter.vehicle_id))
 
-        import ups_api
-        try:
-            pkg = ups_api.lookup_by_tracking_number(letter.tracking_number, trans_id=f'refresh-{letter.id}')
-        except Exception as exc:
-            flash(f'UPS API error: {exc}', 'danger')
+        result = _refresh_letter_tracking(letter)
+        if result['error']:
+            flash(f'UPS API error: {result["error"]}', 'danger')
             return redirect(url_for('vehicles_detail', vehicle_id=letter.vehicle_id))
-
-        if not pkg:
+        if result['no_record']:
             flash(f'UPS has no record for tracking number {letter.tracking_number}.', 'info')
             return redirect(url_for('vehicles_detail', vehicle_id=letter.vehicle_id))
-
-        letter.ups_status = pkg['status_description'] or letter.ups_status
-        if pkg['is_rts']:
-            letter.return_to_sender = True
-        elif pkg['is_delivered'] and pkg['delivered_date']:
-            letter.delivery_confirmed_date = datetime.strptime(pkg['delivered_date'], '%Y%m%d').date()
-
-        if letter.delivery_confirmed_date and not letter.pod_image_data:
-            _try_fetch_pod(letter, letter.tracking_number, 'primary', trans_id=f'pod-auto-{letter.id}')
-
-        if letter.tracking_number_2 and not letter.pod_image_data_2:
-            try:
-                pkg2 = ups_api.lookup_by_tracking_number(letter.tracking_number_2, trans_id=f'refresh2-{letter.id}')
-            except Exception:
-                pkg2 = None
-            if pkg2 and pkg2['is_delivered']:
-                _try_fetch_pod(letter, letter.tracking_number_2, '2nd', trans_id=f'pod-auto-{letter.id}-2nd')
 
         db.session.commit()
         flash(f'UPS status: {letter.ups_status}', 'success')
         return redirect(url_for('vehicles_detail', vehicle_id=letter.vehicle_id))
+
+    @app.route('/letters/refresh-all-tracking', methods=['POST'])
+    @login_required
+    def letters_refresh_all_tracking():
+        """UPS Phase 2 (manual trigger): sweep every in-flight certified letter,
+        pull current UPS status + any newly-available signed POD, and log the run
+        so the Letters page can show when it last ran and what it found. Replaces
+        the parked 6am auto-poll with a button Heather clicks each morning.
+
+        In-flight = has a primary tracking number, on an ACTIVE non-ghost vehicle,
+        and not yet fully wrapped up (still awaiting delivery, delivered but POD
+        not yet retrieved, or a 2nd-party label whose POD is still missing).
+        Return-to-sender letters are terminal and skipped."""
+        if not current_user.is_heather:
+            flash('Permission denied.', 'danger')
+            return redirect(url_for('heather.letters'))
+
+        letters = (
+            CertifiedLetter.query
+            .join(Vehicle)
+            .filter(Vehicle.status == 'ACTIVE')
+            .filter(Vehicle.possible_release == False)
+            .filter(CertifiedLetter.tracking_number.isnot(None))
+            .filter(CertifiedLetter.return_to_sender == False)
+            .filter(db.or_(
+                CertifiedLetter.delivery_confirmed_date.is_(None),
+                CertifiedLetter.pod_image_data.is_(None),
+                db.and_(CertifiedLetter.tracking_number_2.isnot(None),
+                        CertifiedLetter.pod_image_data_2.is_(None)),
+            ))
+            .all()
+        )
+
+        checked = delivered = returned = pods = errors = 0
+        for letter in letters:
+            r = _refresh_letter_tracking(letter)
+            if r['error']:
+                errors += 1
+                continue
+            if r['no_record']:
+                continue
+            checked += 1
+            if r['newly_delivered']:
+                delivered += 1
+            if r['newly_returned']:
+                returned += 1
+            pods += r['pods_pulled']
+
+        db.session.add(UpsPollLog(
+            triggered_by=current_user.username,
+            letters_checked=checked,
+            newly_delivered=delivered,
+            newly_returned=returned,
+            pods_pulled=pods,
+            errors=errors,
+        ))
+        db.session.commit()
+
+        msg = (f'UPS refresh complete — {checked} checked, {delivered} newly delivered, '
+               f'{returned} newly returned, {pods} signed POD(s) pulled.')
+        if errors:
+            msg += f' {errors} lookup error(s) — try again later.'
+        flash(msg, 'warning' if errors else 'success')
+        return redirect(url_for('heather.letters'))
 
     @app.route('/letters/<int:letter_id>/fetch-pod', methods=['POST'])
     @login_required
