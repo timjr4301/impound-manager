@@ -3,9 +3,17 @@ services:
     name: impound-manager
     env: python
     pythonVersion: 3.11.9
-    plan: free
+    # NOTE: the live service runs on the Starter/1GB instance type set in the
+    # Render dashboard (Settings → Instance Type), which overrides this field.
+    # Kept here for the record; change the instance type in the dashboard, not here.
+    plan: starter
     buildCommand: pip install -r requirements.txt
-    startCommand: gunicorn -k gthread --threads 10 -w 1 app:app
+    # Memory tuning for the 512MB-class instance: fewer concurrent threads
+    # (smaller simultaneous spikes) and worker recycling every ~200 requests so
+    # accumulated memory is released before it hits the ceiling and OOM-kills.
+    # If the Start Command is also set in the Render dashboard, update it there
+    # too — the dashboard value overrides this file.
+    startCommand: gunicorn -k gthread --threads 4 -w 1 --max-requests 200 --max-requests-jitter 30 app:app
     envVars:
       - key: SECRET_KEY
         generateValue: true
