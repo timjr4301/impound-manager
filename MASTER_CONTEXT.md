@@ -1,5 +1,5 @@
 # [IMPOUND MANAGER — MASTER CONTEXT DOC]
-_Last updated: July 13, 2026 (late) — regenerated after the queue-clearing session (Daily Release List, vehicle-class fees, QR scan, nav overhaul)._
+_Last updated: July 14, 2026 — queue-clearing session + follow-ups (valuation buttons, gunicorn memory tuning). Live: PR #1–#3 merged. Next up: the design/UX pass. See OPS note on the 512MB out-of-memory restarts._
 
 ---
 
@@ -42,6 +42,18 @@ An audit against the codebase found most of the old BUILD QUEUE was already ship
 **QR Scan mode on `/driver`** (Build Q) — a mode toggle adds a live QR scanner (vendored `static/js/jsQR.min.js`, no CDN at scan time) that reads the Towbook windshield QR, decodes client-side, and matches active vehicles by VIN → stock → plate via `/driver/match-qr` (tolerant of delimited or URL-form payloads). A match reuses the existing confirm → zone → GPS-save flow; the camera stream is released on leave.
 
 **Top-nav overhaul into 4 sections** — flat per-role nav replaced by four auto-hiding dropdowns (Morning Workflow, Letters & Titles, Field Ops, Management) + a persistent utility bar (Search, + New, VIN Snap, To-Dos, Chat). Built per-user in `app.build_top_nav` (injected as `nav_sections`); per-link access mirrors the old nav, empty sections drop out, missing endpoints are skipped via BuildError guard. Also surfaces Robert's **Key Row** link, which the old flat nav never exposed.
+
+### ✅ Follow-ups — July 13, 2026 (PR #2, PR #3)
+
+**Manual valuation-lookup buttons** (PR #2) — a "Compare value on" row in the ticket's Financial panel with **KBB / J.D. Power / NADAguides / Black Book** buttons + a Copy VIN button. These sites have no reliable prefill-by-URL, so clicking a source copies the VIN to the clipboard and opens the site in a new tab (paste into its VIN box). Only shown when the vehicle has a VIN. Source URLs are one Jinja list in `templates/vehicles/detail.html` — easy to swap. **Black Book** points at the marketing site for now; swap in the exact B&J subscriber-portal login URL when available.
+
+**Gunicorn memory tuning** (PR #3) — `render.yaml` start command changed to `--threads 4 -w 1 --max-requests 200 --max-requests-jitter 30` to reduce the recurring 512MB OOM restarts. ⚠ **This is only half the fix** — see OPS note below.
+
+## ⚠ OPS — MEMORY / OUT-OF-MEMORY RESTARTS
+The service intermittently hits **"Ran out of memory (used over 512MB)"** on Render and auto-restarts. Causes are the app's own background work, not user traffic: the **boot-time full-inventory recalc** (task_engine over 650+ vehicles, spikes at every start — a boot OOM causes a crash→restart loop), the **APScheduler jobs** (Towbook sync 5AM, urgency recalc 6AM), **slow memory creep** on a single non-recycled worker, and open browser tabs holding **Socket.IO chat** connections.
+- **Real fix (dashboard, not in repo):** Render → impound-manager → Settings → **Instance Type → 1 GB**. The `render.yaml` `plan:` field is ignored; the dashboard instance type is authoritative.
+- **Also (dashboard):** Settings → **Start Command** → `gunicorn -k gthread --threads 4 -w 1 --max-requests 200 --max-requests-jitter 30 app:app` (the dashboard Start Command overrides `render.yaml`).
+- **Longer-term (parked):** move the base64 image blobs (envelope scans, damage photos, UPS labels/PODs, general docs) out of Postgres/out of memory — they're the biggest per-request memory driver.
 
 ---
 
@@ -97,9 +109,16 @@ Awaiting Title → To Locate → Key Row → Inspection Pool → Needs Repairs
 - ✅ Build Q: QR scanner on /driver — DONE (PR #1).
 - ✅ Top-nav 4-section overhaul — DONE (PR #1).
 
-### ⬜ Open / not started
-- ⬜ Per-class **tow** rates (only storage is class-based so far; tow is flat $144, editable per ticket). Awaiting Tim's light/medium/heavy tow numbers if tow should scale too.
-- ⬜ Possible follow-ups on the disposition build: auction-event edit page; per-load Ohio Steel batch grouping; push/SMS on repair alerts; a "repairs in progress" sub-state between approve and auction-ready.
+### ⬜ Open / not started (next-session queue)
+- ⬜ **Design / UX pass** — make the app more user-friendly. Not yet started; needs Tim's pick of where to begin (the vehicle ticket / the dashboards / a whole-app consistency polish / the mobile+large-text screens) and what "user-friendly" means to him (declutter / bigger text / consistency / fewer clicks).
+- ⬜ **Black Book URL** — the valuation button points at the marketing site; swap in the exact B&J subscriber-portal login URL when Tim provides it.
+- ⬜ **VinAudit (Build 14)** — blocked on `VINAUDIT_API_KEY` in Render; build the auto-lookup once the key is set.
+- ⬜ **Per-class tow rates** — only storage is class-based; tow is flat $144 (editable per ticket). Awaiting Tim's light/medium/heavy tow numbers if tow should scale too.
+- ⬜ **Easier truck reclassification** — every existing PPI vehicle defaulted to "light" ($22); a bulk-classify tool or VIN-based auto-detect would get medium/heavy trucks onto the right rate faster than one ticket at a time.
+- ⬜ Disposition follow-ups: auction-event edit page; per-load Ohio Steel batch grouping; push/SMS on repair alerts; a "repairs in progress" sub-state between approve and auction-ready.
+
+### 🔗 Sibling app — BJ Books (separate repo/service)
+`timjr4301/bj-books` → bj-books.onrender.com (Nightly Books). Distinct app, own Render service/memory. Recent work: ECR Z-report parser fixes (bare-`\r` delimiter, DP/PAY field maps, `register_ra` capture — migration 025). Open: the invoice-upload flow bogs down / "gets overloaded" when many PDFs are each read by Claude at once — needs throttling / decoupling upload from AI reading. **Do not confuse with impound-manager or the suspended bj-impound-manager.**
 
 ---
 
