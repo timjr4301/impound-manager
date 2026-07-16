@@ -1,0 +1,110 @@
+{% extends 'base.html' %}
+{% block title %}Background Vehicles — Impound Manager{% endblock %}
+
+{% block content %}
+<div class="d-flex align-items-center mb-3 gap-3 flex-wrap">
+  <div>
+    <h2 class="h4 mb-0 fw-bold"><i class="bi bi-archive me-2"></i>Background Vehicles</h2>
+    <small class="text-muted">Impounded before {{ cutoff.strftime('%B %-d, %Y') }} — not in main queue, but fully workable</small>
+  </div>
+  <div class="ms-auto">
+    <a href="{{ url_for('heather.dashboard') }}" class="btn btn-outline-secondary btn-sm">
+      <i class="bi bi-arrow-left me-1"></i>Back to Dashboard
+    </a>
+  </div>
+</div>
+
+{# Search + Sort bar #}
+<div class="card shadow-sm mb-3">
+  <div class="card-body py-2">
+    <form method="GET" action="{{ url_for('heather.background') }}" class="d-flex gap-2 flex-wrap align-items-center">
+      <div class="input-group input-group-sm" style="max-width:360px;">
+        <span class="input-group-text"><i class="bi bi-search"></i></span>
+        <input type="text" name="q" value="{{ q }}" class="form-control"
+               placeholder="Plate, VIN, owner, invoice, account…">
+        {% if q %}<a href="{{ url_for('heather.background') }}" class="btn btn-outline-secondary">✕</a>{% endif %}
+      </div>
+      <select name="sort" class="form-select form-select-sm" style="width:auto;" onchange="this.form.submit()">
+        <option value="date_asc"  {% if sort == 'date_asc' %}selected{% endif %}>Oldest First</option>
+        <option value="date_desc" {% if sort == 'date_desc' %}selected{% endif %}>Newest First</option>
+        <option value="account"   {% if sort == 'account' %}selected{% endif %}>By Account</option>
+      </select>
+      <button type="submit" class="btn btn-primary btn-sm">Search</button>
+      <span class="text-muted small ms-2">{{ vehicles|length }}{% if not q %} of {{ total }}{% endif %} vehicle{{ 's' if vehicles|length != 1 }}</span>
+    </form>
+  </div>
+</div>
+
+{% if vehicles %}
+<div class="card shadow-sm">
+  <div class="table-responsive">
+  <table class="table table-sm table-hover mb-0">
+    <thead class="table-light">
+      <tr>
+        <th>Invoice #</th>
+        <th>VIN (last 4)</th>
+        <th>Vehicle</th>
+        <th>Plate</th>
+        <th>Account</th>
+        <th>Impound Date</th>
+        <th>Days</th>
+        <th>Letter Status</th>
+        <th></th>
+      </tr>
+    </thead>
+    <tbody>
+    {% for v in vehicles %}
+    <tr>
+      <td class="font-monospace small text-muted">{{ v.invoice_number or '—' }}</td>
+      <td class="font-monospace small text-muted">{{ v.vin[-4:] if v.vin and v.vin|length >= 4 else '—' }}</td>
+      <td class="fw-semibold">
+        <a href="{{ url_for('vehicles_detail', vehicle_id=v.id) }}" class="text-decoration-none text-dark">{{ v.display_name }}</a>
+        {% if v.possible_release %}<span class="badge bg-warning text-dark ms-1">Possible Release</span>{% endif %}
+        {% if v.is_afo %}<span class="badge bg-dark ms-1">AFO</span>{% endif %}
+      </td>
+      <td class="small">{{ v.plate or '—' }}</td>
+      <td class="small text-muted">{{ v.account or '—' }}</td>
+      <td class="small">{{ v.impound_date|mdY if v.impound_date else '—' }}</td>
+      <td><span class="badge bg-secondary">{{ v.days_in_storage }}d</span></td>
+      <td class="small">
+        {% if v.letter_urgency == 'RED' %}
+          <span class="badge bg-danger">Overdue</span>
+        {% elif v.letter_urgency == 'YELLOW' %}
+          <span class="badge bg-warning text-dark">Due Soon</span>
+        {% elif v.letter_urgency == 'GREEN' %}
+          <span class="badge bg-success">On Track</span>
+        {% else %}
+          <span class="badge bg-light text-dark border">—</span>
+        {% endif %}
+        {% if v.letters %}
+          <span class="text-muted ms-1">{{ v.letters|selectattr('sent_date')|list|length }}/{{ v.letters|length }} sent</span>
+        {% endif %}
+      </td>
+      <td class="text-end">
+        <a href="{{ url_for('vehicles_detail', vehicle_id=v.id) }}" class="btn btn-sm btn-outline-secondary py-0">
+          Open
+        </a>
+      </td>
+    </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  </div>
+</div>
+{% elif q %}
+<div class="card shadow-sm">
+  <div class="card-body text-center py-4 text-muted">
+    <i class="bi bi-search fs-3 d-block mb-2"></i>
+    No background vehicles match <strong>{{ q }}</strong>
+  </div>
+</div>
+{% else %}
+<div class="card border-success shadow-sm">
+  <div class="card-body text-center py-5">
+    <div style="font-size:3rem;">✅</div>
+    <h5 class="fw-bold text-success mt-2">No background vehicles</h5>
+    <p class="text-muted mb-0">All active vehicles are on or after {{ cutoff.strftime('%B %-d, %Y') }}.</p>
+  </div>
+</div>
+{% endif %}
+{% endblock %}

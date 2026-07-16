@@ -20,7 +20,7 @@ bp = Blueprint('heather', __name__, url_prefix='/heather')
 # Vehicles impounded before this date are excluded from Heather's daily
 # queues (BMV Search Queue, Overdue/Urgent, Due Soon, On Track) until the
 # historical review screen is built. They remain in the database untouched.
-HEATHER_QUEUE_CUTOFF = date(2026, 1, 1)
+HEATHER_QUEUE_CUTOFF = date(2026, 4, 1)
 
 
 def _after_cutoff():
@@ -545,6 +545,54 @@ def mark_possible_release_released(vehicle_id):
     mark_released(vehicle.id, actor=current_user.username)
     flash('Vehicle marked as Released.', 'success')
     return redirect(request.referrer or url_for('heather.dashboard'))
+
+
+@bp.route('/background')
+@_heather_view
+def background():
+    """Background tab — ACTIVE vehicles impounded before the queue cutoff.
+    Hidden from main queues but fully workable (letters, files, etc.)."""
+    q = request.args.get('q', '').strip()
+    sort = request.args.get('sort', 'date_asc')
+
+    query = (
+        Vehicle.query
+        .filter(Vehicle.status.in_(['ACTIVE', 'TITLE_FILED']))
+        .filter(cast(Vehicle.impound_date, Date) < HEATHER_QUEUE_CUTOFF)
+    )
+
+    if q:
+        like = f'%{q}%'
+        query = query.filter(db.or_(
+            Vehicle.plate.ilike(like),
+            Vehicle.vin.ilike(like),
+            Vehicle.owner_name.ilike(like),
+            Vehicle.stock_number.ilike(like),
+            Vehicle.invoice_number.ilike(like),
+            Vehicle.account.ilike(like),
+            Vehicle.make.ilike(like),
+            Vehicle.model.ilike(like),
+        ))
+
+    order_map = {
+        'date_asc':  Vehicle.impound_date.asc(),
+        'date_desc': Vehicle.impound_date.desc(),
+        'account':   Vehicle.account.asc().nullslast(),
+        'days_desc': Vehicle.impound_date.asc(),
+    }
+    query = query.order_by(order_map.get(sort, Vehicle.impound_date.asc()))
+
+    vehicles = query.limit(500).all()
+    total = query.count() if not q else len(vehicles)
+
+    return render_template('heather/background.html',
+        vehicles=vehicles,
+        total=total,
+        q=q,
+        sort=sort,
+        cutoff=HEATHER_QUEUE_CUTOFF,
+        can_act=current_user.is_heather,
+    )
 
 
 @bp.route('/file-checklist/<int:vehicle_id>', methods=['POST'])
