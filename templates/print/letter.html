@@ -42,6 +42,10 @@
     /* Envelope-window page — same sheet, forced to a new page */
     .page-2 { page-break-before: always; padding-top: 1.5in; }
 
+    table.charges-table { width:100%; border-collapse:collapse; margin:10px 0; font-size:10.5pt; }
+    table.charges-table td { padding:2px 4px; }
+    table.charges-table tr:last-child td { border-top:1px solid #000; font-weight:bold; }
+
     @media print {
       .no-print { display: none; }
       body { padding: .75in; }
@@ -190,6 +194,16 @@
   <div>Phone No: {{ CO_PHONE }}</div>
 </div>
 
+{% if vehicle.charges %}
+<table class="charges-table">
+  <tr><th colspan="2" style="text-align:left;padding-bottom:2px;">Charges</th></tr>
+  <tr><td>Tow Fee</td><td style="text-align:right;">{{ money(tow) }}</td></tr>
+  <tr><td>Storage ({{ vehicle.days_in_storage }}d × {{ money(storage) }}/day)</td><td style="text-align:right;">${{ '%.2f'|format(vehicle.days_in_storage * (storage or 0)) }}</td></tr>
+  {% for c in vehicle.charges %}
+  <tr><td>{{ c.label }}</td><td style="text-align:right;">${{ '%.2f'|format(c.amount) }}</td></tr>
+  {% endfor %}
+</table>
+{% endif %}
 <div class="total">TOTAL BALANCE OWED: ${{ '%.2f'|format(vehicle.total_owed) }} (Subject to Increase)</div>
 
 <p class="footer-note">
@@ -261,7 +275,9 @@
   {{ days }} days from receipt of the signed returned receipt or notification of the delivery not
   being possible. Charges are {{ money(tow) }} for towing, storage charges which accrue at
   {{ money(storage) }} plus tax per day until the vehicle is claimed and a notification fee of
-  {{ money(admin) }}. Total storage charges cannot be computed until the vehicle is claimed. The
+  {{ money(admin) }}{% if vehicle.charges %}, plus additional charges of
+  ${{ '%.2f'|format(vehicle.additional_charges_total) }} ({{ vehicle.charges|map(attribute='label')|join(', ') }}){% endif %}.
+  Total storage charges cannot be computed until the vehicle is claimed. The
   storage charge will accrue daily until vehicle is released. If the owner disputes that the motor
   vehicle was lawfully towed, the owner may be able to file a civil action under section 4513.611
   of the Revised Code. If the owner or lienholder fails to claim the vehicle, the towing service or

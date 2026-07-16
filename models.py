@@ -723,11 +723,11 @@ class Vehicle(db.Model):
 
     @property
     def letter1(self):
-        return next((l for l in self.letters if l.letter_number == 1), None)
+        return next((l for l in self.letters if l.letter_number == 1 and not l.superseded), None)
 
     @property
     def letter2(self):
-        return next((l for l in self.letters if l.letter_number == 2), None)
+        return next((l for l in self.letters if l.letter_number == 2 and not l.superseded), None)
 
     @property
     def lka_document(self):
@@ -979,6 +979,10 @@ class CertifiedLetter(db.Model):
     # exactly as before for numbers 1/2, and is otherwise just a sequence id.
     recipient_type = db.Column(db.String(20), default='owner')  # owner | lienholder
     letter_kind = db.Column(db.String(20))  # notice_of_lien | first_notice | second_notice
+    # True when the vehicle's impound_type was corrected after this letter was
+    # created — the letter is preserved as a historical record but excluded from
+    # the active letter sequence (letter1/letter2, task_engine, triggers, etc.).
+    superseded = db.Column(db.Boolean, default=False)
 
     vehicle = db.relationship('Vehicle', back_populates='letters')
 

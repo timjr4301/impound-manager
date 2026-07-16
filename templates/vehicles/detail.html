@@ -693,7 +693,16 @@ function showGeneralDocImage(btn) {
           <dd class="col-sm-7">{{ vehicle.vehicle_class_label }}</dd>
 
           <dt class="col-sm-5 text-muted">Impound Type</dt>
-          <dd class="col-sm-7"><span class="badge bg-secondary">{{ vehicle.impound_type }}</span></dd>
+          <dd class="col-sm-7">
+            <span class="badge bg-secondary">{{ vehicle.impound_type }}</span>
+            {% if current_user.role in ('tim', 'heather', 'jim', 'brady') and vehicle.status == 'ACTIVE' %}
+            <button type="button" class="btn btn-link btn-sm p-0 ms-2 text-danger"
+                    data-bs-toggle="modal" data-bs-target="#changeImpoundTypeModal"
+                    title="Correct impound type">
+              <i class="bi bi-arrow-left-right"></i> Change
+            </button>
+            {% endif %}
+          </dd>
 
           <dt class="col-sm-5 text-muted">Impound Date</dt>
           <dd class="col-sm-7">{{ vehicle.impound_date|mdY }} <i class="bi bi-lock-fill text-muted ms-1" title="Locked — never changes. The 60-day title-eligibility clock always runs from this date."></i></dd>
@@ -1306,6 +1315,45 @@ function showGeneralDocImage(btn) {
         <p class="text-muted small ms-1">1st/2nd Owner Notice (and Lienholder Notices, if applicable) will appear once BMV Search is marked complete.</p>
         {% endif %}
 
+        {# ── Historical Letters (pre-type-correction) ── #}
+        {% set superseded_letters = vehicle.letters | selectattr('superseded') | sort(attribute='letter_number') | list %}
+        {% if superseded_letters %}
+        <hr>
+        <div class="mb-2">
+          <button class="btn btn-link btn-sm p-0 text-muted" type="button"
+                  data-bs-toggle="collapse" data-bs-target="#historicalLetters">
+            <i class="bi bi-clock-history me-1"></i>
+            Historical Records — {{ superseded_letters|length }} letter(s) before type correction
+          </button>
+          <div class="collapse" id="historicalLetters">
+            <div class="alert alert-secondary py-2 mt-2 small">
+              These letters were sent (or created) before the impound type was corrected. They are
+              kept for your records but are no longer part of the active letter sequence.
+            </div>
+            {% for sl in superseded_letters %}
+            <div class="d-flex align-items-center gap-2 small border rounded px-2 py-1 mb-1 bg-light text-muted">
+              <span class="badge bg-secondary">{{ sl.letter_kind or 'letter' }}</span>
+              {% if sl.sent_date %}
+                <span>Sent {{ sl.sent_date|mdY }}</span>
+                {% if sl.tracking_number %}
+                  <span class="font-monospace">{{ sl.tracking_number }}</span>
+                {% endif %}
+              {% else %}
+                <span>Not sent (due {{ sl.due_date|mdY if sl.due_date else '—' }})</span>
+              {% endif %}
+              <span class="ms-auto text-muted">{{ sl.recipient_type }}</span>
+              {% if sl.sent_date %}
+              <a href="{{ url_for('print_letter', letter_id=sl.id) }}" target="_blank"
+                 class="btn btn-sm btn-link p-0 text-muted">
+                <i class="bi bi-printer"></i>
+              </a>
+              {% endif %}
+            </div>
+            {% endfor %}
+          </div>
+        </div>
+        {% endif %}
+
         {# ── Restart Letter Clock Modal ── #}
         {% if vehicle.status == 'ACTIVE' and current_user.is_heather %}
         {% set restart_target = vehicle.letter2 or vehicle.letter1 %}
@@ -1338,6 +1386,59 @@ function showGeneralDocImage(btn) {
                 <div class="modal-footer">
                   <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
                   <button type="submit" class="btn btn-warning">Restart Clock</button>
+                </div>
+              </form>
+            </div>
+          </div>
+        </div>
+        {% endif %}
+
+        {# ── Change Impound Type Modal ── #}
+        {% if current_user.role in ('tim', 'heather', 'jim', 'brady') and vehicle.status == 'ACTIVE' %}
+        {% set other_type = 'PPI' if vehicle.impound_type == 'POLICE' else 'POLICE' %}
+        {% set active_letter_count = vehicle.letters | rejectattr('superseded') | list | length %}
+        <div class="modal fade" id="changeImpoundTypeModal" tabindex="-1">
+          <div class="modal-dialog">
+            <div class="modal-content">
+              <div class="modal-header bg-danger text-white">
+                <h5 class="modal-title"><i class="bi bi-arrow-left-right me-2"></i>Correct Impound Type</h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+              </div>
+              <form method="POST" action="{{ url_for('change_impound_type', vehicle_id=vehicle.id) }}">
+                <input type="hidden" name="new_type" value="{{ other_type }}">
+                <div class="modal-body">
+                  <div class="alert alert-danger py-2 small">
+                    <strong>This changes how letters are scheduled and how fees are calculated.</strong>
+                    Only correct an obvious data-entry error — changing type mid-process requires
+                    sending new letters immediately.
+                  </div>
+                  <p class="small mb-2">
+                    Change <strong>{{ vehicle.impound_type }}</strong> → <strong>{{ other_type }}</strong> for
+                    <strong>{{ vehicle.display_name }}</strong>?
+                  </p>
+                  {% if active_letter_count > 0 %}
+                  <div class="alert alert-warning py-2 small">
+                    <strong>{{ active_letter_count }} existing letter(s) will be moved to Historical Records</strong>
+                    and a new {{ other_type }} Notification Letter will be created due today for immediate sending.
+                    The old letters are preserved — not deleted.
+                  </div>
+                  {% endif %}
+                  {% if other_type == 'POLICE' %}
+                  <p class="small text-muted">
+                    After changing: send the new Notification Letter immediately. If BMV Search is
+                    already complete, a 1st Owner Notice will also be created.
+                  </p>
+                  {% else %}
+                  <p class="small text-muted">
+                    After changing: fees will revert to PPI (PUCO) rates. Send the new Letter 1 immediately.
+                  </p>
+                  {% endif %}
+                </div>
+                <div class="modal-footer">
+                  <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                  <button type="submit" class="btn btn-danger">
+                    Change to {{ other_type }}
+                  </button>
                 </div>
               </form>
             </div>

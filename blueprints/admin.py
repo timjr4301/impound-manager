@@ -128,6 +128,8 @@ def run_migrations():
         "ALTER TABLE vehicles ADD COLUMN IF NOT EXISTS possible_release BOOLEAN DEFAULT FALSE",
         "ALTER TABLE vehicles ADD COLUMN IF NOT EXISTS towbook_seen BOOLEAN DEFAULT FALSE",
         "ALTER TABLE vehicles ADD COLUMN IF NOT EXISTS base44_id VARCHAR(100)",
+        # Impound-type correction — superseded letters kept as historical records
+        "ALTER TABLE certified_letters ADD COLUMN IF NOT EXISTS superseded BOOLEAN DEFAULT FALSE",
     ]
     try:
         with db.engine.connect() as conn:
