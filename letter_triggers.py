@@ -15,10 +15,9 @@ from models import db, CertifiedLetter, PPI_LETTER2_DAYS
 
 
 def _ensure_letter(vehicle, letter_number, kind, recipient_type, due_date):
-    """Create the letter if a row with this letter_number doesn't already
-    exist for this vehicle. Idempotent — safe to call on every relevant
-    event without checking first."""
-    existing = next((l for l in vehicle.letters if l.letter_number == letter_number), None)
+    """Create the letter if an active (non-superseded) row with this
+    letter_number doesn't already exist for this vehicle. Idempotent."""
+    existing = next((l for l in vehicle.letters if l.letter_number == letter_number and not l.superseded), None)
     if existing:
         return existing
     letter = CertifiedLetter(

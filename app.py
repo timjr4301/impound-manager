@@ -2736,6 +2736,124 @@ def create_app():
         )
         return redirect(url_for('vehicles_detail', vehicle_id=vehicle_id) + '#letters')
 
+    # ── Impound Type Correction ───────────────────────────────────────────────
+    # Changes a vehicle between PPI and POLICE, superseding all existing letters
+    # (kept as historical records) and creating fresh letters for the new type.
+
+    @app.route('/vehicles/<int:vehicle_id>/change-impound-type', methods=['POST'])
+    @login_required
+    def change_impound_type(vehicle_id):
+        if current_user.role not in ('tim', 'heather', 'jim', 'brady'):
+            flash('Permission denied.', 'danger')
+            return redirect(url_for('vehicles_detail', vehicle_id=vehicle_id))
+
+        vehicle = db.get_or_404(Vehicle, vehicle_id)
+        new_type = request.form.get('new_type', '').strip().upper()
+
+        if new_type not in ('POLICE', 'PPI'):
+            flash('Invalid impound type.', 'danger')
+            return redirect(url_for('vehicles_detail', vehicle_id=vehicle_id))
+
+        if new_type == vehicle.impound_type:
+            flash(f'Impound type is already {new_type}.', 'info')
+            return redirect(url_for('vehicles_detail', vehicle_id=vehicle_id))
+
+        old_type = vehicle.impound_type
+        actor = current_user.display_name or current_user.username
+
+        # Supersede all currently active letters — preserved as historical records
+        active_letters = [l for l in vehicle.letters if not l.superseded]
+        for letter in active_letters:
+            letter.superseded = True
+            letter.updated_at = datetime.utcnow()
+
+        vehicle.impound_type = new_type
+        today = date.today()
+
+        if new_type == 'POLICE':
+            # Notification Letter (notice_of_lien) — due today (needs immediate action)
+            db.session.add(CertifiedLetter(
+                vehicle_id=vehicle.id,
+                letter_number=1,
+                letter_kind='notice_of_lien',
+                recipient_type='owner',
+                due_date=today,
+                created_at=datetime.utcnow(),
+            ))
+            # If BMV is already complete, also create the 1st Owner Notice
+            if vehicle.bmv_stage == 'COMPLETE':
+                db.session.add(CertifiedLetter(
+                    vehicle_id=vehicle.id,
+                    letter_number=3,
+                    letter_kind='first_notice',
+                    recipient_type='owner',
+                    due_date=today,
+                    created_at=datetime.utcnow(),
+                ))
+                if vehicle.lienholder_name:
+                    db.session.add(CertifiedLetter(
+                        vehicle_id=vehicle.id,
+                        letter_number=5,
+                        letter_kind='first_notice',
+                        recipient_type='lienholder',
+                        due_date=today,
+                        created_at=datetime.utcnow(),
+                    ))
+        else:  # PPI
+            db.session.add(CertifiedLetter(
+                vehicle_id=vehicle.id,
+                letter_number=1,
+                letter_kind='first_notice',
+                recipient_type='owner',
+                due_date=today,
+                created_at=datetime.utcnow(),
+            ))
+            if vehicle.lienholder_name:
+                db.session.add(CertifiedLetter(
+                    vehicle_id=vehicle.id,
+                    letter_number=5,
+                    letter_kind='first_notice',
+                    recipient_type='lienholder',
+                    due_date=today,
+                    created_at=datetime.utcnow(),
+                ))
+
+        # Clear any police_department_id when switching away from POLICE
+        if new_type == 'PPI':
+            vehicle.police_department_id = None
+
+        vehicle.letter_stage = 'needs_1st'
+        vehicle.letter_flag = None
+        vehicle.letter_flag_detail = None
+        vehicle.updated_at = datetime.utcnow()
+
+        db.session.add(VehicleNote(
+            vehicle_id=vehicle.id,
+            body=(
+                f'Impound type corrected: {old_type} → {new_type} by {actor}. '
+                f'{len(active_letters)} prior {old_type} letter(s) retained as historical records. '
+                f'New {new_type} letters created — Notification Letter due today.'
+            ),
+            author=actor,
+            created_at=datetime.utcnow(),
+        ))
+        db.session.commit()
+
+        try:
+            from task_engine import recalculate_vehicle
+            recalculate_vehicle(vehicle)
+            db.session.commit()
+        except Exception:
+            pass
+
+        flash(
+            f'Impound type changed to {new_type}. '
+            f'{len(active_letters)} prior {old_type} letter(s) moved to Historical Records. '
+            'New Notification Letter created — send it as soon as possible.',
+            'warning',
+        )
+        return redirect(url_for('vehicles_detail', vehicle_id=vehicle_id) + '#letters')
+
     # ── Task Backlog Suppression (Snooze) ────────────────────────────────────
     # Only Tim-level users (tim/jim, plus wally who uses the tim role) can
     # snooze/un-snooze — this hides a vehicle from Heather's and Tina's daily
