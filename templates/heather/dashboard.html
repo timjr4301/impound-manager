@@ -486,12 +486,13 @@
     <div class="table-responsive">
     <table class="table table-sm mb-0">
       <thead class="table-light">
-        <tr><th>Stock #</th><th>Vehicle</th><th>Account</th><th>Days</th><th></th></tr>
+        <tr><th>Invoice #</th><th>VIN (last 4)</th><th>Vehicle</th><th>Account</th><th>Days</th><th></th></tr>
       </thead>
       <tbody>
       {% for v in possible_release_vehicles %}
       <tr class="table-warning">
-        <td class="font-monospace small">{{ v.stock_number or '#' ~ v.id }}</td>
+        <td class="font-monospace small">{{ v.invoice_number or '—' }}</td>
+        <td class="font-monospace small">{{ v.vin[-4:] if v.vin and v.vin|length >= 4 else '—' }}</td>
         <td><a href="{{ url_for('vehicles_detail', vehicle_id=v.id) }}" class="fw-semibold">{{ v.display_name }}</a></td>
         <td class="small">{{ v.account or '—' }}</td>
         <td><span class="badge bg-warning text-dark">{{ v.days_in_storage }}d</span></td>
