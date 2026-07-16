@@ -214,6 +214,7 @@ def _do_import():
                 # If Towbook shows a release date, mark the vehicle released
                 if release_date and existing.status == 'ACTIVE':
                     existing.status = 'RELEASED'
+                existing.towbook_seen = True  # seen in this CSV — eligible for future possible_release checks
                 existing.updated_at = datetime.utcnow()
                 updated += 1
                 vehicle_for_dept_match = existing
@@ -225,6 +226,7 @@ def _do_import():
                     **fields,
                     impound_type='PPI',
                     status='RELEASED' if release_date else 'ACTIVE',
+                    towbook_seen=True,  # inserted via CSV — eligible for future possible_release checks
                     created_at=datetime.utcnow(),
                     updated_at=datetime.utcnow(),
                 )

@@ -503,6 +503,39 @@ def confirm_possible_release(vehicle_id):
     return redirect(request.referrer or url_for('heather.dashboard'))
 
 
+@bp.route('/possible-release/dismiss-all', methods=['POST'])
+@_verify_release_required
+def dismiss_all_possible_releases():
+    """Batch-clear all current possible_release flags.
+    Safe to use for legacy vehicles that pre-date Towbook — since those
+    vehicles have towbook_seen=False they will not be re-flagged by future
+    CSV imports regardless of whether they appear in the export."""
+    flagged = (
+        Vehicle.query
+        .filter(Vehicle.status == 'ACTIVE')
+        .filter(Vehicle.possible_release == True)
+        .all()
+    )
+    count = len(flagged)
+    now = datetime.utcnow()
+    for v in flagged:
+        v.possible_release = False
+        v.updated_at = now
+        db.session.add(VehicleNote(
+            vehicle_id=v.id,
+            body=f'Possible Release flag cleared in batch by {current_user.display_name or current_user.username} — legacy vehicle, not tracked in Towbook.',
+            author=current_user.display_name or current_user.username,
+            created_at=now,
+        ))
+    db.session.commit()
+    flash(
+        f'{count} vehicle{"s" if count != 1 else ""} cleared. '
+        'Legacy vehicles will not be re-flagged by future Towbook imports.',
+        'success',
+    )
+    return redirect(url_for('heather.dashboard'))
+
+
 @bp.route('/possible-release/<int:vehicle_id>/mark-released', methods=['POST'])
 @_verify_release_required
 def mark_possible_release_released(vehicle_id):

@@ -451,6 +451,7 @@ class Vehicle(db.Model):
 
     # Release / Tina pipeline sync
     possible_release = db.Column(db.Boolean, default=False)   # flagged missing from latest CSV
+    towbook_seen     = db.Column(db.Boolean, default=False)   # appeared in at least one Towbook CSV; only these are eligible for possible_release
     base44_id = db.Column(db.String(100))                     # ID after push to Base44 Tina Tracker
 
     # Letter clock restart — impound_date is locked forever (never edited after

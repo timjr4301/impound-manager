@@ -91,48 +91,6 @@
 </div>
 {% endif %}
 
-{# ══════════════════ POSSIBLE RELEASE / GHOST VEHICLE ══════════════════ #}
-{% if possible_release_vehicles %}
-<div class="card border-danger border-3 shadow mb-4" style="border-color:#dc3545!important">
-  <div class="card-header text-white fw-bold py-2" style="background:#8b0000;">
-    <i class="bi bi-question-diamond-fill me-2"></i>
-    POSSIBLE RELEASE — VERIFY BEFORE SENDING LETTER ({{ possible_release_vehicles|length }})
-    <small class="fw-normal ms-2">Not in latest Towbook export, or flagged missing on a lot walk</small>
-  </div>
-  <div class="card-body p-0">
-    <table class="table table-sm mb-0">
-      <thead class="table-light">
-        <tr><th>Stock #</th><th>Vehicle</th><th>Account</th><th>Days</th><th></th></tr>
-      </thead>
-      <tbody>
-      {% for v in possible_release_vehicles %}
-      <tr class="table-danger">
-        <td class="font-monospace small">{{ v.stock_number or '#' ~ v.id }}</td>
-        <td><a href="{{ url_for('vehicles_detail', vehicle_id=v.id) }}" class="fw-semibold text-danger">{{ v.display_name }}</a></td>
-        <td class="small">{{ v.account or '—' }}</td>
-        <td><span class="badge bg-danger">{{ v.days_in_storage }}d</span></td>
-        <td class="text-end pe-2">
-          {# Narrower than can_act: resolving a Possible Release flag is gated to
-             tim/jim/tina/heather, matching _verify_release_required on the route. #}
-          {% if current_user.can_verify_possible_release %}
-          <form method="POST" action="{{ url_for('heather.mark_possible_release_released', vehicle_id=v.id) }}" class="d-inline"
-                onsubmit="return confirm('Mark this vehicle as RELEASED?');">
-            <button type="submit" class="btn btn-sm btn-success py-0">&#10003; Confirm Released</button>
-          </form>
-          <form method="POST" action="{{ url_for('heather.confirm_possible_release', vehicle_id=v.id) }}" class="d-inline">
-            <button type="submit" class="btn btn-sm btn-secondary py-0">&#8617; Still On Lot</button>
-          </form>
-          {% endif %}
-          <a href="{{ url_for('vehicles_detail', vehicle_id=v.id) }}" class="btn btn-sm btn-outline-secondary py-0">View</a>
-        </td>
-      </tr>
-      {% endfor %}
-      </tbody>
-    </table>
-  </div>
-</div>
-{% endif %}
-
 {# ══════════════════ STOPLIGHT SUMMARY ══════════════════ #}
 <div class="row g-3 mb-2">
   <div class="col-md-4">
@@ -497,6 +455,63 @@
       {% endfor %}
       </tbody>
     </table>
+  </div>
+</div>
+{% endif %}
+
+{# ══════════════════ POSSIBLE RELEASE / GHOST VEHICLE (low priority — bottom of page) ══════════════════ #}
+{% if possible_release_vehicles %}
+<div class="card border-warning shadow mb-4">
+  <div class="card-header bg-warning fw-bold py-2 d-flex align-items-center gap-2"
+       style="cursor:pointer;" data-bs-toggle="collapse" data-bs-target="#panel-possible-release"
+       aria-expanded="{{ 'true' if possible_release_vehicles|length <= 10 else 'false' }}">
+    <i class="bi bi-question-diamond-fill"></i>
+    <span>Possible Release — Needs Verification ({{ possible_release_vehicles|length }})</span>
+    <small class="fw-normal text-muted ms-1">Not in latest Towbook export or flagged on lot walk — handle after main queue</small>
+    <i class="bi bi-chevron-down ms-auto"></i>
+  </div>
+  <div class="collapse {% if possible_release_vehicles|length <= 10 %}show{% endif %}" id="panel-possible-release">
+    {% if current_user.can_verify_possible_release %}
+    <div class="card-body py-2 border-bottom d-flex align-items-center gap-2">
+      <span class="text-muted small">These are vehicles not currently in Towbook. If they're legacy vehicles, use <strong>Dismiss All</strong> to clear them — they won't come back.</span>
+      <form method="POST" action="{{ url_for('heather.dismiss_all_possible_releases') }}"
+            class="ms-auto d-inline"
+            onsubmit="return confirm('Clear ALL {{ possible_release_vehicles|length }} possible-release flags?\n\nLegacy vehicles will not be re-flagged by future Towbook imports.');">
+        <button type="submit" class="btn btn-sm btn-outline-secondary">
+          <i class="bi bi-x-circle me-1"></i>Dismiss All ({{ possible_release_vehicles|length }})
+        </button>
+      </form>
+    </div>
+    {% endif %}
+    <div class="table-responsive">
+    <table class="table table-sm mb-0">
+      <thead class="table-light">
+        <tr><th>Stock #</th><th>Vehicle</th><th>Account</th><th>Days</th><th></th></tr>
+      </thead>
+      <tbody>
+      {% for v in possible_release_vehicles %}
+      <tr class="table-warning">
+        <td class="font-monospace small">{{ v.stock_number or '#' ~ v.id }}</td>
+        <td><a href="{{ url_for('vehicles_detail', vehicle_id=v.id) }}" class="fw-semibold">{{ v.display_name }}</a></td>
+        <td class="small">{{ v.account or '—' }}</td>
+        <td><span class="badge bg-warning text-dark">{{ v.days_in_storage }}d</span></td>
+        <td class="text-end pe-2">
+          {% if current_user.can_verify_possible_release %}
+          <form method="POST" action="{{ url_for('heather.mark_possible_release_released', vehicle_id=v.id) }}" class="d-inline"
+                onsubmit="return confirm('Mark this vehicle as RELEASED?');">
+            <button type="submit" class="btn btn-sm btn-success py-0">&#10003; Confirm Released</button>
+          </form>
+          <form method="POST" action="{{ url_for('heather.confirm_possible_release', vehicle_id=v.id) }}" class="d-inline">
+            <button type="submit" class="btn btn-sm btn-secondary py-0">&#8617; Still On Lot</button>
+          </form>
+          {% endif %}
+          <a href="{{ url_for('vehicles_detail', vehicle_id=v.id) }}" class="btn btn-sm btn-outline-secondary py-0">View</a>
+        </td>
+      </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+    </div>
   </div>
 </div>
 {% endif %}
