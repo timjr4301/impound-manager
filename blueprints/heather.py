@@ -20,7 +20,7 @@ bp = Blueprint('heather', __name__, url_prefix='/heather')
 # Vehicles impounded before this date are excluded from Heather's daily
 # queues (BMV Search Queue, Overdue/Urgent, Due Soon, On Track) until the
 # historical review screen is built. They remain in the database untouched.
-HEATHER_QUEUE_CUTOFF = date(2024, 1, 1)
+HEATHER_QUEUE_CUTOFF = date(2026, 1, 1)
 
 
 def _after_cutoff():
