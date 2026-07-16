@@ -2818,9 +2818,19 @@ def create_app():
                     created_at=datetime.utcnow(),
                 ))
 
-        # Clear any police_department_id when switching away from POLICE
+        # Department linkage
         if new_type == 'PPI':
             vehicle.police_department_id = None
+        elif new_type == 'POLICE' and not vehicle.police_department_id and vehicle.account:
+            # Auto-match the department from the vehicle's account field (same
+            # fuzzy logic used during Towbook CSV import)
+            try:
+                from towbook_import import _match_police_department
+                dept = _match_police_department(vehicle.account)
+                if dept:
+                    vehicle.police_department_id = dept.id
+            except Exception:
+                pass
 
         vehicle.letter_stage = 'needs_1st'
         vehicle.letter_flag = None
