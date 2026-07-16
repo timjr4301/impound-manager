@@ -81,8 +81,10 @@ def push_vehicle_to_tina(vehicle):
 def check_possible_releases(current_stock_numbers):
     """
     Called after CSV import. Takes the list of stock numbers present in the new CSV.
-    Returns all ACTIVE vehicles in the DB whose stock_number is NOT in that list —
-    these are candidates for 'Possible Release — Verify Before Sending Letter'.
+    Returns ACTIVE vehicles whose stock_number is NOT in that list — but ONLY vehicles
+    that have previously appeared in a Towbook CSV (towbook_seen=True). Legacy vehicles
+    that pre-date Towbook usage are never flagged here, preventing them from re-appearing
+    every import cycle even after staff have cleared them.
     Already-flagged vehicles are excluded so they aren't double-noted.
     """
     if not current_stock_numbers:
@@ -93,6 +95,7 @@ def check_possible_releases(current_stock_numbers):
         .filter_by(status='ACTIVE')
         .filter(Vehicle.stock_number.isnot(None))
         .filter(Vehicle.possible_release.isnot(True))
+        .filter(Vehicle.towbook_seen == True)
         .all()
     )
     return [v for v in candidates if v.stock_number not in stock_set]

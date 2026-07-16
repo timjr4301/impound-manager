@@ -126,6 +126,7 @@ def run_migrations():
         "ALTER TABLE damage_reports ADD COLUMN IF NOT EXISTS ai_analyzed_at TIMESTAMP",
         # Release tracking + Base44 sync
         "ALTER TABLE vehicles ADD COLUMN IF NOT EXISTS possible_release BOOLEAN DEFAULT FALSE",
+        "ALTER TABLE vehicles ADD COLUMN IF NOT EXISTS towbook_seen BOOLEAN DEFAULT FALSE",
         "ALTER TABLE vehicles ADD COLUMN IF NOT EXISTS base44_id VARCHAR(100)",
     ]
     try:
