@@ -590,6 +590,7 @@ def build_top_nav(user):
     mw = section('Morning Workflow', 'bi-sunrise',
         item('Overview', 'bi-speedometer2', 'dashboard') if (user.can_see_all or r == 'demo') else None,
         item('Heather Queue', 'bi-envelope-check', 'heather.dashboard') if user.can_see_heather_dashboard else None,
+        item('Background Vehicles', 'bi-archive', 'heather.background') if user.can_see_heather_dashboard else None,
         item('Daily Intake / CSV', 'bi-inboxes', 'heather.daily_intake') if r in ('tim', 'heather', 'lori', 'brady', 'jim') else None,
         item('First & Second Letters', 'bi-envelope', 'heather.letters') if r in ('tim', 'heather', 'jim', 'demo') else None,
         item('Notices', 'bi-truck', 'heather.notices_search') if r == 'heather' else None,
