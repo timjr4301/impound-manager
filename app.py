@@ -272,6 +272,9 @@ def run_migrations(app):
                     conn.execute(text('ALTER TABLE certified_letters ADD COLUMN pod_image_data_2 TEXT'))
                 if 'pod_image_type_2' not in cols:
                     conn.execute(text('ALTER TABLE certified_letters ADD COLUMN pod_image_type_2 VARCHAR(20)'))
+                if 'superseded' not in cols:
+                    conn.execute(text('ALTER TABLE certified_letters ADD COLUMN superseded BOOLEAN DEFAULT FALSE'))
+                    conn.execute(text('UPDATE certified_letters SET superseded = FALSE WHERE superseded IS NULL'))
                 # Backfill letter_kind on pre-existing letter_number 1/2 rows
                 # (created before the 5-letter system existed) so their print
                 # content routes correctly. Safe to re-run — only touches
