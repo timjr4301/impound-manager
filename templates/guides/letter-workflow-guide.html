@@ -1,0 +1,794 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Letter Workflow Guide — Impound Manager</title>
+<style>
+:root {
+  --bg: #F7F5F2;
+  --bg-elevated: #FFFFFF;
+  --bg-step: #F0EDE8;
+  --text: #1A1714;
+  --text-muted: #6B6460;
+  --border: #DDD8D0;
+  --accent: #1B5C9E;
+  --accent-light: #E8F0FA;
+  --verify-bg: #EAF5EC;
+  --verify-border: #2A7A42;
+  --note-bg: #EEF4FC;
+  --red: #B91C1C;
+  --red-bg: #FEF2F2;
+  --red-border: #FCA5A5;
+  --yellow: #A16207;
+  --yellow-bg: #FEFCE8;
+  --yellow-border: #FDE047;
+  --green-text: #166534;
+  --green-bg: #F0FDF4;
+  --green-border: #86EFAC;
+  --radius: 4px;
+  --font: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, Arial, sans-serif;
+  --mono: ui-monospace, 'Cascadia Code', Consolas, monospace;
+}
+*, *::before, *::after { box-sizing: border-box; }
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font);
+  font-size: 15px;
+  line-height: 1.65;
+  margin: 0;
+  padding: 0 16px 72px;
+}
+.page { max-width: 780px; margin: 0 auto; }
+
+/* ── Header ── */
+.header {
+  padding: 36px 0 20px;
+  border-bottom: 2px solid var(--accent);
+  margin-bottom: 28px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.eyebrow {
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--accent);
+  margin: 0;
+}
+.header h1 { font-size: 24px; font-weight: 700; margin: 0; line-height: 1.2; }
+.header-sub { color: var(--text-muted); font-size: 13.5px; margin: 0; }
+.header-actions {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  flex-wrap: wrap;
+  margin-top: 8px;
+}
+.header-link { font-size: 13px; color: var(--accent); text-decoration: none; font-weight: 500; }
+.header-link:hover { text-decoration: underline; }
+.header-btn {
+  font-family: var(--font);
+  font-size: 12px;
+  padding: 4px 11px;
+  border-radius: 3px;
+  cursor: pointer;
+  border: 1px solid var(--border);
+  background: var(--bg-elevated);
+  color: var(--text-muted);
+  text-decoration: none;
+  display: inline-block;
+}
+.header-btn:hover { border-color: var(--accent); color: var(--accent); }
+
+/* ── Nav reference card ── */
+.nav-card {
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  margin-bottom: 24px;
+  overflow: hidden;
+}
+.nav-card-head {
+  background: var(--accent);
+  color: #fff;
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  padding: 7px 14px;
+}
+.nav-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+.nav-table th {
+  background: var(--bg-step);
+  color: var(--text-muted);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  padding: 6px 12px;
+  text-align: left;
+  border-bottom: 1px solid var(--border);
+}
+.nav-table td {
+  padding: 7px 12px;
+  border-bottom: 1px solid var(--border);
+  vertical-align: top;
+  line-height: 1.4;
+}
+.nav-table tr:last-child td { border-bottom: none; }
+.nav-label { font-weight: 600; color: var(--accent); white-space: nowrap; }
+.nav-who { display: flex; gap: 4px; flex-wrap: wrap; }
+
+/* ── Sections ── */
+details.section {
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--accent);
+  background: var(--bg-elevated);
+  border-radius: var(--radius);
+  margin-bottom: 10px;
+}
+details.section > summary {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 14px 18px;
+  cursor: pointer;
+  list-style: none;
+  user-select: none;
+}
+details.section > summary::-webkit-details-marker { display: none; }
+.sec-num {
+  font-family: var(--mono);
+  font-size: 10.5px;
+  font-weight: 700;
+  color: var(--accent);
+  background: var(--accent-light);
+  padding: 2px 7px;
+  border-radius: 3px;
+  flex-shrink: 0;
+  letter-spacing: 0.05em;
+}
+.sec-title { font-size: 15px; font-weight: 600; flex: 1; }
+.sec-arrow { color: var(--text-muted); font-size: 16px; flex-shrink: 0; transition: transform 0.15s; }
+details.section[open] .sec-arrow { transform: rotate(180deg); }
+.sec-body { padding: 0 18px 18px; }
+.sec-desc {
+  font-size: 13.5px;
+  color: var(--text-muted);
+  border-top: 1px solid var(--border);
+  padding: 12px 0 14px;
+  margin: 0;
+  line-height: 1.5;
+}
+
+/* ── Role badges ── */
+.roles { display: flex; gap: 5px; flex-wrap: wrap; margin-bottom: 12px; }
+.role {
+  font-size: 10.5px;
+  font-weight: 700;
+  padding: 2px 7px;
+  border-radius: 3px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+.role-h { background: #DBE9FE; color: #1B4F9C; }
+.role-t { background: #EDE9FE; color: #5B21B6; }
+.role-bj { background: #F0FDF4; color: #166534; }
+.role-all { background: var(--bg-step); color: var(--text-muted); border: 1px solid var(--border); }
+
+/* ── Steps ── */
+.steps { list-style: none; padding: 0; margin: 0 0 14px; display: flex; flex-direction: column; gap: 6px; }
+.step {
+  display: flex;
+  align-items: flex-start;
+  gap: 9px;
+  padding: 9px 12px;
+  background: var(--bg-step);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+.step input[type="checkbox"] {
+  margin-top: 2px;
+  flex-shrink: 0;
+  accent-color: var(--accent);
+  width: 14px;
+  height: 14px;
+  cursor: pointer;
+}
+.step-n {
+  font-family: var(--mono);
+  font-size: 10.5px;
+  font-weight: 700;
+  color: var(--accent);
+  flex-shrink: 0;
+  margin-top: 3px;
+  min-width: 22px;
+}
+.step-text { font-size: 14px; line-height: 1.5; flex: 1; }
+.step-text strong { font-weight: 600; }
+.step-text code {
+  font-family: var(--mono);
+  font-size: 11.5px;
+  background: var(--accent-light);
+  color: var(--accent);
+  padding: 1px 5px;
+  border-radius: 3px;
+}
+.step-text em { font-style: normal; color: var(--text-muted); font-size: 13px; }
+
+/* ── Verify box ── */
+.verify {
+  background: var(--verify-bg);
+  border-left: 3px solid var(--verify-border);
+  border-radius: var(--radius);
+  padding: 11px 15px;
+  margin-bottom: 14px;
+}
+.verify-label {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--verify-border);
+  margin: 0 0 7px;
+}
+.verify ul { margin: 0; padding: 0 0 0 15px; }
+.verify li { font-size: 13.5px; margin-bottom: 4px; line-height: 1.45; }
+.verify li:last-child { margin-bottom: 0; }
+
+/* ── Note box ── */
+.note {
+  background: var(--note-bg);
+  border-left: 3px solid var(--accent);
+  border-radius: var(--radius);
+  padding: 10px 14px;
+  margin-bottom: 14px;
+  font-size: 13.5px;
+  line-height: 1.5;
+  color: var(--text-muted);
+}
+.note strong { color: var(--text); }
+
+/* ── Sub-heading ── */
+.sub-h {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  margin: 16px 0 8px;
+  border-bottom: 1px solid var(--border);
+  padding-bottom: 5px;
+}
+
+/* ── Urgency chips ── */
+.urg { display: inline-flex; align-items: center; gap: 4px; font-size: 11px; font-weight: 700; padding: 2px 8px; border-radius: 3px; letter-spacing: 0.06em; vertical-align: middle; }
+.urg-r { background: var(--red-bg); color: var(--red); border: 1px solid var(--red-border); }
+.urg-y { background: var(--yellow-bg); color: var(--yellow); border: 1px solid var(--yellow-border); }
+.urg-g { background: var(--green-bg); color: var(--green-text); border: 1px solid var(--green-border); }
+
+/* ── Test checklist ── */
+.test-wrap {
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg-elevated);
+  overflow: hidden;
+  margin-top: 28px;
+}
+.test-head {
+  background: #1A1714;
+  color: #F7F5F2;
+  padding: 11px 18px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+.test-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 12px 18px;
+  border-bottom: 1px solid var(--border);
+}
+.test-item:last-child { border-bottom: none; }
+.test-item input[type="checkbox"] {
+  margin-top: 3px;
+  flex-shrink: 0;
+  accent-color: var(--accent);
+  width: 15px;
+  height: 15px;
+  cursor: pointer;
+}
+.test-title { font-size: 14px; font-weight: 600; margin-bottom: 2px; }
+.test-desc { font-size: 13px; color: var(--text-muted); line-height: 1.4; }
+
+/* ── Print ── */
+@media print {
+  body {
+    background: #fff !important;
+    color: #000 !important;
+    padding: 0 !important;
+    font-size: 13px;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+  .header-actions { display: none !important; }
+  .sec-arrow { display: none !important; }
+  details.section { border-left: 3px solid #1B5C9E !important; break-inside: avoid; }
+  details.section > summary { cursor: default; }
+  .sec-body { display: block !important; }
+  .step { background: #F0EDE8 !important; border: 1px solid #DDD8D0 !important; break-inside: avoid; }
+  .verify { background: #EAF5EC !important; border-left: 3px solid #2A7A42 !important; break-inside: avoid; }
+  .note { background: #EEF4FC !important; border-left: 3px solid #1B5C9E !important; }
+  .test-wrap { break-inside: avoid; }
+  input[type="checkbox"] { display: none !important; }
+  .nav-card { break-after: page; }
+}
+</style>
+</head>
+<body>
+<div class="page">
+
+  <!-- Header -->
+  <div class="header">
+    <p class="eyebrow">Broad &amp; James Towing · Impound Manager</p>
+    <h1>Letter Workflow Training Guide</h1>
+    <p class="header-sub">Step-by-step procedures for Towbook import, certified letters, UPS labels, envelope scanning, and delivery tracking. Doubles as a site test checklist.</p>
+    <div class="header-actions">
+      <a class="header-link" href="/">← Back to App</a>
+      <a class="header-link" href="https://impound-manager.onrender.com" target="_blank">→ Open Live Site</a>
+      <button class="header-btn" onclick="toggleAll()">Expand All</button>
+      <button class="header-btn" onclick="resetAll()">Reset Checkboxes</button>
+      <button class="header-btn" onclick="window.print()">Print Guide</button>
+    </div>
+  </div>
+
+  <!-- Nav Reference Card -->
+  <div class="nav-card">
+    <div class="nav-card-head">Site Navigation Quick Reference</div>
+    <div style="overflow-x:auto">
+      <table class="nav-table">
+        <thead>
+          <tr>
+            <th>Nav Item</th>
+            <th>What It Does</th>
+            <th>Who Sees It</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td class="nav-label">My Dashboard</td>
+            <td>Heather's stoplight view — RED/YELLOW/GREEN urgency, BMV queue, letter queues, ghost vehicles</td>
+            <td><div class="nav-who"><span class="role role-h">Heather</span><span class="role role-t">Tim</span><span class="role role-bj">Jim</span></div></td>
+          </tr>
+          <tr>
+            <td class="nav-label">Daily Intake</td>
+            <td>Drag-and-drop Towbook CSV upload (left panel) and BMV document upload (right panel)</td>
+            <td><div class="nav-who"><span class="role role-h">Heather</span><span class="role role-t">Tim / Jim / Brady</span></div></td>
+          </tr>
+          <tr>
+            <td class="nav-label">Letters</td>
+            <td>Four sub-tabs: Need to Send · Awaiting Delivery · Returned/RTS · Confirmed (30 days). Camera button to scan envelopes.</td>
+            <td><div class="nav-who"><span class="role role-h">Heather</span><span class="role role-t">Tim</span></div></td>
+          </tr>
+          <tr>
+            <td class="nav-label">Envelopes</td>
+            <td>Three tabs: Matched scans · Unmatched scans (need linking) · Cleared archive</td>
+            <td><div class="nav-who"><span class="role role-h">Heather</span><span class="role role-t">Tim / Brady / Jim</span></div></td>
+          </tr>
+          <tr>
+            <td class="nav-label">Vehicles</td>
+            <td>Full vehicle list with Active / Title Filed / Released tabs. Search by plate, VIN, owner, stock #.</td>
+            <td><div class="nav-who"><span class="role role-all">All roles</span></div></td>
+          </tr>
+          <tr>
+            <td class="nav-label">UPS Lookup</td>
+            <td>Live UPS reference-number search by invoice or stock number. Attach found tracking numbers to open letters.</td>
+            <td><div class="nav-who"><span class="role role-h">Heather only</span></div></td>
+          </tr>
+          <tr>
+            <td class="nav-label">Audit</td>
+            <td>Towbook mismatch review, overdue letter sweep, missing BMV/LKA flags. Upload Towbook release CSV to reconcile.</td>
+            <td><div class="nav-who"><span class="role role-t">Tim / Brady / Jim</span></div></td>
+          </tr>
+          <tr>
+            <td class="nav-label">Photo Upload</td>
+            <td>Bulk damage photo upload + AI assessment. Separate from driver damage docs.</td>
+            <td><div class="nav-who"><span class="role role-h">Heather</span><span class="role role-t">Tim / Tina / Brady / Jim</span></div></td>
+          </tr>
+          <tr>
+            <td class="nav-label">VIN Snap</td>
+            <td>Mobile camera page for drivers — reads VIN plate via AI, matches vehicle, updates lot zone.</td>
+            <td><div class="nav-who"><span class="role role-all">All roles (Miguel uses this)</span></div></td>
+          </tr>
+          <tr>
+            <td class="nav-label">Hub</td>
+            <td>Tile page with links to Impound Manager, Tina's Tracker (Base44), TowCommand, BJ Books, Letters, Invoice Cam.</td>
+            <td><div class="nav-who"><span class="role role-t">Tim / Brady / Lawrence / Jim</span></div></td>
+          </tr>
+          <tr>
+            <td class="nav-label">Pipeline</td>
+            <td>30-day letter due-date calendar grouped by week, plus title-eligible vehicles.</td>
+            <td><div class="nav-who"><span class="role role-t">Tim / Tina / Jim</span></div></td>
+          </tr>
+          <tr>
+            <td class="nav-label">My To-Dos</td>
+            <td>Personal per-user checklist, separate from the compliance task queue.</td>
+            <td><div class="nav-who"><span class="role role-all">All roles</span></div></td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- STEP 1 -->
+  <details class="section" open>
+    <summary>
+      <span class="sec-num">STEP 1</span>
+      <span class="sec-title">Export Towbook &amp; Import Into Impound Manager</span>
+      <span class="sec-arrow">▾</span>
+    </summary>
+    <div class="sec-body">
+      <p class="sec-desc">Done every morning. Syncs today's call list into IM so new vehicles appear and any vehicles that were released in Towbook get flagged.</p>
+      <div class="roles">
+        <span class="role role-h">Heather</span>
+        <span class="role role-t">Tim · Brady</span>
+      </div>
+
+      <p class="sub-h">In Towbook</p>
+      <ul class="steps">
+        <li class="step"><input type="checkbox"><span class="step-n">1</span><span class="step-text">Log into Towbook. Go to your calls/reports section and export the current call list as a <strong>CSV file</strong>. Save it to your desktop or Downloads folder.</span></li>
+      </ul>
+
+      <p class="sub-h">In Impound Manager</p>
+      <ul class="steps">
+        <li class="step"><input type="checkbox"><span class="step-n">2</span><span class="step-text">Click <strong>Daily Intake</strong> in the top navbar.</span></li>
+        <li class="step"><input type="checkbox"><span class="step-n">3</span><span class="step-text">On the left panel labeled <strong>"Towbook Export"</strong> — drag your CSV file onto the drop zone, or click to browse and select it.</span></li>
+        <li class="step"><input type="checkbox"><span class="step-n">4</span><span class="step-text">Wait a few seconds. A result badge will appear showing <strong>"X new · Y updated · Z skipped."</strong></span></li>
+        <li class="step"><input type="checkbox"><span class="step-n">5</span><span class="step-text">Check the top of the page for any sync warning banners. A <strong>yellow banner</strong> means one or more vehicles were in IM but absent from the CSV — they've been flagged as Possible Release and need verification before any letters go out.</span></li>
+      </ul>
+
+      <div class="verify">
+        <p class="verify-label">✓ What to Verify</p>
+        <ul>
+          <li>Any brand-new vehicle appears in <strong>Vehicles → Active</strong> tab with the correct stock number, VIN, year/make/model, and impound date.</li>
+          <li>If a vehicle existed in IM but wasn't in the CSV, it appears in the <strong>Possible Release</strong> section on Heather's dashboard with a red ghost banner.</li>
+          <li>No error messages or "0 new / 0 updated" result when you know there were new calls — if that happens, check that the file is the correct Towbook export format.</li>
+        </ul>
+      </div>
+
+      <div class="note"><strong>Right panel on Daily Intake:</strong> The right side is for BMV documents (LKA / title abstract PDFs). Drag those in there after the Towbook import — they attach to the matched vehicle automatically.</div>
+    </div>
+  </details>
+
+  <!-- STEP 2 -->
+  <details class="section">
+    <summary>
+      <span class="sec-num">STEP 2</span>
+      <span class="sec-title">Find New Cars That Need a First Letter</span>
+      <span class="sec-arrow">▾</span>
+    </summary>
+    <div class="sec-body">
+      <p class="sec-desc">After importing, work through Heather's dashboard to see which vehicles need their first certified letter sent. The stoplight system color-codes urgency.</p>
+      <div class="roles">
+        <span class="role role-h">Heather</span>
+        <span class="role role-t">Tim (view)</span>
+      </div>
+
+      <ul class="steps">
+        <li class="step"><input type="checkbox"><span class="step-n">1</span><span class="step-text">Click <strong>My Dashboard</strong> in the navbar (Heather), or <strong>Heather</strong> (Tim). This is Heather's main work screen.</span></li>
+        <li class="step"><input type="checkbox"><span class="step-n">2</span><span class="step-text">Check the top of the dashboard first for any <strong>dark red blocking alerts</strong>: ghost vehicles (Possible Release) or No Record Found vehicles. These must be resolved before letters go out — the system will not let you print or send letters for flagged vehicles.</span></li>
+        <li class="step"><input type="checkbox"><span class="step-n">3</span><span class="step-text">Review the <span class="urg urg-r">RED — Overdue</span> stoplight section. Each row shows: Stock #, Vehicle, Days Held, Active Task, and Action Needed. Any row showing <em>"Send Letter 1 by [date]"</em> where that date is in the past needs immediate action.</span></li>
+        <li class="step"><input type="checkbox"><span class="step-n">4</span><span class="step-text">Review <span class="urg urg-y">YELLOW — Due Soon</span>. These letters are due within the next 7 days. Plan for these today so they don't become red tomorrow.</span></li>
+        <li class="step"><input type="checkbox"><span class="step-n">5</span><span class="step-text">Check the <strong>BMV Search Queue</strong> (Task 1) below the stoplight. Vehicles here need a BMV title search done first — you need the owner and lienholder name/address before you can address a letter. Once you've completed the search, click <strong>"BMV Done"</strong> on that vehicle.</span></li>
+        <li class="step"><input type="checkbox"><span class="step-n">6</span><span class="step-text"><em>Alternate view:</em> click <strong>Letters</strong> in the navbar → <strong>"Need to Send"</strong> sub-tab. This shows every unsent letter across all vehicles, sortable by days on lot.</span></li>
+      </ul>
+
+      <div class="verify">
+        <p class="verify-label">✓ What to Verify</p>
+        <ul>
+          <li><span class="urg urg-r">RED</span> vehicles have a letter due date that is actually in the past.</li>
+          <li><span class="urg urg-g">GREEN</span> vehicles genuinely have no action needed — no overdue letters, no missing BMV, not a ghost.</li>
+          <li>Ghost / Possible Release vehicles are <strong>not</strong> appearing in the letter queues — they should be in their own separate section with a red banner.</li>
+          <li>The "Recalculate" button (top right, Heather/Tim only) refreshes the urgency colors if something seems out of date.</li>
+        </ul>
+      </div>
+    </div>
+  </details>
+
+  <!-- STEP 3 -->
+  <details class="section">
+    <summary>
+      <span class="sec-num">STEP 3</span>
+      <span class="sec-title">Send the First Letter &amp; Create a UPS Label</span>
+      <span class="sec-arrow">▾</span>
+    </summary>
+    <div class="sec-body">
+      <p class="sec-desc">Once a vehicle has owner/lienholder info from BMV, you print the letter, generate a UPS certified mail label in-system, and mark it sent. The system automatically schedules Letter 2 when you do this.</p>
+      <div class="roles">
+        <span class="role role-h">Heather</span>
+        <span class="role role-t">Tim</span>
+      </div>
+
+      <p class="sub-h">Print the Letter</p>
+      <ul class="steps">
+        <li class="step"><input type="checkbox"><span class="step-n">1</span><span class="step-text">On the vehicle detail page, scroll to the <strong>Letters</strong> card. Click the letter type you need (e.g. "First Notice — Owner"). The letter opens in a new tab — print it from there.</span></li>
+        <li class="step"><input type="checkbox"><span class="step-n">2</span><span class="step-text">Print the letter on your printer. Set it aside — you'll fold and envelope it after creating the UPS label.</span></li>
+      </ul>
+
+      <p class="sub-h">Create UPS Label &amp; Mark Sent</p>
+      <ul class="steps">
+        <li class="step"><input type="checkbox"><span class="step-n">3</span><span class="step-text">From Heather's dashboard or the Letters → "Need to Send" tab, click <strong>"Mark Sent"</strong> on the Letter 1 row for this vehicle.</span></li>
+        <li class="step"><input type="checkbox"><span class="step-n">4</span><span class="step-text">On the Mark Sent page, click <strong>"Create UPS Label &amp; Mark Sent"</strong> at the top. The system calls UPS and generates a certified mail label. <em>The label image (GIF) appears on the page — this is what you print and stick on the envelope.</em></span></li>
+        <li class="step"><input type="checkbox"><span class="step-n">5</span><span class="step-text">Print the label. It's ~4 inches wide, standard UPS label format. The label includes the owner name/address and the <strong>invoice number as the UPS reference number</strong> — this is how the system matches the envelope when it comes back.</span></li>
+        <li class="step"><input type="checkbox"><span class="step-n">6</span><span class="step-text">Confirm the <strong>Date Sent</strong> field (defaults to today). The UPS tracking number auto-fills from the label that was just created.</span></li>
+        <li class="step"><input type="checkbox"><span class="step-n">7</span><span class="step-text"><em>For AFO (Accident for Owner) cases only:</em> enter <code>AFO</code> in the <strong>Reference #2</strong> field. This gets written on the physical label and will auto-flag the vehicle when the envelope comes back through the scanner.</span></li>
+        <li class="step"><input type="checkbox"><span class="step-n">8</span><span class="step-text">Click <strong>Submit</strong>. The system records the sent date, tracking number, and <strong>automatically creates Letter 2</strong> scheduled 30 days from today's delivery confirmation.</span></li>
+        <li class="step"><input type="checkbox"><span class="step-n">9</span><span class="step-text">If the vehicle has a <strong>2nd owner or 2nd lienholder</strong> (co-owner), a second UPS label is automatically created and shown below the first. Print both — they need separate envelopes.</span></li>
+      </ul>
+
+      <div class="verify">
+        <p class="verify-label">✓ What to Verify</p>
+        <ul>
+          <li>After submit: the vehicle detail page shows Letter 1 with a <strong>sent date + tracking number</strong> (should start with "1Z" — UPS format).</li>
+          <li>A <strong>Letter 2 row</strong> appears on the vehicle detail with a due date approximately 30 days from now.</li>
+          <li>Letter 2 shows up in <strong>Letters → Need to Send</strong> with "Second Notice" label and the future due date.</li>
+          <li>The vehicle moves from <span class="urg urg-r">RED</span> or <span class="urg urg-y">YELLOW</span> to <span class="urg urg-g">GREEN</span> on Heather's dashboard.</li>
+          <li>If a 2nd owner existed: two separate tracking numbers are shown on the vehicle detail — one for each recipient.</li>
+        </ul>
+      </div>
+
+      <div class="note"><strong>If UPS label creation fails:</strong> Enter the tracking number manually after creating the label on the UPS website. Use <strong>UPS Lookup</strong> in the navbar to search by invoice number and attach the tracking number later if needed.</div>
+    </div>
+  </details>
+
+  <!-- STEP 4 -->
+  <details class="section">
+    <summary>
+      <span class="sec-num">STEP 4</span>
+      <span class="sec-title">Find Cars That Need a Second Letter</span>
+      <span class="sec-arrow">▾</span>
+    </summary>
+    <div class="sec-body">
+      <p class="sec-desc">Letter 2 becomes due 30 days after Letter 1's confirmed delivery date — not from when it was sent. Keeping delivery status up to date matters here.</p>
+      <div class="roles">
+        <span class="role role-h">Heather</span>
+        <span class="role role-t">Tim</span>
+      </div>
+
+      <ul class="steps">
+        <li class="step"><input type="checkbox"><span class="step-n">1</span><span class="step-text">Go to <strong>My Dashboard</strong>. In the <span class="urg urg-r">RED</span> or <span class="urg urg-y">YELLOW</span> sections, look for vehicles with <em>"Send Letter 2 by [date]"</em> in the Active Task column.</span></li>
+        <li class="step"><input type="checkbox"><span class="step-n">2</span><span class="step-text">Or: click <strong>Letters → Need to Send</strong>. Second Notice rows are labeled <em>"Second Notice — Owner"</em> or <em>"Second Notice — Lienholder."</em></span></li>
+        <li class="step"><input type="checkbox"><span class="step-n">3</span><span class="step-text">If you're unsure whether Letter 1 delivery has been confirmed, open the vehicle detail → Letters card. A green checkmark and delivery date means the 30-day clock is running. If it still shows "Awaiting Delivery," Letter 2's due date hasn't triggered yet.</span></li>
+      </ul>
+
+      <div class="verify">
+        <p class="verify-label">✓ What to Verify</p>
+        <ul>
+          <li>Letter 2 does <strong>not</strong> appear as due until Letter 1 has a confirmed delivery date.</li>
+          <li>The Audit tool (Tim/Brady/Jim) → Section 2 will also flag Letter 2 as overdue once 30+ days have passed since Letter 1 delivery.</li>
+          <li>Letter 2 rows show "Second Notice" in the label — not "First Notice."</li>
+        </ul>
+      </div>
+    </div>
+  </details>
+
+  <!-- STEP 5 -->
+  <details class="section">
+    <summary>
+      <span class="sec-num">STEP 5</span>
+      <span class="sec-title">Send the Second Letter</span>
+      <span class="sec-arrow">▾</span>
+    </summary>
+    <div class="sec-body">
+      <p class="sec-desc">The second letter flow is identical to the first. A brand-new UPS label is created (new tracking number, new shipment) — it does not reuse Letter 1's tracking.</p>
+      <div class="roles">
+        <span class="role role-h">Heather</span>
+        <span class="role role-t">Tim</span>
+      </div>
+
+      <ul class="steps">
+        <li class="step"><input type="checkbox"><span class="step-n">1</span><span class="step-text">Print the second letter from the vehicle detail → Letters card → "Second Notice" link. It opens in a new tab with the "SECOND AND FINAL NOTICE" banner at the top.</span></li>
+        <li class="step"><input type="checkbox"><span class="step-n">2</span><span class="step-text">Click <strong>"Mark Sent"</strong> on the Letter 2 row.</span></li>
+        <li class="step"><input type="checkbox"><span class="step-n">3</span><span class="step-text">Click <strong>"Create UPS Label &amp; Mark Sent"</strong> — same button, new label, new UPS tracking number.</span></li>
+        <li class="step"><input type="checkbox"><span class="step-n">4</span><span class="step-text">Print the label, confirm date, submit.</span></li>
+      </ul>
+
+      <div class="verify">
+        <p class="verify-label">✓ What to Verify</p>
+        <ul>
+          <li>Vehicle detail shows Letter 2 with its own tracking number — <strong>different</strong> from Letter 1's.</li>
+          <li>For <strong>PPI impounds</strong>: no Letter 3 is created after Letter 2. The vehicle enters the waiting period before title eligibility.</li>
+          <li>For <strong>POLICE impounds</strong>: a 5-letter chain is used. Letters 3–6 appear at the right stages — check vehicle detail after marking Letter 2 sent.</li>
+        </ul>
+      </div>
+    </div>
+  </details>
+
+  <!-- STEP 6 -->
+  <details class="section">
+    <summary>
+      <span class="sec-num">STEP 6</span>
+      <span class="sec-title">Scan Returned Envelopes</span>
+      <span class="sec-arrow">▾</span>
+    </summary>
+    <div class="sec-body">
+      <p class="sec-desc">When UPS delivers an envelope or returns one, scanning it updates the letter record automatically. The AI reads the tracking number, delivery date, and outcome from the envelope image.</p>
+      <div class="roles">
+        <span class="role role-h">Heather</span>
+      </div>
+
+      <p class="sub-h">Method A — Single Envelope (webcam, one at a time)</p>
+      <ul class="steps">
+        <li class="step"><input type="checkbox"><span class="step-n">1</span><span class="step-text">Click <strong>Letters</strong> in the navbar. In the top-right corner, click <strong>"Scan Envelope."</strong> A camera modal opens.</span></li>
+        <li class="step"><input type="checkbox"><span class="step-n">2</span><span class="step-text">Hold the envelope in front of the webcam so the tracking barcode, stamps, and delivery/return markings are clearly visible. Click <strong>Capture.</strong></span></li>
+        <li class="step"><input type="checkbox"><span class="step-n">3</span><span class="step-text">The AI reads the envelope and returns: tracking number, outcome (Delivered / Address Issue / Returned to Sender / Unknown), delivery date, and return reason.</span></li>
+        <li class="step"><input type="checkbox"><span class="step-n">4</span><span class="step-text">A <strong>match confirmation card</strong> appears. Confirm it — this links the scan to the correct vehicle and updates the letter record. If no match is found, the scan is saved as Unmatched (not discarded).</span></li>
+      </ul>
+
+      <p class="sub-h">Method B — Bulk Envelope Scan (50+ envelopes at once)</p>
+      <ul class="steps">
+        <li class="step"><input type="checkbox"><span class="step-n">5</span><span class="step-text">Scan all envelopes to image files (JPG or PNG) using a scanner or phone camera.</span></li>
+        <li class="step"><input type="checkbox"><span class="step-n">6</span><span class="step-text">Click <strong>Photo Upload</strong> in the navbar → <strong>Bulk Envelope Scan</strong>. Select all envelope image files at once. The AI processes each one — matched vehicles update automatically; unmatched go to the Unmatched queue.</span></li>
+      </ul>
+
+      <p class="sub-h">Method C — Envelopes Tab (review and manage all scans)</p>
+      <ul class="steps">
+        <li class="step"><input type="checkbox"><span class="step-n">7</span><span class="step-text">Click <strong>Envelopes</strong> in the navbar. Three tabs:</span></li>
+        <li class="step"><input type="checkbox"><span class="step-n">8</span><span class="step-text"><strong>Matched tab:</strong> Scans linked to a vehicle. Click <strong>"Clear"</strong> once handled (Vehicle Sold / Vehicle Released / Manual). Cleared scans move to the archive tab.</span></li>
+        <li class="step"><input type="checkbox"><span class="step-n">9</span><span class="step-text"><strong>Unmatched tab:</strong> Scans the AI couldn't auto-match. Click <strong>"Link to Vehicle"</strong> — search by stock number, plate, or owner name. Once linked, the letter record updates. Click <strong>"Discard"</strong> if it can't be identified.</span></li>
+        <li class="step"><input type="checkbox"><span class="step-n">10</span><span class="step-text"><strong>Cleared tab:</strong> Archive of all handled scans with who cleared them and when.</span></li>
+      </ul>
+
+      <div class="verify">
+        <p class="verify-label">✓ What to Verify</p>
+        <ul>
+          <li>After scanning a <strong>delivered</strong> envelope: vehicle detail → Letters card shows a green checkmark and <strong>delivery confirmed date.</strong></li>
+          <li>After scanning an <strong>RTS</strong> envelope: the letter shows a Return to Sender flag (red).</li>
+          <li>Unmatched scans appear in <strong>Envelopes → Unmatched</strong> tab — never silently dropped.</li>
+          <li>If unmatched scans exist, a <strong>yellow warning banner</strong> appears at the top of Heather's dashboard.</li>
+        </ul>
+      </div>
+    </div>
+  </details>
+
+  <!-- STEP 7 -->
+  <details class="section">
+    <summary>
+      <span class="sec-num">STEP 7</span>
+      <span class="sec-title">Refresh UPS &amp; Check Which Letters Were Delivered</span>
+      <span class="sec-arrow">▾</span>
+    </summary>
+    <div class="sec-body">
+      <p class="sec-desc">Push UPS directly to get the latest tracking status on any sent letter — faster than waiting for a physical envelope to arrive.</p>
+      <div class="roles">
+        <span class="role role-h">Heather</span>
+        <span class="role role-t">Tim</span>
+      </div>
+
+      <p class="sub-h">Option A — From Vehicle Detail Page</p>
+      <ul class="steps">
+        <li class="step"><input type="checkbox"><span class="step-n">1</span><span class="step-text">Open a vehicle detail page. Scroll to the <strong>Letters</strong> card.</span></li>
+        <li class="step"><input type="checkbox"><span class="step-n">2</span><span class="step-text">For any sent letter with a tracking number that isn't yet confirmed delivered, click <strong>"Refresh from UPS."</strong></span></li>
+        <li class="step"><input type="checkbox"><span class="step-n">3</span><span class="step-text">The system queries UPS live. Status updates to: <em>Label Created → In Transit → Out for Delivery → Delivered</em> (or Return to Sender). A flash message shows the new status.</span></li>
+        <li class="step"><input type="checkbox"><span class="step-n">4</span><span class="step-text">If delivered, the delivery date is automatically set and the <strong>30-day Letter 2 countdown begins.</strong></span></li>
+        <li class="step"><input type="checkbox"><span class="step-n">5</span><span class="step-text"><strong>POD Image (Proof of Delivery):</strong> 7–10 days after delivery, a signed POD image becomes available on the vehicle detail. Click <strong>"Fetch POD"</strong> to retry manually if it hasn't appeared yet.</span></li>
+      </ul>
+
+      <p class="sub-h">Option B — From Heather's Dashboard</p>
+      <ul class="steps">
+        <li class="step"><input type="checkbox"><span class="step-n">6</span><span class="step-text">On Heather's dashboard, scroll to <strong>"Awaiting Delivery Confirmation."</strong> Each row has a "Confirm Delivered" date form (for manual entry) and a "Scan" link to use the webcam.</span></li>
+      </ul>
+
+      <p class="sub-h">Option C — UPS Lookup (when tracking number is missing)</p>
+      <ul class="steps">
+        <li class="step"><input type="checkbox"><span class="step-n">7</span><span class="step-text">Click <strong>UPS Lookup</strong> in the navbar (Heather only). Enter the invoice number or stock number. UPS returns all matching shipments.</span></li>
+        <li class="step"><input type="checkbox"><span class="step-n">8</span><span class="step-text">Click <strong>"Attach"</strong> next to the shipment — this links the tracking number to the open letter so "Refresh from UPS" works going forward.</span></li>
+      </ul>
+
+      <div class="verify">
+        <p class="verify-label">✓ What to Verify</p>
+        <ul>
+          <li>After refresh: the letter status on the vehicle detail updates (e.g. "In Transit" or "Delivered").</li>
+          <li>Once delivered, Letter 2's due date is <strong>30 days from the confirmed delivery date</strong> — not from the sent date.</li>
+          <li>UPS Lookup finds shipments by invoice number and shows an Attach button on results matching an open untracked letter.</li>
+          <li>The POD image appears as a linked PDF on the vehicle detail once available (typically 7–10 business days after delivery).</li>
+        </ul>
+      </div>
+
+      <div class="note"><strong>RTS (Return to Sender):</strong> If UPS refresh detects a letter came back, it sets an RTS flag. Use the <strong>"Restart Letter Clock"</strong> button on the vehicle detail page after correcting the address.</div>
+    </div>
+  </details>
+
+  <!-- Test Checklist -->
+  <div class="test-wrap">
+    <div class="test-head">End-to-End Test Checklist — Confirm the Site Is Working</div>
+    <div class="test-item">
+      <input type="checkbox">
+      <div>
+        <div class="test-title">1 · Import Test</div>
+        <div class="test-desc">Upload a Towbook CSV via Daily Intake. Confirm result shows correct new/updated/skipped counts. A new vehicle appears in Vehicles → Active with correct stock number and impound date.</div>
+      </div>
+    </div>
+    <div class="test-item">
+      <input type="checkbox">
+      <div>
+        <div class="test-title">2 · First Letter + UPS Label Test</div>
+        <div class="test-desc">Find a vehicle with no sent Letter 1. Click Mark Sent → Create UPS Label. Confirm: label appears with a 1Z tracking number. After submit: vehicle detail shows sent date + tracking, and Letter 2 is auto-scheduled ~30 days out.</div>
+      </div>
+    </div>
+    <div class="test-item">
+      <input type="checkbox">
+      <div>
+        <div class="test-title">3 · Dashboard Stoplight Test</div>
+        <div class="test-desc">Spot-check a RED vehicle — confirm its letter due date is actually in the past. Spot-check a GREEN vehicle — confirm it has a sent letter or no letters due. Click "Recalculate" and confirm colors don't change unexpectedly.</div>
+      </div>
+    </div>
+    <div class="test-item">
+      <input type="checkbox">
+      <div>
+        <div class="test-title">4 · Envelope Scan Test</div>
+        <div class="test-desc">Scan a real or test envelope image via the Scan Envelope camera. Confirm: AI reads tracking number and outcome. System proposes the correct vehicle match. After confirming: vehicle detail shows delivery confirmed date.</div>
+      </div>
+    </div>
+    <div class="test-item">
+      <input type="checkbox">
+      <div>
+        <div class="test-title">5 · Unmatched Envelope Test</div>
+        <div class="test-desc">Scan an envelope that doesn't match any active vehicle. Confirm: it appears in Envelopes → Unmatched tab (not silently lost). Heather's dashboard shows a yellow unmatched-scans warning banner.</div>
+      </div>
+    </div>
+    <div class="test-item">
+      <input type="checkbox">
+      <div>
+        <div class="test-title">6 · UPS Refresh Test</div>
+        <div class="test-desc">Click "Refresh from UPS" on a letter with a real tracking number. Confirm status updates. If delivered, delivery_confirmed_date is set and Letter 2 due date shifts to +30 days from that date.</div>
+      </div>
+    </div>
+    <div class="test-item">
+      <input type="checkbox">
+      <div>
+        <div class="test-title">7 · Ghost Vehicle Test</div>
+        <div class="test-desc">Find a Possible Release vehicle. Confirm: it does NOT appear in letter queues. Confirm: clicking Mark Sent or Generate Letter for that vehicle shows a blocking error, not a form.</div>
+      </div>
+    </div>
+    <div class="test-item">
+      <input type="checkbox">
+      <div>
+        <div class="test-title">8 · Second Letter Timer Test</div>
+        <div class="test-desc">Check a vehicle where Letter 1 has been delivered. Confirm: Letter 2 due date = ~30 days from the Letter 1 delivery_confirmed_date, not from the sent date. If Letter 1 has no delivery confirmation yet, Letter 2 should have no triggered due date.</div>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<script>
+function toggleAll() {
+  const sections = document.querySelectorAll('details.section');
+  const anyOpen = [...sections].some(d => d.open);
+  sections.forEach(d => d.open = !anyOpen);
+  document.querySelector('.header-btn').textContent = anyOpen ? 'Expand All' : 'Collapse All';
+}
+function resetAll() {
+  document.querySelectorAll('input[type="checkbox"]').forEach(c => c.checked = false);
+}
+window.addEventListener('beforeprint', () => {
+  document.querySelectorAll('details.section').forEach(d => {
+    d.dataset.wasOpen = d.open;
+    d.open = true;
+  });
+});
+window.addEventListener('afterprint', () => {
+  document.querySelectorAll('details.section').forEach(d => {
+    d.open = d.dataset.wasOpen === 'true';
+  });
+});
+</script>
+</body>
+</html>
