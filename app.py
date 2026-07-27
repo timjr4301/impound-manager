@@ -111,6 +111,7 @@ def run_migrations(app):
                     ('bmv_search_notes',        'TEXT'),
                     ('heather_complete',        'BOOLEAN'),
                     ('heather_complete_date',   'DATE'),
+                    ('task_2_letter_completed_at', 'TIMESTAMP'),
                     ('disposition',             'VARCHAR(10)'),
                     ('disposition_set_date',    'DATE'),
                     ('disposition_notes',       'TEXT'),
@@ -1069,6 +1070,11 @@ def create_app():
     def tina_guide():
         return render_template('guides/tina-guide.html')
 
+    @app.route('/guides/letter-workflow')
+    @login_required
+    def letter_workflow_guide():
+        return render_template('guides/letter-workflow-guide.html')
+
     # ── Search ─────────────────────────────────────────────────────────────────
 
     @app.route('/search')
@@ -1779,6 +1785,11 @@ def create_app():
 
         vehicle = letter.vehicle
 
+        # Task 2 completion stamp (audit/display only — Task 3 stays
+        # delivery-anchored). Records when the 1st Notice Letter was completed.
+        if letter.letter_number == 1 and not vehicle.task_2_letter_completed_at:
+            vehicle.task_2_letter_completed_at = datetime.utcnow()
+
         if vehicle.impound_type == 'PPI' and letter.letter_number == 1:
             letter2_due = sent_date + timedelta(days=PPI_LETTER2_DAYS)
             db.session.add(CertifiedLetter(
@@ -1825,6 +1836,13 @@ def create_app():
             return redirect(url_for('vehicles_detail', vehicle_id=letter.vehicle_id))
 
         if request.method == 'POST':
+            # Sequential gate (server-side, no role bypass): Letter 1 needs BMV
+            # Search complete; Letter 2 needs Letter 1 sent + its post-delivery
+            # window. See Vehicle.letter_send_block_reason.
+            block = letter.vehicle.letter_send_block_reason(letter)
+            if block:
+                flash(block, 'danger')
+                return redirect(url_for('vehicles_detail', vehicle_id=letter.vehicle_id))
             sent_str = request.form.get('sent_date', '').strip()
             sent_date = date.fromisoformat(sent_str) if sent_str else date.today()
             message = _finalize_letter_sent(
@@ -1886,6 +1904,14 @@ def create_app():
                 'resolve it before sending any letter.',
                 'danger',
             )
+            return redirect(url_for('vehicles_detail', vehicle_id=vehicle.id))
+
+        # Sequential gate (server-side, no role bypass): creating a UPS label
+        # also marks the letter sent, so the same Task 1 → Task 2 → Task 3
+        # ordering applies here. See Vehicle.letter_send_block_reason.
+        block = vehicle.letter_send_block_reason(letter)
+        if block:
+            flash(block, 'danger')
             return redirect(url_for('vehicles_detail', vehicle_id=vehicle.id))
 
         if letter.recipient_type == 'lienholder':

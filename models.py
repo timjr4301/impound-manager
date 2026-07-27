@@ -226,6 +226,11 @@ class Vehicle(db.Model):
     bmv_search_notes = db.Column(db.Text)
     heather_complete = db.Column(db.Boolean, default=False)
     heather_complete_date = db.Column(db.Date)
+    # Audit/display stamp: when Task 2 (1st Notice Letter) was completed, i.e.
+    # Letter 1 marked sent. Task 3's countdown stays DELIVERY-anchored (see
+    # task_engine.letter_delivery_date), so this is NOT the Task 3 clock source —
+    # it records "when did Task 2 get done" for the sequential-gate UI and audit.
+    task_2_letter_completed_at = db.Column(db.DateTime)
 
     # File completeness checklist (Heather confirms before Tina handoff)
     lka_document_confirmed   = db.Column(db.Boolean, default=False, nullable=False)
@@ -398,6 +403,48 @@ class Vehicle(db.Model):
     def vin_check_blocked(self):
         """True when a VIN photo mismatch is unresolved — hard-blocks letters."""
         return bool(self.vin_mismatch) and not self.vin_mismatch_resolved
+
+    @property
+    def bmv_search_complete(self):
+        """Task 1 (BMV Search) done. This is the gate that must clear before
+        Task 2 (sending the 1st Notice Letter) can be completed. Mirrors
+        task_engine's task1_done so the dashboard and the send-gate never drift."""
+        return bool(self.heather_complete or (self.bmv_stage == 'COMPLETE'))
+
+    def letter_send_block_reason(self, letter):
+        """Sequential-gate check, enforced SERVER-SIDE in the letter-send routes
+        (templates may also read it to disable a button, but the route is the
+        real gate — no role bypasses this).
+
+        Returns a human-readable reason string if `letter` may NOT be sent /
+        marked complete yet, or None if it's allowed.
+
+          • Letter 1 (Task 2, 1st Notice): blocked until BMV Search is complete.
+          • Letter 2 (Task 3, 2nd Notice): blocked until Letter 1 is sent, then
+            until the 30-day window after Letter 1's DELIVERY (delivery-anchored,
+            per the 2026-07-07 design — not the send date).
+
+        Letters 3–6 (POLICE / lienholder notices in the 5-letter system) are not
+        part of this Task 2 → Task 3 sequence and are left ungated here."""
+        if letter is None:
+            return None
+        n = getattr(letter, 'letter_number', None)
+        if n == 1:
+            if not self.bmv_search_complete:
+                return 'BMV Search must be completed first.'
+        elif n == 2:
+            l1 = self.letter1
+            if not (l1 and l1.sent_date):
+                return '1st Notice Letter must be sent first.'
+            from task_engine import letter_delivery_date, TASK3_DELAY_DAYS
+            delivery = letter_delivery_date(l1)
+            if not delivery:
+                return ('Waiting for Letter 1 delivery confirmation — click '
+                        '“Refresh from UPS” on Letter 1 first.')
+            unlock = delivery + timedelta(days=TASK3_DELAY_DAYS)
+            if date.today() < unlock:
+                return f'Available {unlock.strftime("%m/%d/%Y")}.'
+        return None
 
     # Paid/Released Pending Pickup — set when staff authorize release (paid in
     # full) but the vehicle hasn't physically left the lot yet. status goes
@@ -829,6 +876,8 @@ class Vehicle(db.Model):
             if not l1 or not l1.sent_date:
                 due = self.letter_clock_start + timedelta(days=PPI_LETTER1_DAYS)
                 prefix = 'OVERDUE: ' if today > due else ''
+                if not self.bmv_search_complete:
+                    return f'{prefix}Complete BMV Search first (unlocks Letter 1, due {due.strftime("%m/%d/%Y")})'
                 return f'{prefix}Send Letter 1 by {due.strftime("%m/%d/%Y")}'
             if not l2 or not l2.sent_date:
                 if l2:
@@ -850,6 +899,8 @@ class Vehicle(db.Model):
             if not l1 or not l1.sent_date:
                 due = self.letter_clock_start + timedelta(days=POLICE_LETTER1_DAYS)
                 prefix = 'OVERDUE: ' if today > due else ''
+                if not self.bmv_search_complete:
+                    return f'{prefix}Complete BMV Search first (unlocks Notification Letter, due {due.strftime("%m/%d/%Y")})'
                 return f'{prefix}Send Notification Letter by {due.strftime("%m/%d/%Y")}'
             elig = self.title_eligible_date
             if elig:
