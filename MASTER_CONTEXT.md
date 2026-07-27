@@ -1,5 +1,5 @@
 # [IMPOUND MANAGER — MASTER CONTEXT DOC]
-_Last updated: July 14, 2026 — queue-clearing session + follow-ups (valuation buttons, gunicorn memory tuning). Live: PR #1–#3 merged. Next up: the design/UX pass. See OPS note on the 512MB out-of-memory restarts._
+_Last updated: July 26, 2026 — sequential task gate + UPS delivery auto-poll + UPS connection-test button + Letter Workflow Guide shipped & deployed (commits d5f8e3a, 1c59b00, 388fad9). Next up: the design/UX pass. See OPS note on the 512MB out-of-memory restarts (now with one more background job — watch it)._
 
 ---
 
@@ -49,6 +49,18 @@ An audit against the codebase found most of the old BUILD QUEUE was already ship
 
 **Gunicorn memory tuning** (PR #3) — `render.yaml` start command changed to `--threads 4 -w 1 --max-requests 200 --max-requests-jitter 30` to reduce the recurring 512MB OOM restarts. ⚠ **This is only half the fix** — see OPS note below.
 
+### ✅ NEW — July 26, 2026 (sequential gate + UPS automation + letter guide)
+
+**Sequential task gate (commit d5f8e3a)** — REVERSES the July-7 day-1 dual-unlock. **Letter 1 (Task 2) can no longer be sent until BMV Search (Task 1) is marked complete**; Letter 2 (Task 3) stays blocked until Letter 1 is sent AND its 30-day post-DELIVERY window opens. Enforced server-side in BOTH send paths (`letters_mark_sent` POST + `letters_create_ups_label`) via new `Vehicle.letter_send_block_reason()` — no role bypass, not just a hidden button. New `Vehicle.bmv_search_complete` helper + new `Vehicle.task_2_letter_completed_at` column (audit/display stamp only — Task 3 stays DELIVERY-anchored, NOT stamped off this column). `task_engine` now shows Task 2 as locked-behind-Task-1 with a red **LATE** flag once past day 5 unsent; `models.next_action_label` says "Complete BMV Search first". `mark_sent.html` shows a lock banner + disabled buttons. Confirmed with Tim (AskUserQuestion): (1) keep the delivery-anchored Letter-2 clock, (2) gate applies to ALL impound types incl. PPI (whose Letter 1 previously went out day 1). Key insight: these "tasks" are computed state, not checkboxes — "Task 2 complete" = Letter 1's `sent_date` set, so the gate attaches to the send action.
+
+**UPS delivery auto-poll (commit 1c59b00)** — the long-parked "Phase 2 auto-poll" is now BUILT. New `ups_poll.py` = single source of truth for the per-letter refresh, POD pull, and in-flight sweep (moved verbatim out of app.py's closures; app.py now has thin wrappers so the manual buttons and the auto-poll can't drift). New APScheduler job `ups_delivery_poll` runs **every 3 hrs, 8am–8pm ET** — records delivery/RTS, pulls signed PODs, and **starts Letter 2's 30-day clock automatically the moment UPS confirms delivery, no clicking.** The manual "Refresh UPS Tracking" button still works. ⚠ This adds another recurring background job — watch it against the 512MB OOM note below (the **1 GB instance** is still the real fix).
+
+**"Test UPS Connection" button (commit 1c59b00)** — new `/admin/ups-test` (heather/owners) checks, in plain English: credentials present → UPS OAuth login → optional live tracking lookup. Button sits next to "Refresh UPS Tracking" on the Letters page. This is the quickest way to confirm UPS is really working (labels bill to account 81Y7X1 and appear on ups.com; delivery data flows back).
+
+**Letter Workflow Guide (commit 388fad9)** — the `/guides/letter-workflow` route already existed and was `@login_required`; this shipped its standalone template (`templates/guides/letter-workflow-guide.html`) + the Guides-menu nav link, which had been sitting uncommitted. Same standalone pattern as the Heather/Tina guides (no base wrapper, no dynamic vars).
+
+**Deploy notes (July 26):** pushing to `timjr4301/impound-manager` **fails from Claude Code's environment** (git creds authenticate as `tim-wallaceandrew` → 403) — Tim pushes from his own machine. His machine ALSO defaults to `tim-wallaceandrew` active; the fix is `gh auth switch --user timjr4301` then `gh auth setup-git`, then push. On deploy the `task_2_letter_completed_at` column self-healed on boot (manual ALTER reported "already exists, skipping"); `reset_users.py` run (users incl. `robert`).
+
 ## ⚠ OPS — MEMORY / OUT-OF-MEMORY RESTARTS
 The service intermittently hits **"Ran out of memory (used over 512MB)"** on Render and auto-restarts. Causes are the app's own background work, not user traffic: the **boot-time full-inventory recalc** (task_engine over 650+ vehicles, spikes at every start — a boot OOM causes a crash→restart loop), the **APScheduler jobs** (Towbook sync 5AM, urgency recalc 6AM), **slow memory creep** on a single non-recycled worker, and open browser tabs holding **Socket.IO chat** connections.
 - **Real fix (dashboard, not in repo):** Render → impound-manager → Settings → **Instance Type → 1 GB**. The `render.yaml` `plan:` field is ignored; the dashboard instance type is authoritative.
@@ -92,7 +104,7 @@ Awaiting Title → To Locate → Key Row → Inspection Pool → Needs Repairs
 ---
 
 ## PARKED — DO NOT BUILD YET
-- 🅿 UPS Phase 2 auto-poll (6am digest) — **superseded** by the manual Refresh button (this session). Only revisit if a true unattended digest is wanted.
+- ✅ UPS Phase 2 auto-poll — **DONE July 26** (scheduled `ups_delivery_poll`, every 3 hrs 8am–8pm ET; starts Letter-2 clock automatically). A true unattended **email/SMS delivery digest** is still NOT built — only revisit if a push summary is wanted on top of the auto-poll.
 - 🅿 Build 14: VinAudit — waiting on `VINAUDIT_API_KEY` in Render.
 - 🅿 PPI Sales tracker (John Payne) — deferred.
 - 🅿 Base44 rebuild — **DONE** this session (in-house disposition pipeline). External Base44 retired.
@@ -100,6 +112,10 @@ Awaiting Title → To Locate → Key Row → Inspection Pool → Needs Repairs
 ## BUILD QUEUE
 
 ### ✅ Recently completed (verify then clear)
+- ✅ **Sequential task gate (Letter 1 locked behind BMV Search)** — DONE July 26, commit d5f8e3a. Reverses the July-7 dual-unlock; server-side, all impound types.
+- ✅ **UPS delivery auto-poll** — DONE July 26, commit 1c59b00 (`ups_delivery_poll`, `ups_poll.py`).
+- ✅ **"Test UPS Connection" button** — DONE July 26, commit 1c59b00 (`/admin/ups-test`).
+- ✅ **Letter Workflow Guide** — DONE July 26, commit 388fad9 (`/guides/letter-workflow` + nav link).
 - ✅ Release compliance hard-stop gate — DONE (`Vehicle.release_to_customer_blocked_reason`, enforced in `/vehicles/<id>/release`).
 - ✅ Daily release list for Lawrence — DONE (`/release-list`, PR #1).
 - ✅ Build E: General Documents Upload — DONE (`vehicle_general_documents`, detail-page section).
