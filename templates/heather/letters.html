@@ -24,6 +24,9 @@
         <i class="bi bi-truck me-1"></i> Refresh UPS Tracking
       </button>
     </form>
+    <a href="{{ url_for('admin_ups_test') }}" class="btn btn-outline-secondary btn-sm" title="Check that UPS credentials work and delivery data comes back">
+      <i class="bi bi-plug me-1"></i> Test UPS Connection
+    </a>
     <button class="btn btn-primary btn-sm" data-bs-toggle="modal" data-bs-target="#scanModal">
       <i class="bi bi-camera-fill me-1"></i> Scan Envelope
     </button>

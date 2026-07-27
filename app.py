@@ -4,7 +4,7 @@ import io
 import os
 import re
 from datetime import date, datetime, timedelta
-from flask import (Flask, render_template, request, redirect, url_for,
+from flask import (Flask, render_template, render_template_string, request, redirect, url_for,
                    flash, send_file, jsonify, g)
 from flask_login import LoginManager, login_required, current_user
 from models import (db, User, Vehicle, CertifiedLetter, TitleFiling,
@@ -35,6 +35,36 @@ except ImportError:
 # Holds a 2nd-party UPS label GIF just long enough to redirect-then-render on
 # mark_sent.html — see letters_create_ups_label for why this stays in-memory.
 _pending_label_2_cache = {}
+
+# Rendered by /admin/ups-test — a plain, self-contained results page.
+_UPS_TEST_PAGE = """{% extends 'base.html' %}
+{% block title %}UPS Connection Test — Impound Manager{% endblock %}
+{% block content %}
+<div class="row justify-content-center"><div class="col-md-8">
+  <h2 class="h4 fw-bold mb-3"><i class="bi bi-truck me-2"></i>UPS Connection Test</h2>
+  <div class="alert {{ 'alert-success' if overall else 'alert-danger' }}">
+    <strong>{{ 'UPS is connected and working.' if overall else 'UPS is NOT fully working.' }}</strong>
+    <div class="small mt-1">Shipping account: {{ account }}</div>
+  </div>
+  <ul class="list-group mb-3">
+    {% for name, ok, detail in checks %}
+    <li class="list-group-item d-flex align-items-start gap-2">
+      <i class="bi {{ 'bi-check-circle-fill text-success' if ok else 'bi-x-circle-fill text-danger' }} fs-5"></i>
+      <div><div class="fw-semibold">{{ name }}</div><div class="small text-muted">{{ detail }}</div></div>
+    </li>
+    {% endfor %}
+  </ul>
+  <form method="get" action="{{ url_for('admin_ups_test') }}" class="card card-body mb-3">
+    <label class="form-label small fw-semibold">Optional — test a real tracking number end to end:</label>
+    <div class="input-group">
+      <input type="text" name="tracking" class="form-control font-monospace" value="{{ tracking }}" placeholder="1Z...">
+      <button class="btn btn-outline-primary" type="submit">Test lookup</button>
+    </div>
+    <div class="form-text">Paste a tracking number from a label you created to confirm delivery data comes back.</div>
+  </form>
+  <a href="{{ url_for('dashboard') }}" class="btn btn-outline-secondary btn-sm"><i class="bi bi-arrow-left me-1"></i> Back</a>
+</div></div>
+{% endblock %}"""
 
 
 def run_migrations(app):
@@ -493,8 +523,17 @@ def _start_scheduler(app):
                 from task_engine import recalculate_all
                 recalculate_all()
 
+        # UPS delivery auto-poll (every 3 hours, 8am–8pm ET) — sweeps in-flight
+        # certified letters, records delivery/RTS, and starts the 2nd-notice
+        # 30-day clock the moment UPS confirms delivery. Replaces the parked
+        # 6am-only poll; the manual "Refresh all tracking" button still works.
+        def _ups_poll():
+            import ups_poll
+            ups_poll.run_scheduled(app)
+
         scheduler.add_job(_towbook_sync, 'cron', hour=5, minute=0, id='daily_towbook_sync')
         scheduler.add_job(_recalc,       'cron', hour=6, minute=0, id='daily_urgency')
+        scheduler.add_job(_ups_poll,     'cron', hour='8,11,14,17,20', minute=0, id='ups_delivery_poll')
         scheduler.start()
     except Exception as exc:
         print(f'[scheduler] could not start: {exc}')
@@ -1986,73 +2025,16 @@ def create_app():
         flash(f'{message} Tracking: {tracking_number}', 'success')
         return redirect(url_for('letters_mark_sent', letter_id=letter.id) + f'?label={label_b64}')
 
+    # Per-letter UPS refresh + POD pull now live in ups_poll.py (module-level)
+    # so the scheduled auto-poll job and these routes share one implementation.
+    # Thin wrappers keep the existing call sites unchanged.
     def _try_fetch_pod(letter, tracking_number, which, trans_id):
-        """Best-effort POD pull for one tracking number on a letter -- swallows
-        all errors (network, missing creds, UPS not ready yet). Returns True if
-        a new POD was actually stored, so callers can decide whether to commit/
-        flash. 'which' is 'primary' or '2nd'; never raises."""
-        import ups_api
-        try:
-            pod_b64, pod_type = ups_api.fetch_pod(tracking_number, trans_id=trans_id)
-        except Exception:
-            return False
-        if not pod_b64:
-            return False
-        if which == 'primary':
-            letter.pod_image_data = pod_b64
-            letter.pod_image_type = pod_type
-        else:
-            letter.pod_image_data_2 = pod_b64
-            letter.pod_image_type_2 = pod_type
-        return True
+        import ups_poll
+        return ups_poll.try_fetch_pod(letter, tracking_number, which, trans_id)
 
     def _refresh_letter_tracking(letter):
-        """Poll UPS for one letter's tracking number(s), updating delivery/RTS
-        status and pulling any newly-available POD(s). Returns a dict describing
-        what changed. Does NOT commit, flash, or redirect — callers do that.
-        Never raises; UPS/network errors are captured in result['error']. Shared
-        by the single-letter refresh route and the bulk 'refresh all' sweep."""
-        import ups_api
-        result = {'checked': False, 'newly_delivered': False, 'newly_returned': False,
-                  'pods_pulled': 0, 'error': None, 'no_record': False}
-        if not letter.tracking_number:
-            result['error'] = 'no tracking number'
-            return result
-        try:
-            pkg = ups_api.lookup_by_tracking_number(letter.tracking_number, trans_id=f'refresh-{letter.id}')
-        except Exception as exc:
-            result['error'] = str(exc)
-            return result
-        if not pkg:
-            result['no_record'] = True
-            return result
-
-        result['checked'] = True
-        letter.ups_status = pkg['status_description'] or letter.ups_status
-        was_delivered = letter.delivery_confirmed_date is not None
-        was_rts = letter.return_to_sender
-        if pkg['is_rts']:
-            letter.return_to_sender = True
-            if not was_rts:
-                result['newly_returned'] = True
-        elif pkg['is_delivered'] and pkg['delivered_date']:
-            letter.delivery_confirmed_date = datetime.strptime(pkg['delivered_date'], '%Y%m%d').date()
-            if not was_delivered:
-                result['newly_delivered'] = True
-
-        if letter.delivery_confirmed_date and not letter.pod_image_data:
-            if _try_fetch_pod(letter, letter.tracking_number, 'primary', trans_id=f'pod-auto-{letter.id}'):
-                result['pods_pulled'] += 1
-
-        if letter.tracking_number_2 and not letter.pod_image_data_2:
-            try:
-                pkg2 = ups_api.lookup_by_tracking_number(letter.tracking_number_2, trans_id=f'refresh2-{letter.id}')
-            except Exception:
-                pkg2 = None
-            if pkg2 and pkg2['is_delivered']:
-                if _try_fetch_pod(letter, letter.tracking_number_2, '2nd', trans_id=f'pod-auto-{letter.id}-2nd'):
-                    result['pods_pulled'] += 1
-        return result
+        import ups_poll
+        return ups_poll.refresh_letter_tracking(letter)
 
     @app.route('/letters/<int:letter_id>/confirm-delivery', methods=['POST'])
     @login_required
@@ -2118,53 +2100,65 @@ def create_app():
             flash('Permission denied.', 'danger')
             return redirect(url_for('heather.letters'))
 
-        letters = (
-            CertifiedLetter.query
-            .join(Vehicle)
-            .filter(Vehicle.status == 'ACTIVE')
-            .filter(Vehicle.possible_release == False)
-            .filter(CertifiedLetter.tracking_number.isnot(None))
-            .filter(CertifiedLetter.return_to_sender == False)
-            .filter(db.or_(
-                CertifiedLetter.delivery_confirmed_date.is_(None),
-                CertifiedLetter.pod_image_data.is_(None),
-                db.and_(CertifiedLetter.tracking_number_2.isnot(None),
-                        CertifiedLetter.pod_image_data_2.is_(None)),
-            ))
-            .all()
-        )
+        import ups_poll
+        c = ups_poll.sweep(current_user.username)
 
-        checked = delivered = returned = pods = errors = 0
-        for letter in letters:
-            r = _refresh_letter_tracking(letter)
-            if r['error']:
-                errors += 1
-                continue
-            if r['no_record']:
-                continue
-            checked += 1
-            if r['newly_delivered']:
-                delivered += 1
-            if r['newly_returned']:
-                returned += 1
-            pods += r['pods_pulled']
-
-        db.session.add(UpsPollLog(
-            triggered_by=current_user.username,
-            letters_checked=checked,
-            newly_delivered=delivered,
-            newly_returned=returned,
-            pods_pulled=pods,
-            errors=errors,
-        ))
-        db.session.commit()
-
-        msg = (f'UPS refresh complete — {checked} checked, {delivered} newly delivered, '
-               f'{returned} newly returned, {pods} signed POD(s) pulled.')
-        if errors:
-            msg += f' {errors} lookup error(s) — try again later.'
-        flash(msg, 'warning' if errors else 'success')
+        msg = (f'UPS refresh complete — {c["checked"]} checked, {c["delivered"]} newly delivered, '
+               f'{c["returned"]} newly returned, {c["pods"]} signed POD(s) pulled.')
+        if c['errors']:
+            msg += f' {c["errors"]} lookup error(s) — try again later.'
+        flash(msg, 'warning' if c['errors'] else 'success')
         return redirect(url_for('heather.letters'))
+
+    @app.route('/admin/ups-test')
+    @login_required
+    def admin_ups_test():
+        """One-click UPS connection diagnostic: are the credentials set, does
+        UPS accept our login (OAuth), and (optionally) can we look up a real
+        tracking number? Read-only. Pass ?tracking=1Z... to also test a lookup."""
+        if not (current_user.is_heather or getattr(current_user, 'is_owner', False)):
+            flash('Permission denied.', 'danger')
+            return redirect(url_for('dashboard'))
+
+        import ups_api
+        checks = []
+        configured = ups_api.is_configured()
+        checks.append((
+            'UPS credentials present',
+            configured,
+            'UPS_CLIENT_ID and UPS_CLIENT_SECRET are set.' if configured
+            else 'Missing — set UPS_CLIENT_ID / UPS_CLIENT_SECRET in Render env vars.',
+        ))
+
+        token_ok = False
+        if configured:
+            try:
+                token_ok = bool(ups_api._get_token())
+                checks.append(('UPS login (OAuth token)', True,
+                               'UPS accepted the credentials and returned an access token.'))
+            except Exception as exc:
+                checks.append(('UPS login (OAuth token)', False,
+                               f'UPS rejected the login: {exc}'))
+
+        tracking = (request.args.get('tracking') or '').strip()
+        if tracking and token_ok:
+            try:
+                pkg = ups_api.lookup_by_tracking_number(tracking, trans_id='ups-selftest')
+                if pkg:
+                    checks.append((f'Tracking lookup ({tracking})', True,
+                                   f"UPS status: {pkg['status_description']} "
+                                   f"(delivered={pkg['is_delivered']}, return-to-sender={pkg['is_rts']})."))
+                else:
+                    checks.append((f'Tracking lookup ({tracking})', False,
+                                   'UPS returned no record for that tracking number.'))
+            except Exception as exc:
+                checks.append((f'Tracking lookup ({tracking})', False, f'Lookup failed: {exc}'))
+
+        overall = configured and all(ok for _, ok, _ in checks)
+        return render_template_string(
+            _UPS_TEST_PAGE, checks=checks, overall=overall, tracking=tracking,
+            account=os.environ.get('UPS_ACCOUNT_NUMBER', '81Y7X1'),
+        )
 
     @app.route('/letters/<int:letter_id>/fetch-pod', methods=['POST'])
     @login_required
