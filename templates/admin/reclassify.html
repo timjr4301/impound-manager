@@ -1,0 +1,286 @@
+{% extends "base.html" %}
+{% block title %}Find Trucks (VIN scan) – Impound Manager{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-3">
+  <div>
+    <h4 class="mb-0 fw-bold"><i class="bi bi-truck me-2"></i>Find Trucks (VIN scan)</h4>
+    <small class="text-muted">Auto-classify PPI storage rates from the VIN — you only confirm the trucks</small>
+  </div>
+  <button id="scan-btn" class="btn btn-primary">
+    <i class="bi bi-search me-1"></i>Scan PPI fleet ({{ rows|length }})
+  </button>
+</div>
+
+<div class="card shadow-sm mb-3">
+  <div class="card-body small text-muted">
+    Every PPI vehicle defaults to <strong>Light&nbsp;(${{ '%.0f'|format(class_rates['light']) }}/day)</strong>.
+    This scans each VIN through the free NHTSA decoder and flags only the ones that look like
+    <strong>Medium&nbsp;(${{ '%.0f'|format(class_rates['medium']) }})</strong> or
+    <strong>Heavy&nbsp;(${{ '%.0f'|format(class_rates['heavy']) }})</strong> trucks.
+    Normal cars stay Light automatically and aren't shown. Review what it flags, then Apply —
+    it updates both the class and the daily storage rate on the bill.
+  </div>
+</div>
+
+{% if not rows %}
+  <div class="alert alert-info">No active PPI vehicles to scan.</div>
+{% endif %}
+
+{# Progress #}
+<div id="scan-progress" class="d-none mb-3">
+  <div class="d-flex justify-content-between small text-muted mb-1">
+    <span id="progress-label">Scanning…</span>
+    <span id="progress-count"></span>
+  </div>
+  <div class="progress" style="height:8px;">
+    <div id="progress-bar" class="progress-bar progress-bar-striped progress-bar-animated"
+         role="progressbar" style="width:0%"></div>
+  </div>
+</div>
+
+{# Summary #}
+<div id="scan-summary" class="d-none alert alert-secondary"></div>
+
+{# Flagged trucks review table #}
+<div id="flagged-wrap" class="d-none card shadow-sm mb-3">
+  <div class="card-header fw-semibold bg-warning-subtle">
+    <i class="bi bi-exclamation-triangle me-1"></i>Trucks to reclassify
+    <small class="fw-normal text-muted">— checked rows will be updated</small>
+  </div>
+  <div class="card-body p-0">
+    <div class="table-responsive">
+      <table class="table table-sm table-hover align-middle mb-0">
+        <thead class="table-light">
+          <tr>
+            <th class="text-center" style="width:2.5rem;">
+              <input type="checkbox" id="flag-select-all" class="form-check-input" checked>
+            </th>
+            <th>Stock #</th>
+            <th>Vehicle</th>
+            <th>VIN</th>
+            <th>Now</th>
+            <th>Set to</th>
+            <th>Why</th>
+          </tr>
+        </thead>
+        <tbody id="flagged-body"></tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+{# Couldn't-detect bucket #}
+<div id="undetected-wrap" class="d-none card shadow-sm mb-3">
+  <div class="card-header">
+    <button class="btn btn-link btn-sm text-decoration-none p-0 fw-semibold" type="button"
+            data-bs-toggle="collapse" data-bs-target="#undetected-body">
+      <i class="bi bi-question-circle me-1"></i>Couldn't detect (<span id="undetected-count">0</span>) — handle manually
+    </button>
+  </div>
+  <div id="undetected-body" class="collapse">
+    <div class="card-body p-0">
+      <div class="table-responsive">
+        <table class="table table-sm mb-0">
+          <thead class="table-light"><tr><th>Stock #</th><th>Vehicle</th><th>VIN</th><th>Reason</th><th></th></tr></thead>
+          <tbody id="undetected-tbody"></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</div>
+
+{# Sticky apply bar #}
+<div id="apply-bar"
+     class="d-none position-fixed bottom-0 start-0 end-0 bg-dark text-white py-2 px-3 d-flex align-items-center gap-3 shadow-lg"
+     style="z-index:1050;">
+  <span id="apply-count" class="fw-semibold">0 selected</span>
+  <button type="button" id="apply-btn" class="btn btn-success btn-sm ms-auto">
+    <i class="bi bi-check2-circle me-1"></i>Apply reclassifications
+  </button>
+</div>
+<div style="height:3.5rem;"></div>
+
+<script>
+(function () {
+  const ROWS = {{ rows|tojson }};
+  const RATES = {{ class_rates|tojson }};
+  const CLASS_LABEL = { light: 'Light', medium: 'Medium', heavy: 'Heavy' };
+  const BADGE = { light: 'bg-secondary', medium: 'bg-primary', heavy: 'bg-danger' };
+  const CHUNK = 50;
+
+  const byId = ROWS.reduce((m, r) => { m[r.id] = r; return m; }, {});
+  const flagged = [];      // {row, detected, reason, meta}
+  const undetected = [];   // {row, reason}
+
+  const $ = (id) => document.getElementById(id);
+
+  function classBadge(cls) {
+    return `<span class="badge ${BADGE[cls] || 'bg-secondary'}">${CLASS_LABEL[cls] || cls}</span>`;
+  }
+  function money(cls) { return '$' + (RATES[cls] ?? 0).toFixed(0); }
+
+  async function scan() {
+    const btn = $('scan-btn');
+    btn.disabled = true;
+    flagged.length = 0; undetected.length = 0;
+
+    // Rows with a full VIN get decoded; the rest go straight to the manual bucket.
+    const scannable = [];
+    for (const r of ROWS) {
+      if (r.vin && r.vin.length === 17) scannable.push(r);
+      else undetected.push({ row: r, reason: 'No VIN on file' });
+    }
+
+    $('scan-progress').classList.remove('d-none');
+    let done = 0, autoLight = 0;
+    const total = scannable.length;
+
+    for (let i = 0; i < scannable.length; i += CHUNK) {
+      const slice = scannable.slice(i, i + CHUNK);
+      let results = [];
+      try {
+        const resp = await fetch('{{ url_for('admin.reclassify_scan') }}', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ items: slice.map(r => ({ id: r.id, vin: r.vin })) }),
+        });
+        const data = await resp.json();
+        results = data.results || [];
+      } catch (e) {
+        results = slice.map(r => ({ id: r.id, detected: null, reason: "Couldn't reach the VIN decoder" }));
+      }
+      for (const res of results) {
+        const row = byId[res.id];
+        if (!row) continue;
+        if (!res.detected) {
+          undetected.push({ row, reason: res.reason || 'Could not determine' });
+        } else if (res.detected !== row.current_class) {
+          flagged.push({ row, detected: res.detected, reason: res.reason });
+        } else {
+          autoLight++;   // already correct — never shown
+        }
+      }
+      done += slice.length;
+      const pct = total ? Math.round(done / total * 100) : 100;
+      $('progress-bar').style.width = pct + '%';
+      $('progress-count').textContent = `${done} / ${total}`;
+    }
+
+    $('scan-progress').classList.add('d-none');
+    render(total, autoLight);
+    btn.disabled = false;
+    btn.innerHTML = '<i class="bi bi-arrow-repeat me-1"></i>Re-scan fleet (' + ROWS.length + ')';
+  }
+
+  function render(total, autoLight) {
+    $('scan-summary').classList.remove('d-none');
+    $('scan-summary').innerHTML =
+      `Scanned <strong>${total}</strong> with a VIN — ` +
+      `<strong>${flagged.length}</strong> flagged as trucks, ` +
+      `<strong>${autoLight}</strong> confirmed Light automatically, ` +
+      `<strong>${undetected.length}</strong> couldn't be detected.`;
+
+    // Flagged review rows
+    const fb = $('flagged-body');
+    fb.innerHTML = '';
+    if (flagged.length) {
+      $('flagged-wrap').classList.remove('d-none');
+      for (const f of flagged) {
+        const tr = document.createElement('tr');
+        const opts = ['light', 'medium', 'heavy'].map(c =>
+          `<option value="${c}" ${c === f.detected ? 'selected' : ''}>${CLASS_LABEL[c]} (${money(c)})</option>`
+        ).join('');
+        tr.innerHTML =
+          `<td class="text-center"><input type="checkbox" class="form-check-input flag-cb" data-id="${f.row.id}" checked></td>` +
+          `<td class="small">${f.row.stock || '—'}</td>` +
+          `<td class="small">${f.row.desc || ''}</td>` +
+          `<td class="small text-monospace">${f.row.vin}</td>` +
+          `<td>${classBadge(f.row.current_class)}</td>` +
+          `<td><select class="form-select form-select-sm flag-class" data-id="${f.row.id}" style="min-width:9rem;">${opts}</select></td>` +
+          `<td class="small text-muted">${f.reason || ''}</td>`;
+        fb.appendChild(tr);
+      }
+    } else {
+      $('flagged-wrap').classList.add('d-none');
+    }
+
+    // Undetected bucket
+    const ub = $('undetected-tbody');
+    ub.innerHTML = '';
+    if (undetected.length) {
+      $('undetected-wrap').classList.remove('d-none');
+      $('undetected-count').textContent = undetected.length;
+      for (const u of undetected) {
+        const tr = document.createElement('tr');
+        tr.innerHTML =
+          `<td class="small">${u.row.stock || '—'}</td>` +
+          `<td class="small">${u.row.desc || ''}</td>` +
+          `<td class="small text-monospace">${u.row.vin || '—'}</td>` +
+          `<td class="small text-muted">${u.reason}</td>` +
+          `<td class="text-end"><a href="/vehicles/${u.row.id}" class="btn btn-sm btn-outline-secondary py-0">Open</a></td>`;
+        ub.appendChild(tr);
+      }
+    } else {
+      $('undetected-wrap').classList.add('d-none');
+    }
+    refreshApply();
+  }
+
+  function checkedRows() {
+    return Array.from(document.querySelectorAll('.flag-cb'))
+      .filter(cb => cb.checked)
+      .map(cb => {
+        const id = parseInt(cb.dataset.id, 10);
+        const sel = document.querySelector(`.flag-class[data-id="${cb.dataset.id}"]`);
+        return { id, vehicle_class: sel ? sel.value : null };
+      })
+      .filter(x => x.vehicle_class);
+  }
+
+  function refreshApply() {
+    const n = checkedRows().length;
+    $('apply-count').textContent = n + ' selected';
+    $('apply-bar').classList.toggle('d-none', n === 0);
+    const all = Array.from(document.querySelectorAll('.flag-cb'));
+    const sa = $('flag-select-all');
+    if (sa) {
+      const checked = all.filter(cb => cb.checked).length;
+      sa.checked = checked > 0 && checked === all.length;
+      sa.indeterminate = checked > 0 && checked < all.length;
+    }
+  }
+
+  document.addEventListener('change', (e) => {
+    if (e.target.classList.contains('flag-cb') || e.target.classList.contains('flag-class')) refreshApply();
+    if (e.target.id === 'flag-select-all') {
+      document.querySelectorAll('.flag-cb').forEach(cb => { cb.checked = e.target.checked; });
+      refreshApply();
+    }
+  });
+
+  $('apply-btn').addEventListener('click', async () => {
+    const changes = checkedRows();
+    if (!changes.length) return;
+    if (!confirm(`Reclassify ${changes.length} vehicle(s)? This updates their storage rate.`)) return;
+    const btn = $('apply-btn');
+    btn.disabled = true;
+    try {
+      const resp = await fetch('{{ url_for('admin.reclassify_apply') }}', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ changes }),
+      });
+      const data = await resp.json();
+      if (!resp.ok) throw new Error(data.error || ('Request failed (' + resp.status + ')'));
+      window.location.href = data.redirect || '{{ url_for('admin.reclassify') }}';
+    } catch (e) {
+      btn.disabled = false;
+      alert('Error: ' + e.message);
+    }
+  });
+
+  $('scan-btn').addEventListener('click', scan);
+})();
+</script>
+{% endblock %}

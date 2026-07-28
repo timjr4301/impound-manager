@@ -69,6 +69,10 @@
                 </option>
                 {% endfor %}
               </select>
+              <button type="button" id="detect-class-btn" class="btn btn-sm btn-outline-secondary mt-1">
+                <i class="bi bi-magic me-1"></i>Detect from VIN
+              </button>
+              <div id="detect-class-msg" class="form-text"></div>
             </div>
             <div class="col-sm-8">
               <label for="storage_location" class="form-label fw-semibold">Storage Location</label>
@@ -248,4 +252,35 @@
   })();
 </script>
 {% endif %}
+
+<script>
+  // "Detect from VIN": decode the VIN's weight class (NHTSA) and set the class
+  // dropdown — dispatching 'change' also re-runs the PPI rate suggestion above.
+  (function () {
+    const detectBtn = document.getElementById('detect-class-btn');
+    if (!detectBtn) return;
+    detectBtn.addEventListener('click', async () => {
+      const vin = (document.getElementById('vin')?.value || '').trim();
+      const msg = document.getElementById('detect-class-msg');
+      if (vin.length !== 17) { msg.textContent = 'Enter a full 17-character VIN first.'; return; }
+      detectBtn.disabled = true;
+      msg.textContent = 'Checking VIN…';
+      try {
+        const resp = await fetch('{{ url_for('vin_detect_class') }}?vin=' + encodeURIComponent(vin));
+        const data = await resp.json();
+        if (data.class) {
+          const vcEl = document.getElementById('vehicle_class');
+          vcEl.value = data.class;
+          vcEl.dispatchEvent(new Event('change'));
+          msg.textContent = data.reason || ('Detected ' + data.class);
+        } else {
+          msg.textContent = data.reason || 'Could not detect from VIN — pick a class manually.';
+        }
+      } catch (e) {
+        msg.textContent = 'VIN lookup failed — pick a class manually.';
+      }
+      detectBtn.disabled = false;
+    });
+  })();
+</script>
 {% endblock %}

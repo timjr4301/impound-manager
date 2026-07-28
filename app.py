@@ -669,6 +669,7 @@ def build_top_nav(user):
     # 4) Management — Tim / admin
     mg = section('Management', 'bi-sliders',
         item('Status Audit', 'bi-clipboard-check', 'audit.index') if r in ('tim', 'brady', 'jim') else None,
+        item('Find Trucks (VIN scan)', 'bi-truck', 'admin.reclassify') if r == 'tim' else None,
         item('Admin / Users', 'bi-gear', 'admin.users') if r == 'tim' else None,
         item('PD Rates', 'bi-shield-lock', 'admin.departments') if r == 'tim' else None,
     )
@@ -1169,6 +1170,22 @@ def create_app():
                     .all()
                 )
         return render_template('vin_lookup.html', digits=digits, dlen=len(digits), results=results, error=error)
+
+    @app.route('/vin/detect-class')
+    @login_required
+    def vin_detect_class():
+        """Decode a VIN's weight class for the intake / edit form's
+        'Detect from VIN' button. Suggest-and-confirm — staff can always
+        override the returned class before saving."""
+        import vin_decode
+        vin = request.args.get('vin', '').strip().upper()
+        d = vin_decode.detect_class(vin)
+        return jsonify({
+            'vin': vin,
+            'class': d['detected'],          # 'light' | 'medium' | 'heavy' | None
+            'reason': d['reason'],
+            'make': d['make'], 'model': d['model'], 'year': d['year'],
+        })
 
     # ── Staff Feedback ───────────────────────────────────────────────────────────
 

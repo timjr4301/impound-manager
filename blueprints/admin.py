@@ -1,10 +1,13 @@
 """
 Admin blueprint — user management (Tim/Jim only).
 """
+from datetime import datetime
+
 from flask import Blueprint, render_template, request, redirect, url_for, flash, jsonify
 from flask_login import login_required, current_user
-from models import db, User, PoliceDepartment
+from models import db, User, PoliceDepartment, Vehicle, VehicleNote
 from permissions import has_permission
+import vin_decode
 
 bp = Blueprint('admin', __name__, url_prefix='/admin')
 
@@ -217,3 +220,145 @@ def departments_toggle(dept_id):
     state = 'activated' if dept.active else 'deactivated'
     flash(f'"{dept.name}" {state}.', 'success')
     return redirect(url_for('admin.departments'))
+
+
+# ─────────────────────────────────────────────────────────────────────────
+# Find Trucks — VIN-based reclassification of PPI vehicles.
+#
+# Every PPI vehicle predates the weight-class system, so they all default to
+# 'light' ($22/day) and heavier trucks are under-billed on storage. This scans
+# each active PPI VIN through the free NHTSA decoder, auto-confirms the ~90% that
+# really are light, and surfaces only the trucks it flags as medium/heavy for Tim
+# to confirm. The apply step writes BOTH vehicle_class and daily_storage_rate,
+# because effective_storage_rate returns the stored rate whenever it is set — so
+# changing the class alone would not change the bill.
+# ─────────────────────────────────────────────────────────────────────────
+
+_KNOWN_CLASS_RATES = set(Vehicle.PPI_STORAGE_RATE_BY_CLASS.values())  # {22.0, 37.0, 82.0}
+
+
+def _active_ppi_query():
+    return (Vehicle.query
+            .filter(Vehicle.status == 'ACTIVE')
+            .filter(Vehicle.impound_type == 'PPI')
+            .filter(Vehicle.possible_release.isnot(True)))
+
+
+@bp.route('/reclassify')
+@_tim_only_required
+def reclassify():
+    vehicles = _active_ppi_query().order_by(Vehicle.stock_number).all()
+    rows = [{
+        'id': v.id,
+        'stock': v.stock_number or '',
+        'desc': v.display_name,
+        'vin': (v.vin or '').strip().upper(),
+        'current_class': (v.vehicle_class or 'light').lower(),
+    } for v in vehicles]
+    return render_template(
+        'admin/reclassify.html',
+        rows=rows,
+        class_rates=Vehicle.PPI_STORAGE_RATE_BY_CLASS,
+    )
+
+
+@bp.route('/reclassify/scan', methods=['POST'])
+@_tim_only_required
+def reclassify_scan():
+    """Decode one client-sent batch of {id, vin} items. Stateless — the browser
+    slices the fleet into chunks and calls this repeatedly, so no single request
+    is long (keeps memory flat / dodges worker timeouts)."""
+    payload = request.get_json(silent=True) or {}
+    items = payload.get('items') or []
+    # Preserve id -> vin, decode the distinct VINs once, map results back per id.
+    vins = [(it.get('vin') or '').strip().upper() for it in items]
+    decoded = vin_decode.decode_vins(vins)
+    results = []
+    for it in items:
+        vin = (it.get('vin') or '').strip().upper()
+        d = decoded.get(vin) or vin_decode._blank_result(vin, 'No/short VIN — decode skipped')
+        results.append({
+            'id': it.get('id'),
+            'vin': vin,
+            'detected': d['detected'],
+            'reason': d['reason'],
+            'make': d['make'], 'model': d['model'], 'year': d['year'],
+            'body_class': d['body_class'], 'gvwr': d['gvwr'],
+        })
+    return jsonify({'results': results})
+
+
+@bp.route('/reclassify/apply', methods=['POST'])
+@_tim_only_required
+def reclassify_apply():
+    """Apply the reclassifications Tim confirmed. Writes vehicle_class AND the
+    class-default daily_storage_rate (unless a custom rate was hand-typed, which
+    is preserved and reported back)."""
+    payload = request.get_json(silent=True) or {}
+    changes = payload.get('changes') or []
+    updated = 0
+    rate_kept = []      # class changed but a custom $ rate was left alone
+    skipped = 0
+    errors = []
+    now = datetime.utcnow()
+
+    for ch in changes:
+        try:
+            vid = int(ch.get('id'))
+        except (TypeError, ValueError):
+            errors.append(f'Bad vehicle id: {ch.get("id")!r}')
+            continue
+        new_class = (ch.get('vehicle_class') or '').strip().lower()
+        if new_class not in Vehicle.VEHICLE_CLASSES:
+            errors.append(f'#{vid}: invalid class {new_class!r}')
+            continue
+        v = db.session.get(Vehicle, vid)
+        if v is None:
+            errors.append(f'Vehicle {vid} not found')
+            continue
+        if v.status != 'ACTIVE' or v.impound_type != 'PPI' or v.possible_release:
+            skipped += 1
+            continue
+        old_class = (v.vehicle_class or 'light').lower()
+        if old_class == new_class:
+            skipped += 1
+            continue
+
+        old_rate = float(v.daily_storage_rate) if v.daily_storage_rate is not None else None
+        target_rate = Vehicle.ppi_storage_rate_for_class(new_class)
+        v.vehicle_class = new_class
+
+        # Rate rule: only move the stored rate when it is blank or itself a known
+        # class default — never clobber a hand-typed custom rate.
+        if old_rate is None or old_rate in _KNOWN_CLASS_RATES:
+            v.daily_storage_rate = target_rate
+            rate_note = (f'storage ${old_rate:.2f}→${target_rate:.2f}'
+                         if old_rate is not None else f'storage set ${target_rate:.2f}')
+        else:
+            rate_kept.append({'id': vid, 'stock': v.stock_number, 'rate': old_rate})
+            rate_note = f'custom storage ${old_rate:.2f} kept'
+
+        v.updated_at = now
+        who = current_user.display_name or current_user.username
+        db.session.add(VehicleNote(
+            vehicle_id=v.id,
+            body=f'Reclassified {old_class}→{new_class} ({rate_note}) via VIN scan by {who}.',
+            author=who,
+            created_at=now,
+        ))
+        updated += 1
+
+    if updated:
+        db.session.commit()
+        msg = f'Reclassified {updated} vehicle(s).'
+        if rate_kept:
+            msg += f' {len(rate_kept)} kept a custom rate — check those tickets.'
+        flash(msg, 'success')
+
+    return jsonify({
+        'updated': updated,
+        'rate_kept': rate_kept,
+        'skipped': skipped,
+        'errors': errors,
+        'redirect': url_for('admin.reclassify'),
+    })
