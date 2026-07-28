@@ -1,7 +1,12 @@
 """
-One-time reconciliation: fill in the 1st Notice Letter SENT DATE from the UPS
+One-time reconciliation: record the 1st Notice Letter SENT DATE from the UPS
 outbound export (outbound_072826_*.csv), for letters mailed the "old way" during
 the July 2026 outage.
+
+Most of these vehicles came in via the Towbook bulk sync, which does NOT create
+any letter record -- so they have no 1st-letter row at all. This script therefore
+CREATES a 1st Notice Letter row (already marked sent, real UPS date) when none
+exists, or fills the sent_date on an existing blank one.
 
 The dates below are the REAL UPS manifest (send) dates, keyed by invoice number
 (the reference on each UPS label), pre-extracted from the export so this script
@@ -9,12 +14,14 @@ needs no CSV at runtime. For each invoice the EARLIEST manifest date is used
 (that is the 1st Notice; any later shipment is a 2nd notice and is ignored).
 
 SAFETY - matches Tim's rules exactly:
-  * Sets ONLY sent_date on letter_number = 1, and ONLY where it is currently
-    blank. Skips already-sent, superseded, released, and ghost vehicles.
-  * Matches by vehicle.invoice_number (populated by towbook_import).
-  * Does NOT touch 2nd letters, tracking, delivery dates, photos, or anything
-    else. Does NOT fire letter triggers or start any 2nd-letter clock.
+  * Only ACTIVE, non-ghost vehicles whose invoice number appears in the UPS
+    export. Skips any car that already has a SENT 1st letter.
+  * Touches ONLY letter_number = 1 (create or fill sent_date). NEVER creates or
+    touches a 2nd letter, tracking, delivery date, photos, or anything else.
+    Does NOT fire letter triggers or start any 2nd-letter clock.
   * Never stamps a date before the impound date or after today.
+  * Created rows get the standard due_date (impound + 5 PPI / 10 POLICE), same
+    as generate_letter1_backfill / the Add-Vehicle form.
   * Writes an audit VehicleNote on each vehicle.
 
 Dry-run by default (prints what WOULD change). Add --apply to commit.
@@ -23,10 +30,11 @@ Dry-run by default (prints what WOULD change). Add --apply to commit.
     [RENDER SHELL] python3 import_ups_letter_dates.py --apply   # write
 """
 import sys
-from datetime import datetime, date
+from datetime import datetime, date, timedelta
 
 from app import app
-from models import db, Vehicle, CertifiedLetter, VehicleNote
+from models import (db, Vehicle, CertifiedLetter, VehicleNote,
+                    PPI_LETTER1_DAYS, POLICE_LETTER1_DAYS)
 
 
 # invoice_number -> earliest UPS manifest (send) date, from outbound_072826 export
@@ -655,75 +663,87 @@ INVOICE_SENT = {
 }
 
 
+def _due_date(v):
+    days = PPI_LETTER1_DAYS if v.impound_type == 'PPI' else POLICE_LETTER1_DAYS
+    return v.impound_date + timedelta(days=days)
+
+
+def _note(v, d, now, kind):
+    if not v.task_2_letter_completed_at:
+        v.task_2_letter_completed_at = now
+    db.session.add(VehicleNote(
+        vehicle_id=v.id,
+        body=('1st Notice Letter recorded SENT (' + str(d) + ') from the UPS outbound '
+              'record (invoice ' + str(v.invoice_number) + ') - real UPS manifest date, '
+              'mailed the old way during the July outage. Record ' + kind + '; no 2nd '
+              'letter, tracking, or delivery touched.'),
+        author='System (UPS date import)',
+        created_at=now,
+    ))
+
+
 def main():
     apply = '--apply' in sys.argv
     today = date.today()
     with app.app_context():
-        pairs = (
-            db.session.query(CertifiedLetter, Vehicle)
-            .join(Vehicle, Vehicle.id == CertifiedLetter.vehicle_id)
-            .filter(CertifiedLetter.letter_number == 1)
-            .filter(CertifiedLetter.sent_date.is_(None))
-            .filter(CertifiedLetter.superseded.isnot(True))
+        vehicles = (
+            Vehicle.query
             .filter(Vehicle.status == 'ACTIVE')
             .filter(Vehicle.possible_release.isnot(True))
-            .order_by(CertifiedLetter.vehicle_id)
+            .filter(Vehicle.invoice_number.in_(list(INVOICE_SENT.keys())))
+            .order_by(Vehicle.id)
             .all()
         )
 
-        matched, no_record, bad_date = [], [], []
-        for letter, v in pairs:
-            inv = (v.invoice_number or '').strip()
-            iso = INVOICE_SENT.get(inv)
+        created, filled, already_sent, bad_date = [], [], 0, []
+        for v in vehicles:
+            iso = INVOICE_SENT.get((v.invoice_number or '').strip())
             if not iso:
-                no_record.append((v, letter))
                 continue
             d = date.fromisoformat(iso)
             if v.impound_date and d < v.impound_date:
-                bad_date.append((v, letter, d))
+                bad_date.append((v, d))
                 continue
             if d > today:
                 d = today
-            matched.append((v, letter, d))
+            l1 = next((l for l in v.letters
+                       if l.letter_number == 1 and not l.superseded), None)
+            if l1 and l1.sent_date:
+                already_sent += 1
+            elif l1:
+                filled.append((v, l1, d))
+            else:
+                created.append((v, d))
 
         print(f'{"APPLYING" if apply else "DRY-RUN (no changes)"}')
-        print(f'  pending 1st letters (active, unsent): {len(pairs)}')
-        print(f'  matched to a UPS send date:           {len(matched)}')
-        print(f'  no UPS record (left as-is):           {len(no_record)}')
-        print(f'  UPS date before impound (skipped):    {len(bad_date)}')
+        print(f'  active cars matched to a UPS send date: {len(vehicles)}')
+        print(f'  will CREATE a sent 1st-letter record:   {len(created)}')
+        print(f'  will FILL an existing blank 1st letter:  {len(filled)}')
+        print(f'  already recorded as sent (skipped):     {already_sent}')
+        print(f'  UPS date before impound (skipped):      {len(bad_date)}')
         print()
 
-        for v, letter, d in matched:
-            desc = (v.display_name or "")[:32]
-            print(f'  #{v.id:<6} inv {str(v.invoice_number or "-"):<10} {desc:<32} sent {d}')
-            if apply:
-                letter.sent_date = d
-                if not v.task_2_letter_completed_at:
-                    v.task_2_letter_completed_at = datetime.utcnow()
-                db.session.add(VehicleNote(
-                    vehicle_id=v.id,
-                    body=('1st Notice Letter marked SENT (' + str(d) + ') from the UPS '
-                          'outbound record (invoice ' + str(v.invoice_number) + ') - real '
-                          'UPS manifest date, mailed the old way during the July outage. '
-                          'No 2nd letter, tracking, or delivery touched.'),
-                    author='System (UPS date import)',
-                    created_at=datetime.utcnow(),
-                ))
+        sample = [(v, d, "create") for v, d in created] + [(v, d, "fill") for v, _l, d in filled]
+        for v, d, kind in sample[:80]:
+            desc = (v.display_name or "")[:30]
+            print(f'  [{kind:6}] #{v.id:<6} inv {str(v.invoice_number or "-"):<10} {desc:<30} sent {d}')
+        if len(sample) > 80:
+            print(f'  ... and {len(sample) - 80} more')
 
-        if no_record:
-            print()
-            print(f'  {len(no_record)} pending 1st letters had NO UPS invoice match '
-                  f'(left unsent - decide separately):')
-            for v, letter in no_record[:60]:
-                print(f'    #{v.id:<6} inv {str(v.invoice_number or "-"):<10} {(v.display_name or "")[:32]}')
-            if len(no_record) > 60:
-                print(f'    ... and {len(no_record) - 60} more')
-
-        if apply and matched:
+        if apply:
+            now = datetime.utcnow()
+            for v, d in created:
+                db.session.add(CertifiedLetter(
+                    vehicle_id=v.id, letter_number=1,
+                    due_date=_due_date(v), sent_date=d, created_at=now))
+                _note(v, d, now, 'created')
+            for v, l1, d in filled:
+                l1.sent_date = d
+                _note(v, d, now, 'filled')
             db.session.commit()
             print()
-            print(f'Committed - {len(matched)} first letters dated from UPS.')
-        elif not apply:
+            print(f'Committed - {len(created)} created, {len(filled)} filled.')
+        else:
             print()
             print('Re-run with --apply to write these changes.')
 
