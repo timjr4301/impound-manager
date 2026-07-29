@@ -1,5 +1,5 @@
 # [IMPOUND MANAGER — MASTER CONTEXT DOC]
-_Last updated: July 26, 2026 — sequential task gate + UPS delivery auto-poll + UPS connection-test button + Letter Workflow Guide shipped & deployed (commits d5f8e3a, 1c59b00, 388fad9). Next up: the design/UX pass. See OPS note on the 512MB out-of-memory restarts (now with one more background job — watch it)._
+_Last updated: July 29, 2026 — Find Trucks VIN reclassification + release reconciliation (18 cars) + July-outage 1st-letter reconciliation from the UPS outbound export (56 letters created with real send dates → 68 tracking numbers attached → 61 delivered → 61 2nd-letter timers started). Memory: now on Render **Standard 2 GB** — the 512 MB OOM is RESOLVED. Commits 36837a1, fe49fbe, c99549b, fd22b6e. Parked: image backup (waiting on IT), relo-trans car categorization. Open: verify the fresh Towbook-synced car → 1st-letter queue handoff._
 
 ---
 
@@ -61,11 +61,27 @@ An audit against the codebase found most of the old BUILD QUEUE was already ship
 
 **Deploy notes (July 26):** pushing to `timjr4301/impound-manager` **fails from Claude Code's environment** (git creds authenticate as `tim-wallaceandrew` → 403) — Tim pushes from his own machine. His machine ALSO defaults to `tim-wallaceandrew` active; the fix is `gh auth switch --user timjr4301` then `gh auth setup-git`, then push. On deploy the `task_2_letter_completed_at` column self-healed on boot (manual ALTER reported "already exists, skipping"); `reset_users.py` run (users incl. `robert`).
 
-## ⚠ OPS — MEMORY / OUT-OF-MEMORY RESTARTS
-The service intermittently hits **"Ran out of memory (used over 512MB)"** on Render and auto-restarts. Causes are the app's own background work, not user traffic: the **boot-time full-inventory recalc** (task_engine over 650+ vehicles, spikes at every start — a boot OOM causes a crash→restart loop), the **APScheduler jobs** (Towbook sync 5AM, urgency recalc 6AM), **slow memory creep** on a single non-recycled worker, and open browser tabs holding **Socket.IO chat** connections.
-- **Real fix (dashboard, not in repo):** Render → impound-manager → Settings → **Instance Type → 1 GB**. The `render.yaml` `plan:` field is ignored; the dashboard instance type is authoritative.
-- **Also (dashboard):** Settings → **Start Command** → `gunicorn -k gthread --threads 4 -w 1 --max-requests 200 --max-requests-jitter 30 app:app` (the dashboard Start Command overrides `render.yaml`).
-- **Longer-term (parked):** move the base64 image blobs (envelope scans, damage photos, UPS labels/PODs, general docs) out of Postgres/out of memory — they're the biggest per-request memory driver.
+### ✅ NEW — July 28–29, 2026 (VIN reclassify + release reconciliation + July-outage letter cleanup)
+
+**Find Trucks — VIN reclassification (commit 36837a1)** — new Tim-only `/admin/reclassify` page + `vin_decode.py` (NHTSA vPIC decoder, keyless, `DecodeVINValuesBatch`). Scans active-PPI VINs, maps GVWR weight class → light/medium/heavy, and surfaces ONLY the trucks it flags (the ~90% light cars are auto-confirmed and hidden). Apply writes BOTH `vehicle_class` AND `daily_storage_rate` (changing class alone doesn't change the bill — `effective_storage_rate` returns the stored rate when set). Also a **"Detect from VIN"** button on the new/edit vehicle forms (`GET /vin/detect-class`). Nav: Management → "Find Trucks (VIN scan)". No app-UPS/AI dependency (NHTSA is a plain data API). Design steer: Tim rejected a manual bulk-classify list — wants auto-detect + review-the-exceptions for backlogs.
+
+**Release reconciliation** — uploaded `released cars since may 1st.csv` to `/audit`, bulk-released the **18** still-active bulk-eligible cars (Released-with-Payment / to-Insurance). Left the 2 "Other/Review" rows (one is a **relo-trans** — a transport car staged in the lot for another transport truck, NOT an impound) and 1 Title-Obtained→Tina car.
+
+**July-outage 1st-letter reconciliation (the big one).** During a mid-July site outage Heather mailed 1st letters "the old way" — UPS labels made **directly on ups.com, outside the app** — so those letters had no record in IM. Reconciled from Tim's **UPS outbound export** (`outbound_072826_*.csv`; 6 wks 06/15–07/27, 621 invoices) via three one-time scripts (all dry-run gated, run in the Render Shell):
+- **`import_ups_letter_dates.py` (commit c99549b)** — 621 invoice→earliest-manifest-date pairs baked in. Matches vehicles by `invoice_number` (populated by `towbook_import.py:191`). **CREATES** a `letter_number=1` record marked sent (real UPS date, due = impound+5 PPI / +10 POLICE) — because **`towbook_import.py` never creates letter records**, so Towbook-synced cars have NO letters at all (an update-only first pass found 0; that's the key gotcha). **Result: 56 created, 0 filled.** Touches ONLY letter 1, never 2nd letters; audit VehicleNote each.
+- **`attach_ups_tracking.py` (commit fd22b6e)** — attaches the UPS tracking number (from the same export) to sent letter-1s missing it, so they become eligible for the existing `ups_poll.py` in-flight sweep (`_in_flight_letters`: tracking not null + ACTIVE non-ghost + `return_to_sender=False` + delivery null). **Result: 68 attached** (56 new + 12 older; 4 old cars had no export match).
+- Then **"Refresh UPS Tracking"** on the Letters page → UPS delivery pulled → **61 delivered = 61 2nd-letter clocks started** (delivery-anchored Task 3, 30 days; commit de71135). A wave of now-due 2nd letters lands on Heather's board — expected, correct.
+- **`mark_letter1_sent_reconcile.py` (commit fe49fbe)** — unused fallback: dates 1st letters day-after-impound (Fri/Sat/Sun→Monday) for cars with no UPS match.
+
+**"2nd letters moving forward" is fully automatic now:** any letter sent IN the app gets a tracking number → the 3-hourly auto-poll pulls delivery/RTS → the 2nd-letter timer starts, no clicks. The outage backlog only needed hand-holding because those labels were created outside the app. Key data facts confirmed this session: `Vehicle.invoice_number` exists (models.py:160); the app's UPS API (`ups_api.py::_parse_package`) returns the DELIVERED date + status but NOT the send/manifest date, so the CSV was the only send-date source; `generate_letter1_backfill.py` creates *unsent* missing letter-1 rows.
+
+**Process notes (recurred all session):** `python3` scripts run ONLY in the Render **web** Shell (dashboard → Shell tab) — running them in local PowerShell gives "Python was not found." Always confirm the script ended with **"Committed - N …"**, not "Re-run with --apply" (the `--apply` got skipped once, so a step silently did nothing). Give one command at a time, labeled PowerShell-vs-Render.
+
+**OPEN / not yet verified:** the **fresh Towbook-synced car → 1st-letter queue** handoff. Since Towbook sync creates NO letter record, confirm new daily-upload cars actually surface in Heather's letter queue and don't quietly fall through the way the outage batch did. Also: the ~61 due 2nd letters are Heather's to work; the 4 no-UPS-match old cars still lack tracking.
+
+## ✅ OPS — MEMORY / OUT-OF-MEMORY (RESOLVED July 28, 2026)
+The old **"Ran out of memory (over 512MB)"** auto-restarts are **RESOLVED** — the service is now on Render **Standard (2 GB RAM)** (confirmed July 28; not the 512 MB Free/Starter tier). **Do NOT push a further upgrade** — 2 GB is ample for this app + the background jobs (boot recalc, Towbook sync 5AM, urgency recalc 6AM, UPS auto-poll every 3 hrs). If an OOM ever recurs *on 2 GB*, that's a real memory leak to chase (most likely the base64 image blobs), not a plan-size issue.
+- **Longer-term (parked, blocked on IT):** move the base64 image blobs (envelope scans, damage photos, UPS labels/PODs, general docs) out of Postgres — biggest memory driver. Retention design is decided — **nightly off-site backup + a monthly manual purge that keeps the legal-evidence images (UPS PODs + damage photos)** — but **blocked on Tim's IT dept choosing a storage destination.** Purge must refuse to delete anything not already backed up.
 
 ---
 
@@ -112,6 +128,10 @@ Awaiting Title → To Locate → Key Row → Inspection Pool → Needs Repairs
 ## BUILD QUEUE
 
 ### ✅ Recently completed (verify then clear)
+- ✅ **Find Trucks — VIN reclassification** — DONE July 28, commit 36837a1 (`/admin/reclassify` + `vin_decode.py`, NHTSA GVWR → light/medium/heavy; "Detect from VIN" button on intake/edit). This is the "Easier truck reclassification" open item — closed.
+- ✅ **Release reconciliation** — DONE July 28. 18 still-active bulk-eligible cars marked Released via `/audit` CSV cross-reference.
+- ✅ **July-outage 1st-letter reconciliation** — DONE July 28–29, commits fe49fbe / c99549b / fd22b6e. `import_ups_letter_dates.py` (56 letters created from real UPS send dates) → `attach_ups_tracking.py` (68 tracking attached) → Refresh UPS Tracking (61 delivered → 61 2nd-letter timers started). Fallback `mark_letter1_sent_reconcile.py`. See the July 28–29 completed-builds section for the full detail + gotchas.
+- ✅ **512 MB OOM restarts** — RESOLVED July 28 (now on Render Standard 2 GB). See OPS note.
 - ✅ **Sequential task gate (Letter 1 locked behind BMV Search)** — DONE July 26, commit d5f8e3a. Reverses the July-7 dual-unlock; server-side, all impound types.
 - ✅ **UPS delivery auto-poll** — DONE July 26, commit 1c59b00 (`ups_delivery_poll`, `ups_poll.py`).
 - ✅ **"Test UPS Connection" button** — DONE July 26, commit 1c59b00 (`/admin/ups-test`).
@@ -130,8 +150,12 @@ Awaiting Title → To Locate → Key Row → Inspection Pool → Needs Repairs
 - ⬜ **Black Book URL** — the valuation button points at the marketing site; swap in the exact B&J subscriber-portal login URL when Tim provides it.
 - ⬜ **VinAudit (Build 14)** — blocked on `VINAUDIT_API_KEY` in Render; build the auto-lookup once the key is set.
 - ⬜ **Per-class tow rates** — only storage is class-based; tow is flat $144 (editable per ticket). Awaiting Tim's light/medium/heavy tow numbers if tow should scale too.
-- ⬜ **Easier truck reclassification** — every existing PPI vehicle defaulted to "light" ($22); a bulk-classify tool or VIN-based auto-detect would get medium/heavy trucks onto the right rate faster than one ticket at a time.
+- ⬜ **VERIFY: fresh Towbook-synced car → 1st-letter queue** — Towbook sync creates NO letter record (only the manual Add-Vehicle form and `generate_letter1_backfill.py` do). Confirm new daily-upload cars actually surface in Heather's letter queue so they don't fall through like the July-outage batch. This is the one handoff not yet watched end-to-end; decide if the daily Towbook upload should auto-create letter-1 rows.
+- ⬜ **Image backup + monthly purge** — retention design decided (nightly off-site backup; monthly manual purge that KEEPS legal-evidence images = UPS PODs + damage photos; purge refuses to delete anything not already backed up). **BLOCKED on Tim's IT dept picking a storage destination** (on-prem NAS / M365 / Google / S3 / Backblaze — build is destination-agnostic). This is also the long-term fix for the base64-blobs-in-Postgres memory driver.
+- ⬜ **Relo-trans cars** — transport cars staged in the lot are NOT impounds but sit in inventory generating letter/storage tasks. Tim researching how to categorize them (likely a "Relo / Transport" tag that keeps them in inventory but out of the impound letter/title pipeline). 2 currently in the audit list left untouched.
 - ⬜ Disposition follow-ups: auction-event edit page; per-load Ohio Steel batch grouping; push/SMS on repair alerts; a "repairs in progress" sub-state between approve and auction-ready.
+
+**Operational follow-through (not builds):** the ~61 now-due 2nd letters from the outage reconciliation are Heather's to work through (expected wave, not a bug); the 4 old cars with no UPS-export match still lack tracking.
 
 ### 🔗 Sibling app — BJ Books (separate repo/service)
 `timjr4301/bj-books` → bj-books.onrender.com (Nightly Books). Distinct app, own Render service/memory. Recent work: ECR Z-report parser fixes (bare-`\r` delimiter, DP/PAY field maps, `register_ra` capture — migration 025). Open: the invoice-upload flow bogs down / "gets overloaded" when many PDFs are each read by Claude at once — needs throttling / decoupling upload from AI reading. **Do not confuse with impound-manager or the suspended bj-impound-manager.**
