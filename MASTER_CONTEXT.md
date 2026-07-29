@@ -1,6 +1,8 @@
 # [IMPOUND MANAGER — MASTER CONTEXT DOC]
 _Last updated: July 29, 2026 — Find Trucks VIN reclassification + release reconciliation (18 cars) + July-outage 1st-letter reconciliation from the UPS outbound export (56 letters created with real send dates → 68 tracking numbers attached → 61 delivered → 61 2nd-letter timers started). Memory: now on Render **Standard 2 GB** — the 512 MB OOM is RESOLVED. Commits 36837a1, fe49fbe, c99549b, fd22b6e. Parked: image backup (waiting on IT), relo-trans car categorization. Open: verify the fresh Towbook-synced car → 1st-letter queue handoff._
 
+> ⚠ **CURRENT COMPLIANCE RULE (corrected 2026-07-29):** the 2nd notice letter is due **30 days after Letter 1 is SENT**, NOT after delivery. This reverses the earlier delivery-anchored design (de71135, commit f3cca7d fixes it). Some build entries below still describe the old delivery-anchored behavior — that's history; the sent-anchored rule under "KEY OHIO COMPLIANCE RULES" is what's live. **Do not revert to delivery-anchoring.**
+
 ---
 
 ## PROJECT INFO
@@ -164,7 +166,7 @@ Awaiting Title → To Locate → Key Row → Inspection Pool → Needs Repairs
 
 ## KEY OHIO COMPLIANCE RULES
 - 60 days from `impound_date` + 30 days after Letter 2 before title eligibility.
-- Letter 2 clock anchored to proof of delivery of Letter 1 (`task_engine.letter_delivery_date`).
+- **Letter 2 is due 30 days after Letter 1 is SENT** (sent-anchored). ⚠ CORRECTED 2026-07-29 — reverses the old delivery-anchored design (de71135). Delivery is still recorded (POD/proof) but does NOT drive the 2nd-letter timer. Enforced in `task_engine.compute_task`, `models.letter_send_block_reason`/`next_action_label`/`stoplight_color`, and `blueprints/audit.py` (all use `l1.sent_date + 30`). DO NOT revert to delivery-anchoring.
 - Electronic POD (UPS POD or scanned DELIVERED envelope) satisfies certified-mail requirement.
 - NADA wholesale value must be less than total fees owed.
 - B&J BMV vendor #: 25-186078.
