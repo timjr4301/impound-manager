@@ -669,9 +669,9 @@ def build_top_nav(user):
     # 4) Management — Tim / admin
     mg = section('Management', 'bi-sliders',
         item('Status Audit', 'bi-clipboard-check', 'audit.index') if r in ('tim', 'brady', 'jim') else None,
-        item('Find Trucks (VIN scan)', 'bi-truck', 'admin.reclassify') if r == 'tim' else None,
-        item('Admin / Users', 'bi-gear', 'admin.users') if r == 'tim' else None,
-        item('PD Rates', 'bi-shield-lock', 'admin.departments') if r == 'tim' else None,
+        item('Find Trucks (VIN scan)', 'bi-truck', 'admin.reclassify') if r in ('tim', 'jim') else None,
+        item('Admin / Users', 'bi-gear', 'admin.users') if r in ('tim', 'jim') else None,
+        item('PD Rates', 'bi-shield-lock', 'admin.departments') if r in ('tim', 'jim') else None,
     )
     if mg:
         sections.append(mg)

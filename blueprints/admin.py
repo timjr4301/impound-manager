@@ -24,14 +24,15 @@ def _admin_required(f):
 
 
 def _tim_only_required(f):
-    """Stricter than _admin_required (which also allows jim/lawrence/brady) —
-    the police department rate table is the source of truth for letter fee
-    amounts, so only Tim can edit it."""
+    """Owner-only gate (Tim & Jim). Stricter than _admin_required, which also
+    allows lawrence/brady. Covers fee-sensitive / admin tools (PD rate table,
+    truck reclassification). Jim is a co-owner and, for business continuity,
+    has the same access Tim does."""
     from functools import wraps
     @wraps(f)
     def decorated(*args, **kwargs):
-        if current_user.role != 'tim':
-            flash('This page is Tim-only.', 'danger')
+        if current_user.role not in ('tim', 'jim'):
+            flash('This page is for owners (Tim & Jim) only.', 'danger')
             return redirect(url_for('dashboard'))
         return f(*args, **kwargs)
     return login_required(decorated)
