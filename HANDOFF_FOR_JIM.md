@@ -147,7 +147,43 @@ You don't do this yourself, and you rarely need to. When you do:
 
 ---
 
-## 10. Blanks for Tim to fill in
+## 10. Total loss — finding your way back from just the site name
+
+Say the worst happens and all anyone remembers is **impound-manager.onrender.com**. Here's the trail
+back:
+
+1. That address means the app is hosted on **Render** (render.com). Go there. Can't log in? Click
+   "Forgot password" and use the Render account email (Section 3) to reset it. That gets you back into
+   the app, the database, AND the backups.
+2. The code lives on **GitHub** (`timjr4301/impound-manager`) — recover it through the GitHub account
+   email (Section 3).
+3. **This is why the account emails in Section 3 are the single most important thing to keep.** With
+   those emails and access to their inboxes, you can reset your way back into everything. Guard those
+   email accounts like the keys to the building — because that's what they are.
+
+The two that matter most, above all others: **Render and GitHub.** Make sure Jim is a listed
+**owner** on both, not just a guest.
+
+## 11. Off-system safety copies — so you can NEVER be fully locked out
+
+Belt, suspenders, and a spare. Keep copies of the essentials somewhere that does **not** depend on any
+of these accounts:
+
+- **Print this document** and store copies off-system: the business safe, with your attorney or
+  accountant, and a copy in Jim's own personal email or Google Drive.
+- **Download a full database backup periodically.** Render → **impound-manager-db** → **Recovery** →
+  **Create export** → download the file → store it off-site (external drive / personal cloud). That's a
+  complete copy of every record that survives even if Render itself vanished. Do it once a quarter.
+- **The code already lives in two safe places:** on Tim's computer at `C:\Users\timjr\impound-manager`,
+  and on GitHub. You can also download it as a ZIP from GitHub anytime. Keep one copy off-site.
+
+> With this document **+** a database export **+** a copy of the code stored independently, **any
+> developer could rebuild the entire system from scratch — even if every single account were lost.**
+> That is the ultimate backstop. Nothing here can be truly, permanently lost.
+
+---
+
+## 12. Blanks for Tim to fill in
 
 - [ ] Account login emails for Render, GitHub, UPS, Anthropic (Section 3)
 - [ ] Exact monthly costs from Render → Billing (Section 4)
@@ -155,6 +191,9 @@ You don't do this yourself, and you rarely need to. When you do:
 - [ ] Jim's own Impound Manager username/password (created under Admin / Users)
 - [ ] An emergency contact for tech help (a trusted developer's name/number), if you have one
 - [ ] Put the monthly calendar reminder on Jim's calendar (Section 2)
+- [ ] Add Jim as an **owner** on Render and GitHub specifically (the two crown jewels — Section 10)
+- [ ] Print this doc + store copies off-system: business safe, attorney/accountant, Jim's personal cloud
+- [ ] Create & download a database export now (Render → impound-manager-db → Recovery → Create export); store off-site; repeat quarterly
 
 > **Rule:** never write actual passwords or secret keys in this document. Those live inside Render
 > (Environment settings) and each account's own login. This is the *map*, not the keys.
