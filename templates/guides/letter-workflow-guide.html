@@ -528,7 +528,7 @@ details.section[open] .sec-arrow { transform: rotate(180deg); }
         <li class="step"><input type="checkbox"><span class="step-n">5</span><span class="step-text">Print the label. It's ~4 inches wide, standard UPS label format. The label includes the owner name/address and the <strong>invoice number as the UPS reference number</strong> — this is how the system matches the envelope when it comes back.</span></li>
         <li class="step"><input type="checkbox"><span class="step-n">6</span><span class="step-text">Confirm the <strong>Date Sent</strong> field (defaults to today). The UPS tracking number auto-fills from the label that was just created.</span></li>
         <li class="step"><input type="checkbox"><span class="step-n">7</span><span class="step-text"><em>For AFO (Accident for Owner) cases only:</em> enter <code>AFO</code> in the <strong>Reference #2</strong> field. This gets written on the physical label and will auto-flag the vehicle when the envelope comes back through the scanner.</span></li>
-        <li class="step"><input type="checkbox"><span class="step-n">8</span><span class="step-text">Click <strong>Submit</strong>. The system records the sent date, tracking number, and <strong>automatically creates Letter 2</strong> scheduled 30 days from today's delivery confirmation.</span></li>
+        <li class="step"><input type="checkbox"><span class="step-n">8</span><span class="step-text">Click <strong>Submit</strong>. The system records the sent date, tracking number, and <strong>automatically creates Letter 2</strong> scheduled <strong>30 days from today</strong> (the send date).</span></li>
         <li class="step"><input type="checkbox"><span class="step-n">9</span><span class="step-text">If the vehicle has a <strong>2nd owner or 2nd lienholder</strong> (co-owner), a second UPS label is automatically created and shown below the first. Print both — they need separate envelopes.</span></li>
       </ul>
 
@@ -555,25 +555,25 @@ details.section[open] .sec-arrow { transform: rotate(180deg); }
       <span class="sec-arrow">▾</span>
     </summary>
     <div class="sec-body">
-      <p class="sec-desc">Letter 2 becomes due 30 days after Letter 1's confirmed delivery date — not from when it was sent. <strong>Delivery is now tracked automatically</strong> — the system checks UPS every 3 hours on its own — so Letter 2 appears on your board by itself when its time comes. You don't have to chase delivery status anymore.</p>
+      <p class="sec-desc">Letter 2 becomes due <strong>30 days after Letter 1 is SENT</strong> — the clock starts the day you send the 1st letter, not when it's delivered. So the moment Letter 1 goes out, the system already knows Letter 2's exact due date and will surface it on your board when it's time.</p>
       <div class="roles">
         <span class="role role-h">Heather</span>
         <span class="role role-t">Tim</span>
       </div>
 
-      <div class="note"><strong>What's automatic now:</strong> as long as Letter 1 was created and sent <em>in the app</em> (so it has a UPS tracking number), the system auto-checks UPS every 3 hours, records the delivery date the moment UPS confirms it, and starts the 30-day Letter 2 clock — no clicking required. Letter 2 then surfaces on your dashboard as it becomes due. The steps below are just for <em>looking up</em> what's due; the timer runs itself.</div>
+      <div class="note"><strong>What's automatic:</strong> the moment you mark Letter 1 sent in the app, the system schedules Letter 2 for exactly <strong>30 days later</strong> and surfaces it on your dashboard when it's due — no clicking, no waiting on delivery. <em>(UPS delivery is still tracked separately for your proof-of-delivery records, but it does NOT change when Letter 2 is due.)</em> The steps below are just for <em>looking up</em> what's due; the timer runs itself.</div>
 
       <ul class="steps">
         <li class="step"><input type="checkbox"><span class="step-n">1</span><span class="step-text">Go to <strong>My Dashboard</strong>. In the <span class="urg urg-r">RED</span> or <span class="urg urg-y">YELLOW</span> sections, look for vehicles with <em>"Send Letter 2 by [date]"</em> in the Active Task column.</span></li>
         <li class="step"><input type="checkbox"><span class="step-n">2</span><span class="step-text">Or: click <strong>Letters → Need to Send</strong>. Second Notice rows are labeled <em>"Second Notice — Owner"</em> or <em>"Second Notice — Lienholder."</em></span></li>
-        <li class="step"><input type="checkbox"><span class="step-n">3</span><span class="step-text">If you're unsure whether Letter 1 delivery has been confirmed, open the vehicle detail → Letters card. A green checkmark and delivery date means the 30-day clock is running. If it still shows "Awaiting Delivery," Letter 2's due date hasn't triggered yet.</span></li>
+        <li class="step"><input type="checkbox"><span class="step-n">3</span><span class="step-text">Letter 2's due date is always exactly <strong>30 days after Letter 1's sent date</strong> — you'll see both on the vehicle detail → Letters card. (Delivery status is shown too, for your records, but it does not change the due date.)</span></li>
       </ul>
 
       <div class="verify">
         <p class="verify-label">✓ What to Verify</p>
         <ul>
-          <li>Letter 2 does <strong>not</strong> appear as due until Letter 1 has a confirmed delivery date.</li>
-          <li>The Audit tool (Tim/Brady/Jim) → Section 2 will also flag Letter 2 as overdue once 30+ days have passed since Letter 1 delivery.</li>
+          <li>Letter 2's due date is exactly <strong>30 days after Letter 1's sent date</strong> — it does not wait on delivery.</li>
+          <li>The Audit tool (Tim/Brady/Jim) → Section 2 will also flag Letter 2 as overdue once 30+ days have passed since Letter 1 was <strong>sent</strong>.</li>
           <li>Letter 2 rows show "Second Notice" in the label — not "First Notice."</li>
         </ul>
       </div>
@@ -678,7 +678,7 @@ details.section[open] .sec-arrow { transform: rotate(180deg); }
         <li class="step"><input type="checkbox"><span class="step-n">1</span><span class="step-text">Open a vehicle detail page. Scroll to the <strong>Letters</strong> card.</span></li>
         <li class="step"><input type="checkbox"><span class="step-n">2</span><span class="step-text">For any sent letter with a tracking number that isn't yet confirmed delivered, click <strong>"Refresh from UPS."</strong></span></li>
         <li class="step"><input type="checkbox"><span class="step-n">3</span><span class="step-text">The system queries UPS live. Status updates to: <em>Label Created → In Transit → Out for Delivery → Delivered</em> (or Return to Sender). A flash message shows the new status.</span></li>
-        <li class="step"><input type="checkbox"><span class="step-n">4</span><span class="step-text">If delivered, the delivery date is automatically set and the <strong>30-day Letter 2 countdown begins.</strong></span></li>
+        <li class="step"><input type="checkbox"><span class="step-n">4</span><span class="step-text">If delivered, the delivery date is recorded for your <strong>proof-of-delivery records.</strong> <em>(Letter 2's due date is based on when Letter 1 was <strong>sent</strong>, not delivered — so this doesn't change the 2nd-letter timing.)</em></span></li>
         <li class="step"><input type="checkbox"><span class="step-n">5</span><span class="step-text"><strong>POD Image (Proof of Delivery):</strong> 7–10 days after delivery, a signed POD image becomes available on the vehicle detail. Click <strong>"Fetch POD"</strong> to retry manually if it hasn't appeared yet.</span></li>
       </ul>
 
@@ -697,7 +697,7 @@ details.section[open] .sec-arrow { transform: rotate(180deg); }
         <p class="verify-label">✓ What to Verify</p>
         <ul>
           <li>After refresh: the letter status on the vehicle detail updates (e.g. "In Transit" or "Delivered").</li>
-          <li>Once delivered, Letter 2's due date is <strong>30 days from the confirmed delivery date</strong> — not from the sent date.</li>
+          <li>Letter 2's due date is <strong>30 days from Letter 1's sent date</strong> — delivery does not change it.</li>
           <li>UPS Lookup finds shipments by invoice number and shows an Attach button on results matching an open untracked letter.</li>
           <li>The POD image appears as a linked PDF on the vehicle detail once available (typically 7–10 business days after delivery).</li>
         </ul>
@@ -763,7 +763,7 @@ details.section[open] .sec-arrow { transform: rotate(180deg); }
       <input type="checkbox">
       <div>
         <div class="test-title">8 · Second Letter Timer Test</div>
-        <div class="test-desc">Check a vehicle where Letter 1 has been delivered. Confirm: Letter 2 due date = ~30 days from the Letter 1 delivery_confirmed_date, not from the sent date. If Letter 1 has no delivery confirmation yet, Letter 2 should have no triggered due date.</div>
+        <div class="test-desc">Check a vehicle with Letter 1 sent. Confirm: Letter 2 due date = ~30 days from Letter 1's <strong>sent</strong> date (not delivery). It shows a due date even if Letter 1 hasn't been delivered yet.</div>
       </div>
     </div>
   </div>

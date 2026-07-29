@@ -11,6 +11,25 @@ from models import db, Vehicle, SyncLog, PoliceDepartment
 
 bp = Blueprint('towbook_import', __name__, url_prefix='/api/import-towbook')
 
+
+def _parse_vehicle_desc(desc):
+    """Fallback parser for Towbook's combined 'Vehicle' description column
+    (e.g. '2002 Nissan Maxima (Gold)') -> (year, make, model). Used only when
+    the dedicated Year/Make/Model columns are blank, so a record still shows a
+    real name instead of just its plate."""
+    if not desc:
+        return None, None, None
+    d = re.sub(r'\s*\([^)]*\)\s*$', '', desc.strip()).strip()  # drop trailing "(color)"
+    if not d:
+        return None, None, None
+    parts = d.split()
+    year = None
+    if parts and re.fullmatch(r'(19|20)\d{2}', parts[0]):
+        year, parts = parts[0], parts[1:]
+    make = parts[0] if parts else None
+    model = ' '.join(parts[1:]) if len(parts) > 1 else None
+    return year, make, model
+
 _DEPT_GENERIC_WORDS_RE = re.compile(
     r'\b(apd|gpd|mpd|rpd|wpd|police department|police dept\.?|police|pd|'
     r"sheriff'?s?\s*office|sheriff|dept\.?|department)\b",
@@ -171,8 +190,15 @@ def _do_import():
             # use it only to flip status to RELEASED on existing records.
             release_date = _parse_date(_get(row, norm_map, 'Release Date'))
 
-            year_raw = _get(row, norm_map, 'Year')
-            year = year_raw or None  # stored as VARCHAR(10) now
+            year = _get(row, norm_map, 'Year') or None  # stored as VARCHAR(10) now
+            make = _get(row, norm_map, 'Make') or None
+            model = _get(row, norm_map, 'Model') or None
+            # Fallback: many Towbook rows leave Year/Make/Model blank and only
+            # fill the combined "Vehicle" description. Parse it so the record
+            # shows a real name instead of just the plate.
+            if not (year or make or model):
+                d_year, d_make, d_model = _parse_vehicle_desc(_get(row, norm_map, 'Vehicle'))
+                year, make, model = year or d_year, make or d_make, model or d_model
 
             have_keys_raw = _get(row, norm_map, 'Have Keys').lower()
             have_keys = have_keys_raw in ('yes', 'true', '1', 'y')
@@ -191,8 +217,8 @@ def _do_import():
                 'invoice_number':   _get(row, norm_map, 'Invoice #', 'Invoice') or None,
                 'account':          _get(row, norm_map, 'Account') or None,
                 'color':            _get(row, norm_map, 'Color') or None,
-                'make':             _get(row, norm_map, 'Make') or None,
-                'model':            _get(row, norm_map, 'Model') or None,
+                'make':             make,
+                'model':            model,
                 'year':             year,
                 'plate':            _get(row, norm_map, 'Plate') or None,
                 'plate_state':      _get(row, norm_map, 'Plate State') or None,

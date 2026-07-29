@@ -29,7 +29,7 @@ Task 5 — No Record Found URGENT
 from datetime import date, timedelta
 
 TASK2_OPEN_DAYS     = 5     # Letter 1 due by this many days from impound (unlocked from day 1)
-TASK3_DELAY_DAYS    = 30    # Task 3 opens this many days after Letter 1 delivery/attempt
+TASK3_DELAY_DAYS    = 30    # Task 3 (2nd notice) opens this many days after Letter 1 is SENT
 TASK4_DELAY_DAYS    = 45    # Task 4 opens this many days after letter2 sent
 YELLOW_WARN_DAYS    = 3     # Flag YELLOW this many days before a deadline
 
@@ -91,7 +91,6 @@ def compute_task(v, today: date) -> dict:
     task1_done = bool(v.heather_complete or (v.bmv_stage == 'COMPLETE'))
     letter1_sent = bool(l1 and l1.sent_date)
     letter2_sent = bool(l2 and l2.sent_date)
-    delivery_date = letter_delivery_date(l1)
     l1_due = v.letter_clock_start + timedelta(days=TASK2_OPEN_DAYS)
 
     # ── TASK 4: Ready to File ─────────────────────────────────────────────────
@@ -117,46 +116,36 @@ def compute_task(v, today: date) -> dict:
         )
 
     # ── TASK 3: 2nd Notice Letter ─────────────────────────────────────────────
+    # 2nd notice is due 30 days after Letter 1 was SENT (not delivered).
     if letter1_sent:
-        if delivery_date:
-            task3_open = delivery_date + timedelta(days=TASK3_DELAY_DAYS)
-            days_to_open = (task3_open - today).days
-            if today >= task3_open:
-                return dict(
-                    task_num=3,
-                    task_label='2nd Notice Letter',
-                    task_due=task3_open,
-                    urgency='RED',
-                    locked=False,
-                    action=f'2nd Letter Due — available since {task3_open.strftime("%m/%d/%Y")}',
-                )
-            elif days_to_open <= YELLOW_WARN_DAYS:
-                return dict(
-                    task_num=3,
-                    task_label='2nd Notice Letter',
-                    task_due=task3_open,
-                    urgency='YELLOW',
-                    locked=True,
-                    action=f'2nd letter available in {days_to_open} days (delivery: {delivery_date.strftime("%m/%d/%Y")})',
-                )
-            else:
-                return dict(
-                    task_num=3,
-                    task_label='2nd Notice Letter',
-                    task_due=task3_open,
-                    urgency='GREEN',
-                    locked=True,
-                    action=f'Waiting — 2nd notice available {task3_open.strftime("%m/%d/%Y")} ({days_to_open}d)',
-                )
-        else:
-            # Letter 1 sent but no delivery/RTS yet
+        task3_open = l1.sent_date + timedelta(days=TASK3_DELAY_DAYS)
+        days_to_open = (task3_open - today).days
+        if today >= task3_open:
             return dict(
-                task_num=2,
-                task_label='1st Notice — Awaiting Delivery',
-                task_due=None,
+                task_num=3,
+                task_label='2nd Notice Letter',
+                task_due=task3_open,
+                urgency='RED',
+                locked=False,
+                action=f'2nd Letter Due — available since {task3_open.strftime("%m/%d/%Y")}',
+            )
+        elif days_to_open <= YELLOW_WARN_DAYS:
+            return dict(
+                task_num=3,
+                task_label='2nd Notice Letter',
+                task_due=task3_open,
+                urgency='YELLOW',
+                locked=True,
+                action=f'2nd letter available in {days_to_open} days (Letter 1 sent {l1.sent_date.strftime("%m/%d/%Y")})',
+            )
+        else:
+            return dict(
+                task_num=3,
+                task_label='2nd Notice Letter',
+                task_due=task3_open,
                 urgency='GREEN',
                 locked=True,
-                action='Waiting for USPS delivery confirmation or return-to-sender',
+                action=f'Waiting — 2nd notice available {task3_open.strftime("%m/%d/%Y")} ({days_to_open}d)',
             )
 
     # ── TASK 1 & 2: BMV Search → 1st Notice Letter (SEQUENTIAL) ──────────────

@@ -421,8 +421,8 @@ class Vehicle(db.Model):
 
           • Letter 1 (Task 2, 1st Notice): blocked until BMV Search is complete.
           • Letter 2 (Task 3, 2nd Notice): blocked until Letter 1 is sent, then
-            until the 30-day window after Letter 1's DELIVERY (delivery-anchored,
-            per the 2026-07-07 design — not the send date).
+            until 30 days after Letter 1's SENT date (sent-anchored, per Tim's
+            2026-07-29 correction — NOT delivery).
 
         Letters 3–6 (POLICE / lienholder notices in the 5-letter system) are not
         part of this Task 2 → Task 3 sequence and are left ungated here."""
@@ -436,14 +436,10 @@ class Vehicle(db.Model):
             l1 = self.letter1
             if not (l1 and l1.sent_date):
                 return '1st Notice Letter must be sent first.'
-            from task_engine import letter_delivery_date, TASK3_DELAY_DAYS
-            delivery = letter_delivery_date(l1)
-            if not delivery:
-                return ('Waiting for Letter 1 delivery confirmation — click '
-                        '“Refresh from UPS” on Letter 1 first.')
-            unlock = delivery + timedelta(days=TASK3_DELAY_DAYS)
+            from task_engine import TASK3_DELAY_DAYS
+            unlock = l1.sent_date + timedelta(days=TASK3_DELAY_DAYS)
             if date.today() < unlock:
-                return f'Available {unlock.strftime("%m/%d/%Y")}.'
+                return f'Available {unlock.strftime("%m/%d/%Y")} (30 days after Letter 1 sent).'
         return None
 
     # Paid/Released Pending Pickup — set when staff authorize release (paid in
@@ -881,10 +877,7 @@ class Vehicle(db.Model):
                 return f'{prefix}Send Letter 1 by {due.strftime("%m/%d/%Y")}'
             if not l2 or not l2.sent_date:
                 if l2:
-                    delivery_date = letter_delivery_date(l1)
-                    if not delivery_date:
-                        return 'Awaiting delivery confirmation of Letter 1'
-                    due = delivery_date + timedelta(days=TASK3_DELAY_DAYS)
+                    due = l1.sent_date + timedelta(days=TASK3_DELAY_DAYS)
                     if today >= due:
                         prefix = 'OVERDUE: ' if today > due else ''
                         return f'{prefix}2nd Letter Due'
@@ -927,13 +920,11 @@ class Vehicle(db.Model):
                 return 'green'
             if not l2 or not l2.sent_date:
                 if l2:
-                    delivery_date = letter_delivery_date(l1)
-                    if delivery_date:
-                        due = delivery_date + timedelta(days=TASK3_DELAY_DAYS)
-                        if today >= due:
-                            return 'red'
-                        elif (due - today).days <= 3:
-                            return 'yellow'
+                    due = l1.sent_date + timedelta(days=TASK3_DELAY_DAYS)
+                    if today >= due:
+                        return 'red'
+                    elif (due - today).days <= 3:
+                        return 'yellow'
                 return 'green'
         elif self.impound_type == 'POLICE':
             if not l1 or not l1.sent_date:

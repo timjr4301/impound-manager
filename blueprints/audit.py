@@ -28,7 +28,7 @@ bp = Blueprint('audit', __name__, url_prefix='/audit')
 # in Vehicle.stoplight_color / task_engine (which drives Heather's live queue).
 # This tool catches anything that fell all the way through that net.
 OVERDUE_LETTER1_DAYS = 5        # day 1-5 grace; day 6+ overdue
-LETTER2_DELIVERY_GAP_DAYS = 30  # Letter 2 due 30d after Letter 1 delivery
+LETTER2_SENT_GAP_DAYS = 30  # Letter 2 due 30d after Letter 1 was SENT (not delivery)
 MISSING_DOC_GRACE_DAYS = 3      # BMV search / LKA: day 1-3 grace; day 4+ flagged
 
 SESSION_KEY = 'audit_towbook_csv'
@@ -112,11 +112,11 @@ def _overdue_letter_issue(v, today):
             return f'Letter 1 overdue — {v.days_in_storage} days'
         return None
 
-    # (b) Letter 1 sent + delivery confirmed, Letter 2 not sent, 30+ days since delivery
-    if l1.delivery_confirmed_date and (not l2 or not l2.sent_date):
-        days_since_delivery = (today - l1.delivery_confirmed_date).days
-        if days_since_delivery >= LETTER2_DELIVERY_GAP_DAYS:
-            past_due = days_since_delivery - LETTER2_DELIVERY_GAP_DAYS
+    # (b) Letter 1 sent, Letter 2 not sent, 30+ days since Letter 1 was SENT
+    if l1.sent_date and (not l2 or not l2.sent_date):
+        days_since_sent = (today - l1.sent_date).days
+        if days_since_sent >= LETTER2_SENT_GAP_DAYS:
+            past_due = days_since_sent - LETTER2_SENT_GAP_DAYS
             return f'Letter 2 overdue — {past_due} days past due'
     return None
 
