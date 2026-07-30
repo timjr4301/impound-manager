@@ -4,7 +4,7 @@ from flask_login import UserMixin
 from werkzeug.security import generate_password_hash, check_password_hash
 from datetime import date, datetime, timedelta
 
-from task_engine import letter_delivery_date, TASK3_DELAY_DAYS
+from task_engine import TASK3_DELAY_DAYS
 
 db = SQLAlchemy()
 
@@ -227,8 +227,8 @@ class Vehicle(db.Model):
     heather_complete = db.Column(db.Boolean, default=False)
     heather_complete_date = db.Column(db.Date)
     # Audit/display stamp: when Task 2 (1st Notice Letter) was completed, i.e.
-    # Letter 1 marked sent. Task 3's countdown stays DELIVERY-anchored (see
-    # task_engine.letter_delivery_date), so this is NOT the Task 3 clock source —
+    # Letter 1 marked sent. NOT the Task 3 clock source — Task 3's countdown is
+    # letter1.sent_date + 30 (sent-anchored; see task_engine.compute_task) —
     # it records "when did Task 2 get done" for the sequential-gate UI and audit.
     task_2_letter_completed_at = db.Column(db.DateTime)
 

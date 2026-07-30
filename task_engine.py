@@ -14,10 +14,10 @@ Task 2 — 1st Notice Letter
   the lateness is the nudge to finish the BMV search.
 
 Task 3 — 2nd Notice Letter
-  Opens 30 days after Task 2 (Letter 1) delivery confirmed OR return-to-sender
-  (DELIVERY-anchored — task_2_letter_completed_at is an audit stamp, not the
-  clock source). Does not exist at all until Letter 1's delivery/RTS date is
-  known. Locked until Task 2 complete.
+  Opens 30 days after Letter 1 (Task 2) was SENT (sent-anchored, per Tim's
+  2026-07-29 correction — task_2_letter_completed_at is an audit stamp, not
+  the clock source). Delivery is still tracked as proof-of-delivery but never
+  gates or times Letter 2. Locked until Task 2 complete.
 
 Task 4 — Ready to File
   Opens 45 days after Task 3 complete.
@@ -32,19 +32,6 @@ TASK2_OPEN_DAYS     = 5     # Letter 1 due by this many days from impound (unloc
 TASK3_DELAY_DAYS    = 30    # Task 3 (2nd notice) opens this many days after Letter 1 is SENT
 TASK4_DELAY_DAYS    = 45    # Task 4 opens this many days after letter2 sent
 YELLOW_WARN_DAYS    = 3     # Flag YELLOW this many days before a deadline
-
-
-def letter_delivery_date(l1):
-    """Return the date that counts as 'delivered or attempted' for Task 3 timing.
-    Public (no leading underscore) — models.py's next_action_label/stoplight_color
-    reuse this so the 2nd-notice countdown agrees everywhere it's shown."""
-    if not l1:
-        return None
-    if l1.delivery_confirmed_date:
-        return l1.delivery_confirmed_date
-    if l1.return_to_sender and l1.sent_date:
-        return l1.sent_date + timedelta(days=3)   # estimate: RTS arrives ~3 days after send
-    return None
 
 
 def compute_task(v, today: date) -> dict:
