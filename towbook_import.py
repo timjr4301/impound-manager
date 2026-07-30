@@ -169,7 +169,10 @@ def _do_import():
             'detected_headers': headers[:15],
         }), 400
 
+    from tina_sync import auto_clear_possible_release
+
     inserted = updated = skipped = 0
+    possible_release_cleared = 0
     errors = []
     dept_unmatched = []      # police impound rows whose Account field didn't fuzzy-match any department
     csv_stock_numbers = []   # collect every stock # seen in this CSV
@@ -240,6 +243,11 @@ def _do_import():
                 # If Towbook shows a release date, mark the vehicle released
                 if release_date and existing.status == 'ACTIVE':
                     existing.status = 'RELEASED'
+                # Reappearance in the CSV (a full current-lot snapshot) means
+                # the car is still impounded — clear any stale flag.
+                if existing.possible_release:
+                    auto_clear_possible_release(existing)
+                    possible_release_cleared += 1
                 existing.towbook_seen = True  # seen in this CSV — eligible for future possible_release checks
                 existing.updated_at = datetime.utcnow()
                 updated += 1
@@ -329,6 +337,7 @@ def _do_import():
         'updated': updated,
         'skipped': skipped,
         'possible_releases_flagged': possible_release_count,
+        'possible_release_cleared': possible_release_cleared,
         'errors': errors,
         'department_unmatched': dept_unmatched,
         'urgency': urgency_counts,

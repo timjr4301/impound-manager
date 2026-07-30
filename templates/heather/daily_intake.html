@@ -117,11 +117,17 @@ function escapeHtml(s) {
         ? `<details class="mt-2"><summary class="text-danger small">${data.errors.length} row error(s)</summary>
            <pre class="small text-danger mb-0">${escapeHtml(JSON.stringify(data.errors, null, 2))}</pre></details>`
         : '';
+      const clearedHtml = data.possible_release_cleared
+        ? `<div class="alert alert-info mb-0 py-2 small mt-2">
+             <i class="bi bi-arrow-counterclockwise me-1"></i>
+             ${data.possible_release_cleared} Possible Release flag(s) auto-cleared — vehicle(s) back in the Towbook export
+           </div>`
+        : '';
       result.innerHTML = `
         <div class="alert alert-success mb-0 py-2 small">
           <i class="bi bi-check-circle-fill me-1"></i>
           <strong>${data.inserted} new, ${data.updated} updated</strong> (${data.skipped} skipped)
-        </div>${errHtml}`;
+        </div>${clearedHtml}${errHtml}`;
     } catch (err) {
       result.innerHTML = `<div class="alert alert-danger mb-0 py-2 small">Network error: ${escapeHtml(err.message)}</div>`;
     }
