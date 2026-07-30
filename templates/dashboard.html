@@ -71,9 +71,18 @@
          {% elif towbook_sync_status and towbook_sync_status.status in ('pending','no_sync') %}border-warning
          {% endif %}">
       <div class="card-body text-center py-3">
-        <div class="stat-number text-secondary">{{ towbook_total }}</div>
-        <div class="text-muted small mt-1">
-          Synced from Towbook
+        <div class="d-flex justify-content-center gap-4">
+          <div>
+            <div class="stat-number text-secondary">{{ synced_24h }}</div>
+            <div class="text-muted small mt-1">Synced (24h)</div>
+          </div>
+          <div>
+            <div class="stat-number text-success">{{ released_24h }}</div>
+            <div class="text-muted small mt-1">Released (24h)</div>
+          </div>
+        </div>
+        <div class="text-muted small mt-1" title="{{ towbook_total }} vehicles synced from Towbook all-time">
+          Towbook Activity
           {% if towbook_sync_status and towbook_sync_status.status == 'ok' %}
           <br><span class="text-success" style="font-size:0.7rem">
             <i class="bi bi-check-circle-fill"></i>
@@ -344,13 +353,24 @@
 </div>
 {% endif %}
 
-{# ── Possible Release / Ghost Vehicle ─────────────────────────────────────── #}
+{# ── Possible Release / Ghost Vehicle — collapsed by default. Most of the
+   original wave came from the first Towbook reconciliations; the flag still
+   blocks letters, but the full table only unfolds on demand. Resolve in bulk
+   with a release-export upload at Status Audit → Towbook Cross-Reference. ── #}
 {% if ghost_vehicles %}
-<div class="card shadow-sm mb-4 border-danger border-3">
-  <div class="card-header text-white fw-bold py-3" style="background:#8b0000;">
+<div class="card shadow-sm mb-4 border-danger">
+  <div class="card-header text-white fw-semibold py-2" style="background:#8b0000; cursor:pointer;"
+       role="button" data-bs-toggle="collapse" data-bs-target="#ghostVehiclesBody">
     <i class="bi bi-question-diamond-fill me-2"></i>
-    POSSIBLE RELEASE — VERIFY &mdash; {{ ghost_vehicles|length }} Vehicle{{ 's' if ghost_vehicles|length != 1 }}
-    <small class="fw-normal ms-2">Not in latest Towbook export, or flagged missing on a lot walk. Letters are blocked until resolved.</small>
+    Possible Release — Verify &mdash; {{ ghost_vehicles|length }} Vehicle{{ 's' if ghost_vehicles|length != 1 }}
+    <small class="fw-normal ms-2 d-none d-md-inline">Not in latest Towbook export, or flagged missing on a lot walk. Letters blocked until resolved.</small>
+    <span class="float-end small fw-normal"><i class="bi bi-chevron-expand"></i> expand</span>
+  </div>
+  <div class="collapse" id="ghostVehiclesBody">
+  <div class="alert alert-light border-0 small mb-0 py-2 px-3">
+    <i class="bi bi-lightbulb me-1"></i>Fastest way to clear these: upload a Towbook <strong>release export</strong>
+    at <a href="{{ url_for('audit.index') }}">Status Audit → Towbook Cross-Reference</a> — cars with a documented
+    release can be confirmed in bulk with the release date and reason recorded as evidence.
   </div>
   <div class="card-body p-0">
     <table class="table table-hover align-middle mb-0">
@@ -381,17 +401,22 @@
       </tbody>
     </table>
   </div>
+  </div>
 </div>
 {% endif %}
 
-{# ── Stale Location — extends ghost-vehicle logic with VIN-snap data ───────── #}
+{# ── Stale Location — extends ghost-vehicle logic with VIN-snap data.
+   Collapsed by default, same reasoning as Possible Release above. ── #}
 {% if stale_location_vehicles %}
-<div class="card shadow-sm mb-4 border-warning border-3">
-  <div class="card-header text-dark fw-bold py-3" style="background:#ffc107;">
+<div class="card shadow-sm mb-4 border-warning">
+  <div class="card-header text-dark fw-semibold py-2" style="background:#ffc107; cursor:pointer;"
+       role="button" data-bs-toggle="collapse" data-bs-target="#staleLocationBody">
     <i class="bi bi-geo-alt-fill me-2"></i>
-    STALE LOCATION — VERIFY &mdash; {{ stale_location_vehicles|length }} Vehicle{{ 's' if stale_location_vehicles|length != 1 }}
-    <small class="fw-normal ms-2">No VIN-snap logged in 7+ days (or never). Confirm it's still on the lot.</small>
+    Stale Location — Verify &mdash; {{ stale_location_vehicles|length }} Vehicle{{ 's' if stale_location_vehicles|length != 1 }}
+    <small class="fw-normal ms-2 d-none d-md-inline">No VIN-snap logged in 7+ days (or never). Confirm it's still on the lot.</small>
+    <span class="float-end small fw-normal"><i class="bi bi-chevron-expand"></i> expand</span>
   </div>
+  <div class="collapse" id="staleLocationBody">
   <div class="card-body p-0">
     <table class="table table-hover align-middle mb-0">
       <thead class="table-light">
@@ -420,6 +445,7 @@
       {% endfor %}
       </tbody>
     </table>
+  </div>
   </div>
 </div>
 {% endif %}

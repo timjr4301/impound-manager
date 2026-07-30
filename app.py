@@ -972,6 +972,20 @@ def create_app():
             .scalar()
         )
 
+        # 24-hour activity counters for the sync stat card (replaces the
+        # all-time synced total, which stopped being informative once it hit
+        # the thousands). released_24h uses updated_at as the proxy timestamp —
+        # released_at/released_by still don't exist as live columns, and every
+        # release path stamps updated_at.
+        day_ago = datetime.utcnow() - timedelta(hours=24)
+        synced_24h = Vehicle.query.filter(Vehicle.last_synced >= day_ago).count()
+        released_24h = (
+            Vehicle.query
+            .filter(Vehicle.status == 'RELEASED')
+            .filter(Vehicle.updated_at >= day_ago)
+            .count()
+        )
+
         # No Record Found URGENT vehicles (Task 5)
         urgent_no_record = (
             Vehicle.query
@@ -1020,6 +1034,8 @@ def create_app():
             due_this_week=due_this_week,
             title_eligible=title_eligible,
             towbook_total=towbook_total,
+            synced_24h=synced_24h,
+            released_24h=released_24h,
             last_sync=last_sync,
             urgent_no_record=urgent_no_record,
             ghost_vehicles=ghost_vehicles,
