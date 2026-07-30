@@ -1,0 +1,45 @@
+{% extends "base.html" %}
+{% block title %}Date Change Log — Impound Manager{% endblock %}
+
+{% block content %}
+<div class="d-flex align-items-center justify-content-between mb-3">
+  <h2 class="h4 mb-0 fw-bold"><i class="bi bi-clock-history me-2"></i>Date Change Log</h2>
+  <span class="text-muted small">{{ notes|length }} change{{ '' if notes|length == 1 else 's' }} (most recent 500)</span>
+</div>
+
+<p class="text-muted small">
+  Every letter-clock date change on record: manual <strong>Restart Letter Clock</strong> uses
+  and automatic <strong>Returned to Sender</strong> round-restarts. Each entry shows who made the
+  change and the reason given. Impound dates are locked and never change — the 60-day
+  title-eligibility clock always runs from the original impound date.
+</p>
+
+{% if notes %}
+<div class="card shadow-sm">
+  <div class="card-body p-0">
+    <table class="table table-sm table-hover mb-0">
+      <thead><tr>
+        <th style="width:130px;">When</th>
+        <th style="width:220px;">Vehicle</th>
+        <th style="width:110px;">Stock #</th>
+        <th style="width:120px;">Changed By</th>
+        <th>Details</th>
+      </tr></thead>
+      <tbody>
+      {% for n in notes %}
+      <tr>
+        <td class="small text-nowrap">{{ n.created_at.strftime('%m/%d/%Y %I:%M %p') if n.created_at else '—' }}</td>
+        <td><a href="{{ url_for('vehicles_detail', vehicle_id=n.vehicle_id) }}" class="row-link fw-semibold">{{ n.vehicle.display_name }}</a></td>
+        <td class="font-monospace small">{{ n.vehicle.stock_number or '—' }}</td>
+        <td class="small">{{ n.author or '—' }}</td>
+        <td class="small">{{ n.body }}</td>
+      </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% else %}
+<div class="alert alert-light border text-muted">No date changes recorded yet.</div>
+{% endif %}
+{% endblock %}
