@@ -225,5 +225,20 @@ of these accounts:
 - [ ] Print this doc + store copies off-system: business safe, attorney/accountant, Jim's personal cloud
 - [ ] Create & download a database export now (Render → impound-manager-db → Recovery → Create export); store off-site; repeat quarterly
 
+**Security to lock down** _(the code is already clean — no passwords/keys in it, `.env` is git-ignored;
+this is all account/login hygiene):_
+- [ ] **Turn on 2-factor authentication (2FA)** on Render, GitHub, UPS, Anthropic — and on the recovery
+  email above all (that email is the master key to everything).
+- [ ] **Add Jim as an owner** on Render + GitHub (and UPS + Anthropic) via each account's team/members
+  settings — so access is never locked to one person.
+- [ ] **Confirm `SECRET_KEY` is set** to a long random value in Render → Environment (not the
+  placeholder "change-me-in-production" — that would make staff logins insecure).
+- [ ] **Replace the shared staff password.** Right now every account seeds with the same default
+  (`BandJ2024!`). Give the owner logins (tim/jim/wally) unique strong passwords at minimum, ideally each
+  staff member. ⚠ Note: `reset_users.py` re-applies the default on every deploy — so either change the
+  defaults in the code, or stop routinely running that reset, or those custom passwords get wiped.
+- [ ] **Use a password manager** for all these logins (unique passwords, safely shareable to Jim).
+- [ ] **Company card + billing alerts** on the paid accounts (so a lapse never sneaks up — Section 2).
+
 > **Rule:** never write actual passwords or secret keys in this document. Those live inside Render
 > (Environment settings) and each account's own login. This is the *map*, not the keys.
