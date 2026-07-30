@@ -77,7 +77,11 @@ def compute_task(v, today: date) -> dict:
         )
 
     try:
-        letters = v.letters or []
+        # Skip superseded rows (impound-type correction, Returned to Sender
+        # restart) — a returned-and-superseded sent Letter 1 must NOT count as
+        # "Letter 1 sent" or the engine would demand a 2nd notice instead of
+        # restarting the sequence at the new round's Letter 1.
+        letters = [l for l in (v.letters or []) if not l.superseded]
         l1 = next((l for l in letters if l.letter_number == 1), None)
         l2 = next((l for l in letters if l.letter_number == 2), None)
     except Exception:

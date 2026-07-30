@@ -1052,39 +1052,68 @@ def letters():
     today = date.today()
     lot_sort = _lot_sort_param()
 
-    # All unsent letters (pending)
+    # All unsent letters (pending) — superseded rows are historical (impound-
+    # type correction / Returned to Sender restart), never sendable.
     pending = (
         CertifiedLetter.query
         .join(Vehicle)
         .filter(Vehicle.status == 'ACTIVE')
         .filter(CertifiedLetter.sent_date.is_(None))
+        .filter(CertifiedLetter.superseded.isnot(True))
         .filter(_after_cutoff())
         .order_by(_lot_order(lot_sort, CertifiedLetter.due_date.asc()))
         .all()
     )
 
-    # Sent letters awaiting delivery confirmation
+    # Sent letters awaiting delivery confirmation — a superseded sent letter
+    # (processed Returned to Sender) will never be delivered; drop it here.
     awaiting = (
         CertifiedLetter.query
         .join(Vehicle)
         .filter(Vehicle.status == 'ACTIVE')
         .filter(CertifiedLetter.sent_date.isnot(None))
         .filter(CertifiedLetter.delivery_confirmed_date.is_(None))
+        .filter(CertifiedLetter.superseded.isnot(True))
         .filter(_after_cutoff())
         .order_by(_lot_order(lot_sort, CertifiedLetter.sent_date.asc()))
         .all()
     )
 
-    # Return-to-sender letters
+    # Return-to-sender letters still needing action. Once staff process the
+    # return on the vehicle page (Returned to Sender → date + envelope image →
+    # round restart) the row is superseded and leaves this queue — its history
+    # lives on the vehicle's letter timeline.
     returned = (
         CertifiedLetter.query
         .join(Vehicle)
         .filter(CertifiedLetter.return_to_sender == True)
+        .filter(CertifiedLetter.superseded.isnot(True))
         .filter(Vehicle.status == 'ACTIVE')
         .filter(_after_cutoff())
         .order_by(_lot_order(lot_sort, CertifiedLetter.sent_date.desc()))
         .all()
     )
+
+    # Labels tab — every label printed in the last 90 days (UPS's void window),
+    # newest first. The template buckets them: orphaned (superseded letter,
+    # never scanned, not voided — auto-void targets), stale (active letter,
+    # never scanned 7+ days after printing — manual-void candidates; the
+    # envelope may just be sitting in the outbox, so no auto-void), voided,
+    # and normal in-flight/delivered.
+    label_cutoff = today - timedelta(days=90)
+    label_letters = (
+        CertifiedLetter.query
+        .filter(CertifiedLetter.tracking_number.isnot(None))
+        .filter(CertifiedLetter.sent_date.isnot(None))
+        .filter(CertifiedLetter.sent_date >= label_cutoff)
+        .order_by(CertifiedLetter.sent_date.desc())
+        .all()
+    )
+    orphaned_labels = [l for l in label_letters
+                       if l.superseded and not l.label_voided_at and l.label_never_scanned]
+    stale_labels = [l for l in label_letters
+                    if not l.superseded and not l.label_voided_at and l.label_never_scanned
+                    and l.sent_date and (today - l.sent_date).days >= 7]
 
     # Fully confirmed deliveries (last 30 days)
     confirmed = (
@@ -1121,6 +1150,9 @@ def letters():
         can_act=current_user.is_heather,
         lot_sort=lot_sort,
         last_ups_poll=last_ups_poll,
+        label_letters=label_letters,
+        orphaned_labels=orphaned_labels,
+        stale_labels=stale_labels,
     )
 
 

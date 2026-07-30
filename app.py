@@ -306,6 +306,19 @@ def run_migrations(app):
                 if 'superseded' not in cols:
                     conn.execute(text('ALTER TABLE certified_letters ADD COLUMN superseded BOOLEAN DEFAULT FALSE'))
                     conn.execute(text('UPDATE certified_letters SET superseded = FALSE WHERE superseded IS NULL'))
+                # Returned to Sender processing — return date + envelope image
+                # (evidence for refund claims and the compliance file).
+                if 'returned_date' not in cols:
+                    conn.execute(text('ALTER TABLE certified_letters ADD COLUMN returned_date DATE'))
+                if 'returned_envelope_image_data' not in cols:
+                    conn.execute(text('ALTER TABLE certified_letters ADD COLUMN returned_envelope_image_data TEXT'))
+                if 'returned_envelope_image_type' not in cols:
+                    conn.execute(text('ALTER TABLE certified_letters ADD COLUMN returned_envelope_image_type VARCHAR(20)'))
+                # UPS label void tracking (primary + 2nd-party label).
+                if 'label_voided_at' not in cols:
+                    conn.execute(text('ALTER TABLE certified_letters ADD COLUMN label_voided_at TIMESTAMP'))
+                if 'label_voided_at_2' not in cols:
+                    conn.execute(text('ALTER TABLE certified_letters ADD COLUMN label_voided_at_2 TIMESTAMP'))
                 # Backfill letter_kind on pre-existing letter_number 1/2 rows
                 # (created before the 5-letter system existed) so their print
                 # content routes correctly. Safe to re-run — only touches
@@ -373,6 +386,10 @@ def run_migrations(app):
 
             if 'ups_poll_log' not in existing_tables:
                 UpsPollLog.__table__.create(db.engine)
+            else:
+                cols = {c['name'] for c in inspector.get_columns('ups_poll_log')}
+                if 'labels_voided' not in cols:
+                    conn.execute(text('ALTER TABLE ups_poll_log ADD COLUMN labels_voided INTEGER DEFAULT 0'))
 
             if 'custody_events' not in existing_tables:
                 CustodyEvent.__table__.create(db.engine)
@@ -914,6 +931,7 @@ def create_app():
             .join(Vehicle)
             .filter(Vehicle.status == 'ACTIVE')
             .filter(CertifiedLetter.sent_date.is_(None))
+            .filter(CertifiedLetter.superseded.isnot(True))
             .filter(Vehicle.possible_release.isnot(True))
             .all()
         )
@@ -961,6 +979,20 @@ def create_app():
             db.session.query(db.func.max(Vehicle.last_synced))
             .filter(Vehicle.last_synced.isnot(None))
             .scalar()
+        )
+
+        # 24-hour activity counters for the sync stat card (replaces the
+        # all-time synced total, which stopped being informative once it hit
+        # the thousands). released_24h uses updated_at as the proxy timestamp —
+        # released_at/released_by still don't exist as live columns, and every
+        # release path stamps updated_at.
+        day_ago = datetime.utcnow() - timedelta(hours=24)
+        synced_24h = Vehicle.query.filter(Vehicle.last_synced >= day_ago).count()
+        released_24h = (
+            Vehicle.query
+            .filter(Vehicle.status == 'RELEASED')
+            .filter(Vehicle.updated_at >= day_ago)
+            .count()
         )
 
         # No Record Found URGENT vehicles (Task 5)
@@ -1011,6 +1043,8 @@ def create_app():
             due_this_week=due_this_week,
             title_eligible=title_eligible,
             towbook_total=towbook_total,
+            synced_24h=synced_24h,
+            released_24h=released_24h,
             last_sync=last_sync,
             urgent_no_record=urgent_no_record,
             ghost_vehicles=ghost_vehicles,
@@ -1298,6 +1332,7 @@ def create_app():
             .join(Vehicle)
             .filter(Vehicle.status == 'ACTIVE')
             .filter(CertifiedLetter.sent_date.is_(None))
+            .filter(CertifiedLetter.superseded.isnot(True))
             .filter(CertifiedLetter.due_date <= horizon)
             .filter(Vehicle.possible_release.isnot(True))
             .order_by(CertifiedLetter.due_date.asc())
@@ -2067,6 +2102,107 @@ def create_app():
         flash('Delivery confirmation recorded.', 'success')
         return redirect(url_for('vehicles_detail', vehicle_id=letter.vehicle_id))
 
+    @app.route('/letters/<int:letter_id>/returned-to-sender', methods=['POST'])
+    @login_required
+    def letters_returned_to_sender(letter_id):
+        """Process a certified letter that came back Returned to Sender: record
+        the date the envelope arrived back (+ optional envelope image as
+        refund/compliance evidence), supersede the current round's owner
+        letters, and restart the process at a fresh Letter 1 — the next round.
+        The release gate, task engine, and Heather's queues all follow the new
+        round because superseded rows are excluded everywhere; the returned
+        letter stays on the row as history (returned_date + image)."""
+        letter = db.get_or_404(CertifiedLetter, letter_id)
+        vehicle = letter.vehicle
+
+        if not current_user.is_heather:
+            flash('Permission denied.', 'danger')
+            return redirect(url_for('vehicles_detail', vehicle_id=vehicle.id))
+        if letter.superseded or not letter.sent_date:
+            flash('Only a sent, current-round letter can be marked Returned to Sender.', 'danger')
+            return redirect(url_for('vehicles_detail', vehicle_id=vehicle.id) + '#letters')
+        if letter.recipient_type == 'lienholder':
+            flash('Returned to Sender processing covers owner letters — handle a '
+                  'returned lienholder notice manually for now.', 'danger')
+            return redirect(url_for('vehicles_detail', vehicle_id=vehicle.id) + '#letters')
+
+        returned_str = request.form.get('returned_date', '').strip()
+        returned_on = date.fromisoformat(returned_str) if returned_str else date.today()
+        label = letter.label
+
+        # Optional envelope image — stored on the letter row like the POD
+        # images; it's the evidence for a certified-mail refund claim.
+        img = request.files.get('envelope_image')
+        if img and img.filename:
+            raw = img.read()
+            if len(raw) > 10 * 1024 * 1024:
+                flash('Envelope image is over 10 MB — use a smaller photo.', 'danger')
+                return redirect(url_for('vehicles_detail', vehicle_id=vehicle.id) + '#letters')
+            letter.returned_envelope_image_data = base64.b64encode(raw).decode('ascii')
+            letter.returned_envelope_image_type = img.mimetype or 'image/jpeg'
+
+        now = datetime.utcnow()
+        actor = current_user.display_name or current_user.username
+
+        letter.return_to_sender = True
+        letter.returned_date = returned_on
+        letter.superseded = True
+        letter.updated_at = now
+
+        # End the whole current owner round — any other active owner letters
+        # (sent or unsent) were anchored to the failed service and are replaced
+        # by the new round. Lienholder notices go to a different address and
+        # are untouched.
+        for l in vehicle.letters:
+            if l.id != letter.id and not l.superseded and l.recipient_type != 'lienholder':
+                l.superseded = True
+                l.updated_at = now
+
+        # Fresh round: new Letter 1, letter clock re-anchored to the returned
+        # date (same restart_date mechanics as Restart Letter Clock —
+        # title_eligible_date still reads impound_date, never this).
+        days_offset = PPI_LETTER1_DAYS if vehicle.impound_type == 'PPI' else POLICE_LETTER1_DAYS
+        new_l1 = CertifiedLetter(
+            vehicle_id=vehicle.id,
+            letter_number=1,
+            due_date=returned_on + timedelta(days=days_offset),
+            recipient_type='owner',
+            letter_kind='notice_of_lien' if vehicle.impound_type == 'POLICE' else 'first_notice',
+            created_at=now,
+        )
+        db.session.add(new_l1)
+
+        vehicle.restart_date = returned_on
+        vehicle.restart_reason = (f'{label} returned to sender — received back '
+                                  f'{returned_on.strftime("%m/%d/%Y")}')
+        vehicle.restart_set_by = actor
+        vehicle.restart_set_at = now
+        vehicle.letter_flag = None
+        vehicle.letter_flag_detail = None
+        vehicle.letter_stage = 'needs_1st'
+        vehicle.updated_at = now
+
+        round_no = vehicle.letter_round
+        note = (f'{label} came back Returned to Sender — received '
+                f'{returned_on.strftime("%m/%d/%Y")}, recorded by {actor}.')
+        if letter.returned_envelope_image_data:
+            note += ' Envelope image on file.'
+        if letter.tracking_number:
+            note += f' Tracking {letter.tracking_number} (certified-mail cost may be refundable).'
+        note += (f' Letter process restarted — Round {round_no}: '
+                 f'Letter 1 due {new_l1.due_date.strftime("%m/%d/%Y")}.')
+        db.session.add(VehicleNote(vehicle_id=vehicle.id, body=note,
+                                   author=actor, created_at=now))
+        db.session.commit()
+
+        from task_engine import recalculate_vehicle
+        recalculate_vehicle(vehicle)
+        db.session.commit()
+
+        flash(f'{label} marked Returned to Sender. Round {round_no} started — '
+              f'Letter 1 due {new_l1.due_date.strftime("%m/%d/%Y")}.', 'warning')
+        return redirect(url_for('vehicles_detail', vehicle_id=vehicle.id) + '#letters')
+
     @app.route('/letters/<int:letter_id>/refresh-tracking', methods=['POST'])
     @login_required
     def letters_refresh_tracking(letter_id):
@@ -2122,9 +2258,92 @@ def create_app():
 
         msg = (f'UPS refresh complete — {c["checked"]} checked, {c["delivered"]} newly delivered, '
                f'{c["returned"]} newly returned, {c["pods"]} signed POD(s) pulled.')
+        if c.get('voided'):
+            msg += f' {c["voided"]} orphaned label(s) auto-voided.'
         if c['errors']:
             msg += f' {c["errors"]} lookup error(s) — try again later.'
         flash(msg, 'warning' if c['errors'] else 'success')
+        return redirect(url_for('heather.letters'))
+
+    @app.route('/letters/<int:letter_id>/void-label', methods=['POST'])
+    @login_required
+    def letters_void_label(letter_id):
+        """Manually void one printed UPS label (primary or 2nd-party, via the
+        'which' form field). For labels Heather knows will never ship — a
+        reprinted letter, a bad address caught before mailing. UPS refuses the
+        void if the package is actually in transit, so a refusal here is
+        informative, not an error."""
+        letter = db.get_or_404(CertifiedLetter, letter_id)
+        if not current_user.is_heather:
+            flash('Permission denied.', 'danger')
+            return redirect(url_for('heather.letters'))
+
+        which = request.form.get('which', 'primary')
+        if which == '2nd':
+            tracking, already = letter.tracking_number_2, letter.label_voided_at_2
+        else:
+            which = 'primary'
+            tracking, already = letter.tracking_number, letter.label_voided_at
+        if not tracking:
+            flash('That letter has no such label to void.', 'danger')
+            return redirect(url_for('heather.letters'))
+        if already:
+            flash(f'Label {tracking} is already voided.', 'info')
+            return redirect(url_for('heather.letters'))
+        if which == 'primary' and (letter.delivery_confirmed_date or letter.return_to_sender):
+            flash(f'Label {tracking} was actually used (delivered or returned) — nothing to void.', 'danger')
+            return redirect(url_for('heather.letters'))
+
+        import ups_api
+        try:
+            ok, description = ups_api.void_shipment(tracking, trans_id=f'void-manual-{letter.id}')
+        except Exception as exc:
+            flash(f'UPS API error voiding {tracking}: {exc}', 'danger')
+            return redirect(url_for('heather.letters'))
+
+        if not ok:
+            flash(f'UPS refused the void for {tracking}: {description}', 'warning')
+            return redirect(url_for('heather.letters'))
+
+        now = datetime.utcnow()
+        actor = current_user.display_name or current_user.username
+        if which == '2nd':
+            letter.label_voided_at_2 = now
+        else:
+            letter.label_voided_at = now
+        letter.updated_at = now
+        db.session.add(VehicleNote(
+            vehicle_id=letter.vehicle_id,
+            body=(f'UPS label {tracking} voided ({letter.label}'
+                  f'{" — 2nd party" if which == "2nd" else ""}) by {actor} — '
+                  f'never scanned, will not be billed.'),
+            author=actor,
+            created_at=now,
+        ))
+        db.session.commit()
+        flash(f'Label {tracking} voided — it will not be billed.', 'success')
+        return redirect(url_for('heather.letters'))
+
+    @app.route('/letters/void-orphaned-labels', methods=['POST'])
+    @login_required
+    def letters_void_orphaned_labels():
+        """Batch-void every label stranded on a superseded letter (Returned to
+        Sender restart / impound-type correction). Same logic the nightly poll
+        runs automatically — this button just does it on demand."""
+        if not current_user.is_heather:
+            flash('Permission denied.', 'danger')
+            return redirect(url_for('heather.letters'))
+        import ups_api
+        import ups_poll
+        if not ups_api.is_configured():
+            flash('UPS API is not configured — set UPS_CLIENT_ID / UPS_CLIENT_SECRET.', 'danger')
+            return redirect(url_for('heather.letters'))
+        voided, refused = ups_poll.void_orphaned_labels(current_user.username)
+        db.session.commit()
+        msg = f'{voided} orphaned label(s) voided.'
+        if refused:
+            msg += f' {refused} refused by UPS (in transit, already voided, or past the void window).'
+        flash(msg, 'success' if voided or not refused else 'warning')
         return redirect(url_for('heather.letters'))
 
     @app.route('/admin/ups-test')
@@ -2286,6 +2505,7 @@ def create_app():
             .join(Vehicle)
             .filter(Vehicle.status == 'ACTIVE')
             .filter(CertifiedLetter.sent_date.is_(None))
+            .filter(CertifiedLetter.superseded.isnot(True))
             .filter(Vehicle.possible_release.isnot(True))
             .all()
         )

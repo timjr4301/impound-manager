@@ -95,6 +95,131 @@ def register_socket_events(socketio):
 # Wally AI helper
 # ---------------------------------------------------------------------------
 
+def _wally_snapshot():
+    """Live pipeline numbers injected into Wally's system prompt so he answers
+    from real Impound Manager data instead of generic towing advice."""
+    from datetime import date
+    from models import Vehicle, CertifiedLetter
+    today = date.today()
+
+    active = Vehicle.query.filter_by(status='ACTIVE').count()
+    ghosts = (Vehicle.query
+              .filter(Vehicle.status == 'ACTIVE')
+              .filter(Vehicle.possible_release == True)
+              .count())
+    pending = (
+        CertifiedLetter.query
+        .join(Vehicle)
+        .filter(Vehicle.status == 'ACTIVE')
+        .filter(Vehicle.possible_release.isnot(True))
+        .filter(CertifiedLetter.sent_date.is_(None))
+        .filter(CertifiedLetter.superseded.isnot(True))
+        .all()
+    )
+    overdue = sorted((l for l in pending if l.due_date and l.due_date < today),
+                     key=lambda l: l.due_date)
+    due_today = [l for l in pending if l.due_date == today]
+
+    lines = [
+        f'{active} ACTIVE vehicles on the lot; {ghosts} of them are flagged '
+        f'Possible Release (letters blocked until someone verifies them).',
+        f'{len(overdue)} letter(s) OVERDUE and unsent; {len(due_today)} due today.',
+    ]
+    for l in overdue[:5]:
+        v = l.vehicle
+        lines.append(f'- OVERDUE: {v.display_name} (stock {v.stock_number or v.id}) — '
+                     f'{l.label} was due {l.due_date.strftime("%m/%d/%Y")}.')
+    if len(overdue) > 5:
+        lines.append(f'- …and {len(overdue) - 5} more (full list on the Letters page).')
+    return '\n'.join(lines)
+
+
+def _wally_vehicle_briefs(text_body):
+    """Look up any vehicles mentioned by stock #, plate, or VIN and summarize
+    their pipeline state for the prompt. Returns [] when nothing matches."""
+    import re
+    from models import Vehicle
+    tokens = {t.upper() for t in re.findall(r'[A-Za-z0-9-]{4,20}', text_body or '')}
+    if not tokens:
+        return []
+    matches = (
+        Vehicle.query
+        .filter(db.or_(
+            db.func.upper(Vehicle.stock_number).in_(tokens),
+            db.func.upper(Vehicle.plate).in_(tokens),
+            db.func.upper(Vehicle.vin).in_(tokens),
+        ))
+        .limit(3)
+        .all()
+    )
+
+    briefs = []
+    for v in matches:
+        parts = [
+            f'{v.display_name} — stock {v.stock_number or v.id}, plate {v.plate or "—"}, '
+            f'{v.impound_type} impound, status {v.status}, impounded '
+            f'{v.impound_date.strftime("%m/%d/%Y")} ({v.days_in_storage} days on lot).'
+        ]
+        if v.possible_release:
+            parts.append('FLAGGED POSSIBLE RELEASE — must be verified before any letter goes out.')
+        if v.letter_round > 1:
+            parts.append(f'Letter process is on Round {v.letter_round} (restarted after Returned to Sender).')
+        for name, l in (('Letter 1', v.letter1), ('Letter 2', v.letter2)):
+            if name == 'Letter 2' and v.impound_type != 'PPI':
+                continue
+            if l is None:
+                parts.append(f'{name}: not created yet.')
+            elif l.sent_date:
+                s = f'{name}: sent {l.sent_date.strftime("%m/%d/%Y")}'
+                if l.delivery_confirmed_date:
+                    s += f', delivered {l.delivery_confirmed_date.strftime("%m/%d/%Y")}'
+                elif l.return_to_sender:
+                    s += ', RETURNED TO SENDER'
+                parts.append(s + '.')
+            else:
+                parts.append(f'{name}: NOT sent, due {l.due_date.strftime("%m/%d/%Y")}.')
+        next_action = v.next_action_label
+        if next_action:
+            parts.append(f'Next action: {next_action}')
+        briefs.append(' '.join(parts))
+    return briefs
+
+
+def _wally_system_prompt(latest_user_text):
+    """Base persona + compliance rules + live data. Any failure building the
+    live sections degrades to the plain persona — Wally must never go silent
+    because a lookup broke."""
+    from models import (PPI_LETTER1_DAYS, PPI_LETTER2_DAYS, POLICE_LETTER1_DAYS)
+    base = (
+        'You are Wally, the AI assistant built INTO Impound Manager, the internal web app '
+        'Broad & James Towing (Columbus, OH) uses to run its impound lot. You help office '
+        'staff (Heather, Tina, Brady, Jim, Tim) and drivers with impound procedures, the '
+        'abandoned-vehicle letter pipeline, and daily operations. Be concise and helpful. '
+        'You are shown live data from the app below — answer from it with specifics '
+        '(stock numbers, dates, counts) and point people at the right page in Impound '
+        'Manager (Dashboard, Letters page, Status Audit, the vehicle\'s detail page). '
+        'NEVER tell anyone to "check your impound management system or inventory records" '
+        '— you are reading that system\'s data right now. If the data below doesn\'t '
+        'answer the question, say what page in the app will.\n\n'
+        f'House letter rules: PPI Letter 1 within {PPI_LETTER1_DAYS} days of impound; '
+        f'POLICE Notification within {POLICE_LETTER1_DAYS} days (ORC 4513.61); Letter 2 '
+        f'{PPI_LETTER2_DAYS} days after Letter 1 is SENT; title eligibility runs 60 days '
+        'from the impound date. A vehicle flagged Possible Release gets NO letters until '
+        'verified (Still On Lot / Confirm Released).'
+    )
+    try:
+        base += '\n\nLive pipeline right now:\n' + _wally_snapshot()
+    except Exception as exc:
+        logger.warning('Wally snapshot failed: %s', exc)
+    try:
+        briefs = _wally_vehicle_briefs(latest_user_text)
+        if briefs:
+            base += '\n\nVehicles mentioned in this conversation:\n' + '\n'.join(f'- {b}' for b in briefs)
+    except Exception as exc:
+        logger.warning('Wally vehicle lookup failed: %s', exc)
+    return base
+
+
 def _call_wally(socketio, thread_id):
     """Call Claude to generate a Wally response and broadcast it."""
     try:
@@ -136,16 +261,15 @@ def _call_wally(socketio, thread_id):
 
         conversation = grouped if grouped else [{'role': 'user', 'content': '@Wally hello'}]
 
+        # Live-data system prompt, keyed off what was actually asked. Model is
+        # Sonnet per the house routing rule (Opus is for vision/photo tasks
+        # only — chat is text/logic).
+        latest_user_text = ' '.join(m.body for m in recent[-3:] if not m.is_wally)
         client = anthropic.Anthropic(api_key=api_key)
         response = client.messages.create(
-            model='claude-opus-4-8',
-            max_tokens=512,
-            system=(
-                'You are Wally, the AI assistant for Broad & James Towing in Columbus, OH. '
-                'You help towing dispatchers, office staff, and drivers with questions about '
-                'impound procedures, motor club accounts, and daily operations. '
-                'Be concise and helpful.'
-            ),
+            model='claude-sonnet-4-6',
+            max_tokens=768,
+            system=_wally_system_prompt(latest_user_text),
             messages=conversation,
         )
 

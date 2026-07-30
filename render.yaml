@@ -8,12 +8,15 @@ services:
     # Kept here for the record; change the instance type in the dashboard, not here.
     plan: starter
     buildCommand: pip install -r requirements.txt
-    # Memory tuning for the 512MB-class instance: fewer concurrent threads
-    # (smaller simultaneous spikes) and worker recycling every ~200 requests so
-    # accumulated memory is released before it hits the ceiling and OOM-kills.
-    # If the Start Command is also set in the Render dashboard, update it there
-    # too — the dashboard value overrides this file.
-    startCommand: gunicorn -k gthread --threads 4 -w 1 --max-requests 200 --max-requests-jitter 30 app:app
+    # Memory tuning: worker recycling releases accumulated memory before it
+    # OOM-kills, BUT each recycle reboots the app (migrations + seeding, several
+    # seconds with -w 1 = total outage) and drops every chat WebSocket — the
+    # "Not connected — Reconnecting" banner. At 200 requests that happened
+    # constantly (chat polling alone burns the budget); 1000 keeps the memory
+    # protection while making recycles rare. If the Start Command is also set
+    # in the Render dashboard, update it THERE — the dashboard value overrides
+    # this file.
+    startCommand: gunicorn -k gthread --threads 4 -w 1 --max-requests 1000 --max-requests-jitter 100 app:app
     envVars:
       - key: SECRET_KEY
         generateValue: true

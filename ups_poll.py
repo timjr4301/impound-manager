@@ -12,7 +12,7 @@ job wraps its call in `with app.app_context():`.
 from datetime import datetime
 
 import ups_api
-from models import db, Vehicle, CertifiedLetter, UpsPollLog
+from models import db, Vehicle, CertifiedLetter, UpsPollLog, VehicleNote
 
 
 def try_fetch_pod(letter, tracking_number, which, trans_id):
@@ -104,10 +104,71 @@ def _in_flight_letters():
     )
 
 
+def _orphaned_label_letters():
+    """Letters whose printed label(s) will never legitimately ship: the letter
+    row is superseded (Returned to Sender restart or impound-type correction)
+    but a not-yet-voided label is still attached. These labels cost nothing
+    while unscanned, but they're open liabilities on the UPS account until
+    voided."""
+    return (
+        CertifiedLetter.query
+        .filter(CertifiedLetter.superseded == True)
+        .filter(db.or_(
+            db.and_(CertifiedLetter.tracking_number.isnot(None),
+                    CertifiedLetter.label_voided_at.is_(None)),
+            db.and_(CertifiedLetter.tracking_number_2.isnot(None),
+                    CertifiedLetter.label_voided_at_2.is_(None)),
+        ))
+        .all()
+    )
+
+
+def void_orphaned_labels(actor):
+    """Void every orphaned label (see _orphaned_label_letters). The primary
+    label is only attempted when it still looks unscanned; the 2nd-party label
+    has no stored status, so UPS's own refusal (in-transit labels can't be
+    voided) is the guard there. Writes a VehicleNote per voided label. Does
+    NOT commit — callers do. Returns (voided_count, refused_count).
+    Never raises; network errors count as refusals."""
+    voided = refused = 0
+    now = datetime.utcnow()
+    for letter in _orphaned_label_letters():
+        attempts = []
+        if letter.tracking_number and not letter.label_voided_at and letter.label_never_scanned:
+            attempts.append(('primary', letter.tracking_number))
+        if letter.tracking_number_2 and not letter.label_voided_at_2:
+            attempts.append(('2nd', letter.tracking_number_2))
+        for which, tracking in attempts:
+            try:
+                ok, description = ups_api.void_shipment(tracking, trans_id=f'void-{letter.id}-{which}')
+            except Exception as exc:
+                ok, description = False, str(exc)
+            if not ok:
+                refused += 1
+                continue
+            if which == 'primary':
+                letter.label_voided_at = now
+            else:
+                letter.label_voided_at_2 = now
+            letter.updated_at = now
+            db.session.add(VehicleNote(
+                vehicle_id=letter.vehicle_id,
+                body=(f'UPS label {tracking} voided ({letter.label}'
+                      f'{" — 2nd party" if which == "2nd" else ""}) — letter was '
+                      f'replaced/superseded and the label was never scanned, so it '
+                      f'will not be billed. Voided by {actor}.'),
+                author=actor,
+                created_at=now,
+            ))
+            voided += 1
+    return voided, refused
+
+
 def sweep(triggered_by):
-    """Refresh every in-flight letter, log a UpsPollLog run, commit. Returns a
-    counts dict {checked, delivered, returned, pods, errors}. Shared by the
-    manual 'Refresh all' button and the scheduled auto-poll."""
+    """Refresh every in-flight letter, auto-void orphaned labels, log a
+    UpsPollLog run, commit. Returns a counts dict {checked, delivered,
+    returned, pods, voided, errors}. Shared by the manual 'Refresh all'
+    button and the scheduled auto-poll."""
     checked = delivered = returned = pods = errors = 0
     for letter in _in_flight_letters():
         r = refresh_letter_tracking(letter)
@@ -123,17 +184,25 @@ def sweep(triggered_by):
             returned += 1
         pods += r['pods_pulled']
 
+    # Auto-void: labels stranded on superseded letters. Runs after the status
+    # refresh so the never-scanned check uses today's data, and only when UPS
+    # is configured (a sweep can also run in a CSV-only setup).
+    voided = 0
+    if ups_api.is_configured():
+        voided, _refused = void_orphaned_labels(triggered_by)
+
     db.session.add(UpsPollLog(
         triggered_by=triggered_by,
         letters_checked=checked,
         newly_delivered=delivered,
         newly_returned=returned,
         pods_pulled=pods,
+        labels_voided=voided,
         errors=errors,
     ))
     db.session.commit()
     return dict(checked=checked, delivered=delivered, returned=returned,
-                pods=pods, errors=errors)
+                pods=pods, voided=voided, errors=errors)
 
 
 def run_scheduled(app):

@@ -5,12 +5,17 @@ Read-only: every flag here is computed at query time from columns that
 already exist (letters + delivery dates, lka_document_confirmed, the
 task_engine BMV-search completion signal, possible_release). No new
 columns, no ALTER TABLE, no schema changes. The one CSV cross-reference
-(Section 1) is parsed and matched in memory, stashed in the Flask session
-(never the DB), and cleared when the session ends. Display is link-only —
-no inline mutation actions live on this page.
+(Section 1) is parsed and matched in memory and stashed in a per-user
+server-side temp file (never the DB — and never the session cookie, which
+caps at ~4KB and would be silently dropped by the browser on a large
+upload, taking the login cookie with it). The session holds only a
+marker, so the stash still goes away when the session ends.
 """
 import csv
 import io
+import json
+import os
+import tempfile
 from datetime import date, datetime
 from functools import wraps
 
@@ -34,6 +39,44 @@ MISSING_DOC_GRACE_DAYS = 3      # BMV search / LKA: day 1-3 grace; day 4+ flagge
 SESSION_KEY = 'audit_towbook_csv'
 
 AUDIT_ROLES = ('tim', 'brady', 'jim')   # wally is role 'tim', so included
+
+
+# ── Server-side CSV stash ─────────────────────────────────────────────────────
+# One JSON file per user, overwritten on every upload, deleted on Clear.
+# The session cookie holds only a True marker (so the stash still "ends" with
+# the session); the payload itself lives here because a real release export
+# flags hundreds of rows — far past the ~4KB cookie cap.
+
+def _csv_store_path():
+    return os.path.join(tempfile.gettempdir(),
+                        f'im_audit_towbook_{current_user.id}.json')
+
+
+def _load_csv_data():
+    """The stashed cross-reference for this user, or None. Session marker must
+    be present (old sessions may carry the pre-file-store dict — treat any
+    truthy value as the marker) and the file must parse."""
+    if not session.get(SESSION_KEY):
+        return None
+    try:
+        with open(_csv_store_path(), encoding='utf-8') as f:
+            return json.load(f)
+    except (OSError, ValueError):
+        return None
+
+
+def _save_csv_data(data):
+    with open(_csv_store_path(), 'w', encoding='utf-8') as f:
+        json.dump(data, f)
+    session[SESSION_KEY] = True
+
+
+def _clear_csv_data():
+    session.pop(SESSION_KEY, None)
+    try:
+        os.remove(_csv_store_path())
+    except OSError:
+        pass
 
 
 def _audit_required(f):
@@ -150,7 +193,7 @@ def index():
         key=lambda v: v.days_in_storage, reverse=True,
     )
 
-    csv_data = session.get(SESSION_KEY)
+    csv_data = _load_csv_data()
 
     return render_template(
         'audit/index.html',
@@ -195,8 +238,11 @@ def towbook_check():
 
     # Towbook exports have no dedicated status column; a populated Release Date is
     # the released signal (same interpretation as towbook_import.py). Match to
-    # active, non-ghost IM vehicles by stock_number first, VIN as fallback.
-    active_vehicles = _active_not_ghost().all()
+    # ALL active IM vehicles by stock_number first, VIN as fallback — including
+    # those flagged possible_release: a documented Towbook release is exactly
+    # the verification that flag was waiting for, so excluding them (as this
+    # did originally) hid every car the export was meant to reconcile.
+    active_vehicles = Vehicle.query.filter(Vehicle.status == 'ACTIVE').all()
     by_stock = {v.stock_number.strip().upper(): v
                 for v in active_vehicles if v.stock_number}
     by_vin = {v.vin.strip().upper(): v
@@ -234,26 +280,32 @@ def towbook_check():
             'release_reason': reason or '—',
             'category': _classify_release_reason(reason),
             'days_since_release': (today - release_date).days,
+            'was_flagged': bool(v.possible_release),
             'detail_url': url_for('vehicles_detail', vehicle_id=v.id),
         })
 
     flagged.sort(key=lambda r: r['days_since_release'], reverse=True)
 
-    session[SESSION_KEY] = {
+    _save_csv_data({
         'filename': uploaded.filename,
         'uploaded_at': datetime.now().strftime('%m/%d/%Y %I:%M %p'),
         'total_records': total_records,
         'flagged': flagged,
-    }
-    flash(f'{len(flagged)} vehicle{"" if len(flagged) == 1 else "s"} flagged from CSV '
-          f'({total_records} rows cross-referenced).', 'info')
+    })
+    confirmed_ghosts = sum(1 for r in flagged if r['was_flagged'])
+    msg = (f'{len(flagged)} vehicle{"" if len(flagged) == 1 else "s"} flagged from CSV '
+           f'({total_records} rows cross-referenced).')
+    if confirmed_ghosts:
+        msg += (f' {confirmed_ghosts} of them were already flagged Possible Release — '
+                'the export confirms those releases.')
+    flash(msg, 'info')
     return redirect(url_for('audit.index'))
 
 
 @bp.route('/towbook-clear', methods=['POST'])
 @_audit_required
 def towbook_clear():
-    session.pop(SESSION_KEY, None)
+    _clear_csv_data()
     flash('Cleared the uploaded Towbook cross-reference.', 'info')
     return redirect(url_for('audit.index'))
 
@@ -261,9 +313,14 @@ def towbook_clear():
 @bp.route('/bulk-release', methods=['POST'])
 @_audit_required
 def bulk_release():
-    """Mark a batch of Section 1 vehicles RELEASED in IM. Ghost and
-    already-released vehicles are skipped silently. No reason field — the
-    front end gates this behind a confirm() dialog."""
+    """Mark a batch of Section 1 vehicles RELEASED in IM. Already-released
+    vehicles are skipped silently. Possible Release vehicles are releasable
+    ONLY when the current CSV upload documents their release (matched row with
+    a Release Date) AND that row is BULK_ELIGIBLE — the documented release is
+    the verification the flag was waiting for, and the CSV row (date, reason,
+    filename) is recorded as evidence. Flagged vehicles NOT in the CSV, or
+    whose reason routes to Tina/Review, stay blocked here. No reason field —
+    the front end gates this behind a confirm() dialog."""
     if request.is_json:
         vehicle_ids = (request.get_json(silent=True) or {}).get('vehicle_ids', [])
     else:
@@ -276,6 +333,10 @@ def bulk_release():
             ids.append(int(raw))
         except (TypeError, ValueError):
             continue
+
+    csv_data = _load_csv_data() or {}
+    rows_by_id = {r['id']: r for r in csv_data.get('flagged', [])}
+    csv_filename = csv_data.get('filename') or 'Towbook CSV'
 
     has_released_at, has_released_by = _released_columns_present()
     who = current_user.username
@@ -290,20 +351,37 @@ def bulk_release():
             skipped += 1
             errors.append(f'Vehicle {vid} not found')
             continue
-        # Hard-block ghosts and no-op already-released vehicles.
-        if v.possible_release or v.status == 'RELEASED':
+        # No-op already-released vehicles.
+        if v.status == 'RELEASED':
             skipped += 1
             continue
+        row = rows_by_id.get(vid)
+        was_flagged = bool(v.possible_release)
+        if was_flagged:
+            # Ghost stays hard-blocked unless this upload documents its
+            # release and the reason is bulk-eligible (Tina/Review reasons
+            # keep their manual paths).
+            if not row or row.get('category') != 'BULK_ELIGIBLE':
+                skipped += 1
+                continue
+            v.possible_release = False
         v.status = 'RELEASED'
         v.updated_at = now
         if has_released_at:
             setattr(v, 'released_at', now)
         if has_released_by:
             setattr(v, 'released_by', who)
+        body = (f'Marked Released via Status Audit bulk release by '
+                f'{current_user.display_name or who}.')
+        if row:
+            body += (f' Towbook shows released {row["release_date"]} — '
+                     f'{row["release_reason"]} (evidence: {csv_filename}).')
+        if was_flagged:
+            body += (' Was flagged Possible Release; flag cleared — the '
+                     'documented Towbook release is the verification.')
         db.session.add(VehicleNote(
             vehicle_id=v.id,
-            body=f'Marked Released via Status Audit bulk release by '
-                 f'{current_user.display_name or who}.',
+            body=body,
             author=current_user.display_name or who,
             created_at=now,
         ))
@@ -312,10 +390,11 @@ def bulk_release():
     if released:
         db.session.commit()
 
-    # Keep the CSV session data intact — released rows drop off on the next
+    # Keep the CSV stash intact — released rows drop off on the next
     # upload (they'll no longer be ACTIVE), per spec.
     flash(f'{released} vehicle{"" if released == 1 else "s"} released. '
-          f'{skipped} skipped (already released or ghost).', 'success')
+          f'{skipped} skipped (already released, not in the uploaded CSV, '
+          f'or routed to Tina/Review).', 'success')
 
     if request.is_json:
         return jsonify({

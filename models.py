@@ -773,6 +773,17 @@ class Vehicle(db.Model):
         return next((l for l in self.letters if l.letter_number == 2 and not l.superseded), None)
 
     @property
+    def letter_round(self):
+        """Which round of the owner-letter sequence is running. Round 1 is the
+        original. Each Returned to Sender restart supersedes the returned
+        letter, stamps returned_date on it, and starts the next round at a
+        fresh Letter 1 — so the round is 1 + the number of processed returns.
+        (return_to_sender alone doesn't count: UPS polling sets that flag
+        before staff have processed the return.)"""
+        return 1 + sum(1 for l in self.letters
+                       if l.superseded and l.returned_date is not None)
+
+    @property
     def lka_document(self):
         """Most recently uploaded LKA document (documents are ordered newest-first)."""
         return next((d for d in self.documents if d.doc_type == 'LKA'), None)
@@ -838,7 +849,10 @@ class Vehicle(db.Model):
         legal path."""
         if self.title_filing:
             return None
-        overdue = [l for l in self.letters if l.is_overdue]
+        # Superseded rows are historical records (impound-type correction,
+        # Returned to Sender restart) — an unsent superseded letter must not
+        # block release; its replacement in the current round carries the clock.
+        overdue = [l for l in self.letters if not l.superseded and l.is_overdue]
         if overdue:
             names = ', '.join(l.label for l in overdue)
             return f'Overdue, unsent letter(s): {names}. Send them or file for title before releasing.'
@@ -996,6 +1010,20 @@ class CertifiedLetter(db.Model):
     scheduled_delivery = db.Column(db.Date)
     ups_status = db.Column(db.String(50))
     return_to_sender = db.Column(db.Boolean, default=False)
+    # Returned to Sender processing (distinct from the return_to_sender status
+    # flag UPS polling can set): returned_date is stamped when staff record the
+    # envelope physically arriving back, which supersedes this letter and
+    # restarts the letter process at a round-2 Letter 1. The envelope image is
+    # stored like the POD images (base64 in the row) — it's the evidence for a
+    # certified-mail refund claim and for the compliance file.
+    returned_date = db.Column(db.Date)
+    returned_envelope_image_data = db.Column(db.Text)
+    returned_envelope_image_type = db.Column(db.String(20))
+    # Label void tracking — set when the UPS Void API accepted the void (label
+    # was never scanned, so it will never bill). One per label, same primary/
+    # 2nd-party split as tracking_number/tracking_number_2.
+    label_voided_at = db.Column(db.DateTime)
+    label_voided_at_2 = db.Column(db.DateTime)
     notes = db.Column(db.Text)
     created_at = db.Column(db.DateTime)
     updated_at = db.Column(db.DateTime)
@@ -1049,6 +1077,27 @@ class CertifiedLetter(db.Model):
             'first_notice': 'FIRST NOTICE',
             'second_notice': 'SECOND NOTICE',
         }.get(self.effective_letter_kind)
+
+    # Status strings UPS reports before a package's first physical scan.
+    # ups_status is only ever set from UPS's own descriptions (ups_poll /
+    # tracking attach), so phrase-matching them is the best available signal.
+    _UNSCANNED_PHRASES = ('label created', 'shipper created a label',
+                          'order processed', 'ready for ups')
+
+    @property
+    def label_never_scanned(self):
+        """True when the printed primary label shows no sign of ever entering
+        UPS's network: not delivered, not RTS, and the last polled status
+        still reads label-created (or UPS has never reported anything, which
+        includes 'no record' lookups). These labels never billed and are the
+        void candidates. Not authoritative — the Void API itself refuses
+        anything actually in transit, which is the real safety net."""
+        if self.delivery_confirmed_date or self.return_to_sender:
+            return False
+        s = (self.ups_status or '').lower()
+        if not s:
+            return True
+        return any(p in s for p in self._UNSCANNED_PHRASES)
 
     @property
     def is_overdue(self):
@@ -1371,12 +1420,16 @@ class UpsPollLog(db.Model):
     newly_delivered = db.Column(db.Integer, default=0)
     newly_returned = db.Column(db.Integer, default=0)
     pods_pulled = db.Column(db.Integer, default=0)
+    labels_voided = db.Column(db.Integer, default=0)   # orphaned labels auto-voided this run
     errors = db.Column(db.Integer, default=0)
 
     @property
     def summary(self):
-        return (f'{self.letters_checked} checked · {self.newly_delivered} delivered · '
-                f'{self.newly_returned} returned · {self.pods_pulled} PODs')
+        s = (f'{self.letters_checked} checked · {self.newly_delivered} delivered · '
+             f'{self.newly_returned} returned · {self.pods_pulled} PODs')
+        if self.labels_voided:
+            s += f' · {self.labels_voided} label(s) voided'
+        return s
 
 
 class AuctionEvent(db.Model):

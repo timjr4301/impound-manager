@@ -151,6 +151,38 @@ def create_label(reference, recipient_name, recipient_address, recipient_city,
     return tracking_number, label_b64
 
 
+# ── Label void ───────────────────────────────────────────────────────────────
+
+def void_shipment(tracking_number, trans_id):
+    """Void an unshipped label via the UPS Void Shipment API. Our letters are
+    single-package shipments, so the shipment identification number IS the 1Z
+    tracking number.
+
+    Returns (True, description) when UPS accepted the void, or
+    (False, reason) when UPS refused — already picked up / in transit, already
+    voided, or past the void window. A refusal is a normal outcome (and the
+    real safety net against voiding a label that's actually moving), so it's
+    surfaced as data, not an exception. Raises only on network/auth failure,
+    same contract as the other calls here."""
+    resp = requests.delete(
+        f'{_BASE}/api/shipments/v1/void/cancel/{tracking_number}',
+        headers=_headers(trans_id),
+        timeout=15,
+    )
+    if resp.status_code >= 400:
+        try:
+            err = (resp.json().get('response', {}).get('errors') or [{}])[0]
+            message = err.get('message') or f'UPS refused (HTTP {resp.status_code})'
+            return False, message
+        except ValueError:
+            resp.raise_for_status()
+    data = resp.json()
+    status = (((data.get('VoidShipmentResponse') or {}).get('SummaryResult') or {})
+              .get('Status') or {})
+    ok = status.get('Code') == '1' or 'void' in (status.get('Description') or '').lower()
+    return ok, status.get('Description') or ('Voided' if ok else 'Void not confirmed by UPS')
+
+
 # ── Tracking lookups ─────────────────────────────────────────────────────────
 
 _RTS_PHRASES = (
