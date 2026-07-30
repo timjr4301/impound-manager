@@ -397,6 +397,44 @@ def run_migrations(app):
             if 'auction_events' not in existing_tables:
                 AuctionEvent.__table__.create(db.engine)
 
+        # One-time backfill (2026-07-30): PPI Letter 2 rows created before the
+        # 2026-07-29 sent-anchored correction (commit f3cca7d) — or imported
+        # verbatim from Towbook's "SECOND LETTER Due Date" column by
+        # towbook_letter_backfill.py — can carry a stored due_date that
+        # disagrees with the corrected rule (letter1.sent_date + 30). The
+        # Heather dashboard / Letters tabs / Pipeline calendar read the STORED
+        # due_date while the detail page and audit sweep compute sent+30, so
+        # those screens could disagree (e.g. vehicle 5354 showed 07/10 vs
+        # 07/11). Rewrites only rows that differ — idempotent, 0 changes on
+        # every boot after the first.
+        # POLICE chains need no equivalent: their 2nd notices (letter_number
+        # 4/6) are only ever created by letter_triggers.py, whose formula has
+        # always been trigger.sent_date + 30 — no stored drift to heal. Any
+        # anomalous POLICE letter_number=2 row (Towbook import) has no
+        # sent-anchor rule in the current design (POLICE's 2nd owner notice is
+        # letter_number 4, anchored on letter 3), so those are left untouched.
+        if 'certified_letters' in existing_tables and 'vehicles' in existing_tables:
+            fixed = 0
+            rows = (
+                db.session.query(CertifiedLetter)
+                .join(Vehicle, CertifiedLetter.vehicle_id == Vehicle.id)
+                .filter(Vehicle.impound_type == 'PPI')
+                .filter(CertifiedLetter.letter_number == 2)
+                .filter(CertifiedLetter.superseded.isnot(True))
+                .all()
+            )
+            for l2 in rows:
+                l1 = l2.vehicle.letter1
+                if not (l1 and l1.sent_date):
+                    continue
+                expected = l1.sent_date + timedelta(days=PPI_LETTER2_DAYS)
+                if l2.due_date != expected:
+                    l2.due_date = expected
+                    fixed += 1
+            if fixed:
+                db.session.commit()
+            print(f'[letter2_backfill] sent+30 due-date correction: {fixed} row(s) changed')
+
 
 def parse_quantum_view_csv(content: str):
     reader = csv.DictReader(io.StringIO(content))
@@ -1876,8 +1914,9 @@ def create_app():
 
         vehicle = letter.vehicle
 
-        # Task 2 completion stamp (audit/display only — Task 3 stays
-        # delivery-anchored). Records when the 1st Notice Letter was completed.
+        # Task 2 completion stamp (audit/display only — Task 3's 30-day clock
+        # runs off sent_date, not this). Records when the 1st Notice Letter
+        # was completed.
         if letter.letter_number == 1 and not vehicle.task_2_letter_completed_at:
             vehicle.task_2_letter_completed_at = datetime.utcnow()
 
@@ -1928,8 +1967,8 @@ def create_app():
 
         if request.method == 'POST':
             # Sequential gate (server-side, no role bypass): Letter 1 needs BMV
-            # Search complete; Letter 2 needs Letter 1 sent + its post-delivery
-            # window. See Vehicle.letter_send_block_reason.
+            # Search complete; Letter 2 needs Letter 1 sent + 30 days from its
+            # SENT date. See Vehicle.letter_send_block_reason.
             block = letter.vehicle.letter_send_block_reason(letter)
             if block:
                 flash(block, 'danger')

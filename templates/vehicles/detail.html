@@ -309,9 +309,10 @@
         </div>
       </div>
 
-      {# Task 3 #}
-      {% set delivery_date = l1.delivery_confirmed_date if l1 and l1.delivery_confirmed_date else None %}
-      {% set task3_open = (delivery_date + timedelta(days=10)) if delivery_date else None %}
+      {# Task 3 — opens 30 days after Letter 1 was SENT (sent-anchored, per
+         Tim's 2026-07-29 correction — delivery is POD record only, it never
+         gates or times Letter 2) #}
+      {% set task3_open = (l1.sent_date + timedelta(days=30)) if l1_sent else None %}
       <div class="card flex-fill border {% if l2_sent %}border-success bg-success bg-opacity-10{% elif task3_open and today >= task3_open %}border-danger bg-danger bg-opacity-10{% elif task3_open %}border-warning bg-warning bg-opacity-10{% else %}border-secondary bg-light{% endif %}" style="min-width:140px;max-width:220px;">
         <div class="card-body py-2 px-3">
           <div class="small fw-semibold {% if l2_sent %}text-success{% elif task3_open and today >= task3_open %}text-danger{% endif %}">
@@ -323,9 +324,7 @@
           {% elif task3_open and today >= task3_open %}
           <div class="text-danger fw-semibold" style="font-size:.75rem;">SEND NOW — open since {{ task3_open|mdY }}</div>
           {% elif task3_open %}
-          <div class="text-muted" style="font-size:.75rem;">Opens {{ task3_open|mdY }}</div>
-          {% elif l1_sent %}
-          <div class="text-muted" style="font-size:.75rem;">Awaiting delivery confirmation</div>
+          <div class="text-muted" style="font-size:.75rem;">Opens {{ task3_open|mdY }} (30d after Letter 1 sent)</div>
           {% else %}
           <div class="text-muted" style="font-size:.75rem;">Locked — complete Task 2 first</div>
           {% endif %}
