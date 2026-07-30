@@ -177,16 +177,19 @@ def fetch_calls(since_date=None):
 def upsert_calls(calls):
     """
     Upsert a list of raw Towbook call dicts into the vehicles table.
-    Returns (inserted, updated, skipped, errors, stock_numbers_seen).
+    Returns (inserted, updated, skipped, cleared, errors, stock_numbers_seen).
 
     stock_numbers_seen is every stock number present in this pull (whether
     inserted, updated, or already RELEASED) — the caller cross-references it
     against ACTIVE vehicles in our DB the same way towbook_import.py's CSV
     path already does, to catch a vehicle Towbook no longer lists at all.
+    cleared counts flagged vehicles whose reappearance in this pull
+    auto-cleared their possible_release flag, mirroring the CSV path.
     """
     from models import db, Vehicle
+    from tina_sync import auto_clear_possible_release
 
-    inserted = updated = skipped = 0
+    inserted = updated = skipped = cleared = 0
     errors = []
     stock_numbers_seen = []
 
@@ -217,6 +220,11 @@ def upsert_calls(calls):
                         setattr(existing, k, v)
                 if release_date and existing.status == 'ACTIVE':
                     existing.status = 'RELEASED'
+                # Reappearance in the API pull means the car is still
+                # impounded — clear any stale flag, same as the CSV path.
+                if existing.possible_release:
+                    auto_clear_possible_release(existing, source='Towbook API sync')
+                    cleared += 1
                 existing.towbook_seen = True  # seen in this API pull — eligible for future possible_release checks
                 existing.updated_at = datetime.utcnow()
                 updated += 1
@@ -242,7 +250,7 @@ def upsert_calls(calls):
             })
 
     db.session.commit()
-    return inserted, updated, skipped, errors, stock_numbers_seen
+    return inserted, updated, skipped, cleared, errors, stock_numbers_seen
 
 
 def run_auto_sync():
@@ -253,7 +261,7 @@ def run_auto_sync():
     since = date.today() - timedelta(days=SYNC_LOOKBACK_DAYS)
     calls = fetch_calls(since_date=since)
 
-    inserted, updated, skipped, errors, stock_numbers_seen = upsert_calls(calls)
+    inserted, updated, skipped, cleared, errors, stock_numbers_seen = upsert_calls(calls)
 
     # Cross-reference against active records — same check the manual CSV
     # import already runs, previously missing from this API path entirely.
@@ -278,6 +286,7 @@ def run_auto_sync():
         'skipped': skipped,
         'errors': errors,
         'possible_releases_flagged': possible_release_count,
+        'possible_release_cleared': cleared,
         'urgency': urgency_counts,
         'synced_at': datetime.utcnow().isoformat(),
     }
