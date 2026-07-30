@@ -701,6 +701,12 @@ def bmv_complete(vehicle_id):
     vehicle.bmv_stage = 'COMPLETE'
     vehicle.bmv_searched_date = date.today()
     vehicle.bmv_search_notes = request.form.get('notes', '').strip() or None
+    # Structured owner fields — these are what the letters actually print;
+    # the notes box is free text and never reaches a letter.
+    for f in ('owner_name', 'owner_address', 'owner_city', 'owner_state', 'owner_zip'):
+        val = request.form.get(f, '').strip()
+        if val:
+            setattr(vehicle, f, val)
     vehicle.heather_complete = True
     vehicle.heather_complete_date = date.today()
     vehicle.updated_at = datetime.utcnow()

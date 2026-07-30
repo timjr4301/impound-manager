@@ -159,13 +159,15 @@ def bulk_upload():
 
         if ext == 'zip':
             m = re.search(r'call_(\d+)_files', filename, re.IGNORECASE)
-            if not m:
+            # Renamed ZIPs fall back to the typed Call Number, same as loose images
+            call_number = m.group(1) if m else call_number_override
+            if not call_number:
                 unmatched.append({
                     'filename': filename, 'call_number': None,
-                    'reason': 'ZIP filename did not match the call_XXXXXX_files.zip pattern',
+                    'reason': 'ZIP filename did not match call_XXXXXX_files.zip — '
+                              'enter a Call Number to attach it anyway',
                 })
                 continue
-            call_number = m.group(1)
             vehicle = Vehicle.query.filter_by(call_number=call_number).first()
             if not vehicle:
                 unmatched.append({
@@ -251,25 +253,56 @@ def bulk_upload():
 @bp.route('/vehicles/<int:vehicle_id>/damage-photos', methods=['POST'])
 @_upload_required
 def upload_single(vehicle_id):
+    """Attach photos to this vehicle: any mix of images and ZIPs of images.
+    No filename matching needed here — the vehicle is already known."""
     vehicle = db.get_or_404(Vehicle, vehicle_id)
-    upload = request.files.get('file')
-    if not upload or not upload.filename:
-        flash('Choose a photo to upload.', 'danger')
-        return redirect(url_for('vehicles_detail', vehicle_id=vehicle_id) + '#damage-photos')
-
-    raw = upload.read()
-    if not raw:
-        flash('That file appears to be empty.', 'danger')
-        return redirect(url_for('vehicles_detail', vehicle_id=vehicle_id) + '#damage-photos')
+    detail_url = url_for('vehicles_detail', vehicle_id=vehicle_id) + '#damage-photos'
+    uploads = [f for f in request.files.getlist('file') if f and f.filename]
+    if not uploads:
+        flash('Choose at least one photo (or a ZIP of photos) to upload.', 'danger')
+        return redirect(detail_url)
 
     caption = request.form.get('caption', '').strip()
-    if not _add_photo(vehicle, raw, upload.filename, caption=caption):
-        flash('That file could not be read as an image.', 'danger')
-        return redirect(url_for('vehicles_detail', vehicle_id=vehicle_id) + '#damage-photos')
+    added = skipped = 0
+    for upload in uploads:
+        ext = upload.filename.rsplit('.', 1)[-1].lower() if '.' in upload.filename else ''
+        if ext == 'zip':
+            try:
+                zf = zipfile.ZipFile(io.BytesIO(upload.read()))
+            except zipfile.BadZipFile:
+                skipped += 1
+                continue
+            for zi in zf.infolist():
+                if _is_junk_zip_entry(zi.filename):
+                    continue
+                entry_ext = zi.filename.rsplit('.', 1)[-1].lower() if '.' in zi.filename else ''
+                if entry_ext not in IMAGE_EXTS:
+                    continue
+                try:
+                    raw = zf.read(zi)
+                except Exception:
+                    skipped += 1
+                    continue
+                if _add_photo(vehicle, raw, os.path.basename(zi.filename), caption=caption):
+                    added += 1
+                else:
+                    skipped += 1
+        else:
+            raw = upload.read()
+            if raw and _add_photo(vehicle, raw, upload.filename, caption=caption):
+                added += 1
+            else:
+                skipped += 1
 
-    db.session.commit()
-    flash('Damage photo uploaded.', 'success')
-    return redirect(url_for('vehicles_detail', vehicle_id=vehicle_id) + '#damage-photos')
+    if added:
+        db.session.commit()
+        msg = f'{added} damage photo{"" if added == 1 else "s"} uploaded.'
+        if skipped:
+            msg += f' {skipped} file(s) skipped — not readable images.'
+        flash(msg, 'success')
+    else:
+        flash('No readable image files in that upload.', 'danger')
+    return redirect(detail_url)
 
 
 @bp.route('/damage-photos/<int:photo_id>/delete', methods=['POST'])

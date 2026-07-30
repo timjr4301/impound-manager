@@ -300,11 +300,24 @@
             </div>
             <form method="POST" action="{{ url_for('heather.bmv_complete', vehicle_id=v.id) }}">
               <div class="modal-body">
-                <p class="small text-muted">Marking BMV complete will move this vehicle to Tina's queue after all letters are done.</p>
+                <p class="small text-muted"><strong>Owner info entered here prints on the letters.</strong> Marking BMV complete will move this vehicle to Tina's queue after all letters are done.</p>
+                <div class="mb-2">
+                  <label class="form-label fw-semibold">Owner name</label>
+                  <input type="text" name="owner_name" class="form-control" value="{{ v.owner_name or '' }}" placeholder="John Smith">
+                </div>
+                <div class="mb-2">
+                  <label class="form-label fw-semibold">Street address</label>
+                  <input type="text" name="owner_address" class="form-control" value="{{ v.owner_address or '' }}" placeholder="123 Main St">
+                </div>
+                <div class="row g-2 mb-3">
+                  <div class="col-6"><input type="text" name="owner_city" class="form-control" value="{{ v.owner_city or '' }}" placeholder="City"></div>
+                  <div class="col-2"><input type="text" name="owner_state" class="form-control" value="{{ v.owner_state or 'OH' }}" placeholder="ST"></div>
+                  <div class="col-4"><input type="text" name="owner_zip" class="form-control" value="{{ v.owner_zip or '' }}" placeholder="Zip"></div>
+                </div>
                 <div class="mb-3">
-                  <label class="form-label fw-semibold">Notes (owner info found)</label>
-                  <textarea name="notes" class="form-control" rows="3"
-                            placeholder="e.g. Owner: John Smith, 123 Main St, Columbus OH 43213"></textarea>
+                  <label class="form-label fw-semibold">Notes (lienholder, extra info)</label>
+                  <textarea name="notes" class="form-control" rows="2"
+                            placeholder="e.g. Lienholder: Huntington Bank"></textarea>
                 </div>
               </div>
               <div class="modal-footer">
