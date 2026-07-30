@@ -1019,6 +1019,11 @@ class CertifiedLetter(db.Model):
     returned_date = db.Column(db.Date)
     returned_envelope_image_data = db.Column(db.Text)
     returned_envelope_image_type = db.Column(db.String(20))
+    # Label void tracking — set when the UPS Void API accepted the void (label
+    # was never scanned, so it will never bill). One per label, same primary/
+    # 2nd-party split as tracking_number/tracking_number_2.
+    label_voided_at = db.Column(db.DateTime)
+    label_voided_at_2 = db.Column(db.DateTime)
     notes = db.Column(db.Text)
     created_at = db.Column(db.DateTime)
     updated_at = db.Column(db.DateTime)
@@ -1072,6 +1077,27 @@ class CertifiedLetter(db.Model):
             'first_notice': 'FIRST NOTICE',
             'second_notice': 'SECOND NOTICE',
         }.get(self.effective_letter_kind)
+
+    # Status strings UPS reports before a package's first physical scan.
+    # ups_status is only ever set from UPS's own descriptions (ups_poll /
+    # tracking attach), so phrase-matching them is the best available signal.
+    _UNSCANNED_PHRASES = ('label created', 'shipper created a label',
+                          'order processed', 'ready for ups')
+
+    @property
+    def label_never_scanned(self):
+        """True when the printed primary label shows no sign of ever entering
+        UPS's network: not delivered, not RTS, and the last polled status
+        still reads label-created (or UPS has never reported anything, which
+        includes 'no record' lookups). These labels never billed and are the
+        void candidates. Not authoritative — the Void API itself refuses
+        anything actually in transit, which is the real safety net."""
+        if self.delivery_confirmed_date or self.return_to_sender:
+            return False
+        s = (self.ups_status or '').lower()
+        if not s:
+            return True
+        return any(p in s for p in self._UNSCANNED_PHRASES)
 
     @property
     def is_overdue(self):
@@ -1394,12 +1420,16 @@ class UpsPollLog(db.Model):
     newly_delivered = db.Column(db.Integer, default=0)
     newly_returned = db.Column(db.Integer, default=0)
     pods_pulled = db.Column(db.Integer, default=0)
+    labels_voided = db.Column(db.Integer, default=0)   # orphaned labels auto-voided this run
     errors = db.Column(db.Integer, default=0)
 
     @property
     def summary(self):
-        return (f'{self.letters_checked} checked · {self.newly_delivered} delivered · '
-                f'{self.newly_returned} returned · {self.pods_pulled} PODs')
+        s = (f'{self.letters_checked} checked · {self.newly_delivered} delivered · '
+             f'{self.newly_returned} returned · {self.pods_pulled} PODs')
+        if self.labels_voided:
+            s += f' · {self.labels_voided} label(s) voided'
+        return s
 
 
 class AuctionEvent(db.Model):

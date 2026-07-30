@@ -314,6 +314,11 @@ def run_migrations(app):
                     conn.execute(text('ALTER TABLE certified_letters ADD COLUMN returned_envelope_image_data TEXT'))
                 if 'returned_envelope_image_type' not in cols:
                     conn.execute(text('ALTER TABLE certified_letters ADD COLUMN returned_envelope_image_type VARCHAR(20)'))
+                # UPS label void tracking (primary + 2nd-party label).
+                if 'label_voided_at' not in cols:
+                    conn.execute(text('ALTER TABLE certified_letters ADD COLUMN label_voided_at TIMESTAMP'))
+                if 'label_voided_at_2' not in cols:
+                    conn.execute(text('ALTER TABLE certified_letters ADD COLUMN label_voided_at_2 TIMESTAMP'))
                 # Backfill letter_kind on pre-existing letter_number 1/2 rows
                 # (created before the 5-letter system existed) so their print
                 # content routes correctly. Safe to re-run — only touches
@@ -381,6 +386,10 @@ def run_migrations(app):
 
             if 'ups_poll_log' not in existing_tables:
                 UpsPollLog.__table__.create(db.engine)
+            else:
+                cols = {c['name'] for c in inspector.get_columns('ups_poll_log')}
+                if 'labels_voided' not in cols:
+                    conn.execute(text('ALTER TABLE ups_poll_log ADD COLUMN labels_voided INTEGER DEFAULT 0'))
 
             if 'custody_events' not in existing_tables:
                 CustodyEvent.__table__.create(db.engine)
@@ -2249,9 +2258,92 @@ def create_app():
 
         msg = (f'UPS refresh complete — {c["checked"]} checked, {c["delivered"]} newly delivered, '
                f'{c["returned"]} newly returned, {c["pods"]} signed POD(s) pulled.')
+        if c.get('voided'):
+            msg += f' {c["voided"]} orphaned label(s) auto-voided.'
         if c['errors']:
             msg += f' {c["errors"]} lookup error(s) — try again later.'
         flash(msg, 'warning' if c['errors'] else 'success')
+        return redirect(url_for('heather.letters'))
+
+    @app.route('/letters/<int:letter_id>/void-label', methods=['POST'])
+    @login_required
+    def letters_void_label(letter_id):
+        """Manually void one printed UPS label (primary or 2nd-party, via the
+        'which' form field). For labels Heather knows will never ship — a
+        reprinted letter, a bad address caught before mailing. UPS refuses the
+        void if the package is actually in transit, so a refusal here is
+        informative, not an error."""
+        letter = db.get_or_404(CertifiedLetter, letter_id)
+        if not current_user.is_heather:
+            flash('Permission denied.', 'danger')
+            return redirect(url_for('heather.letters'))
+
+        which = request.form.get('which', 'primary')
+        if which == '2nd':
+            tracking, already = letter.tracking_number_2, letter.label_voided_at_2
+        else:
+            which = 'primary'
+            tracking, already = letter.tracking_number, letter.label_voided_at
+        if not tracking:
+            flash('That letter has no such label to void.', 'danger')
+            return redirect(url_for('heather.letters'))
+        if already:
+            flash(f'Label {tracking} is already voided.', 'info')
+            return redirect(url_for('heather.letters'))
+        if which == 'primary' and (letter.delivery_confirmed_date or letter.return_to_sender):
+            flash(f'Label {tracking} was actually used (delivered or returned) — nothing to void.', 'danger')
+            return redirect(url_for('heather.letters'))
+
+        import ups_api
+        try:
+            ok, description = ups_api.void_shipment(tracking, trans_id=f'void-manual-{letter.id}')
+        except Exception as exc:
+            flash(f'UPS API error voiding {tracking}: {exc}', 'danger')
+            return redirect(url_for('heather.letters'))
+
+        if not ok:
+            flash(f'UPS refused the void for {tracking}: {description}', 'warning')
+            return redirect(url_for('heather.letters'))
+
+        now = datetime.utcnow()
+        actor = current_user.display_name or current_user.username
+        if which == '2nd':
+            letter.label_voided_at_2 = now
+        else:
+            letter.label_voided_at = now
+        letter.updated_at = now
+        db.session.add(VehicleNote(
+            vehicle_id=letter.vehicle_id,
+            body=(f'UPS label {tracking} voided ({letter.label}'
+                  f'{" — 2nd party" if which == "2nd" else ""}) by {actor} — '
+                  f'never scanned, will not be billed.'),
+            author=actor,
+            created_at=now,
+        ))
+        db.session.commit()
+        flash(f'Label {tracking} voided — it will not be billed.', 'success')
+        return redirect(url_for('heather.letters'))
+
+    @app.route('/letters/void-orphaned-labels', methods=['POST'])
+    @login_required
+    def letters_void_orphaned_labels():
+        """Batch-void every label stranded on a superseded letter (Returned to
+        Sender restart / impound-type correction). Same logic the nightly poll
+        runs automatically — this button just does it on demand."""
+        if not current_user.is_heather:
+            flash('Permission denied.', 'danger')
+            return redirect(url_for('heather.letters'))
+        import ups_api
+        import ups_poll
+        if not ups_api.is_configured():
+            flash('UPS API is not configured — set UPS_CLIENT_ID / UPS_CLIENT_SECRET.', 'danger')
+            return redirect(url_for('heather.letters'))
+        voided, refused = ups_poll.void_orphaned_labels(current_user.username)
+        db.session.commit()
+        msg = f'{voided} orphaned label(s) voided.'
+        if refused:
+            msg += f' {refused} refused by UPS (in transit, already voided, or past the void window).'
+        flash(msg, 'success' if voided or not refused else 'warning')
         return redirect(url_for('heather.letters'))
 
     @app.route('/admin/ups-test')

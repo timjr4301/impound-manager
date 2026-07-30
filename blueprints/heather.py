@@ -1094,6 +1094,27 @@ def letters():
         .all()
     )
 
+    # Labels tab — every label printed in the last 90 days (UPS's void window),
+    # newest first. The template buckets them: orphaned (superseded letter,
+    # never scanned, not voided — auto-void targets), stale (active letter,
+    # never scanned 7+ days after printing — manual-void candidates; the
+    # envelope may just be sitting in the outbox, so no auto-void), voided,
+    # and normal in-flight/delivered.
+    label_cutoff = today - timedelta(days=90)
+    label_letters = (
+        CertifiedLetter.query
+        .filter(CertifiedLetter.tracking_number.isnot(None))
+        .filter(CertifiedLetter.sent_date.isnot(None))
+        .filter(CertifiedLetter.sent_date >= label_cutoff)
+        .order_by(CertifiedLetter.sent_date.desc())
+        .all()
+    )
+    orphaned_labels = [l for l in label_letters
+                       if l.superseded and not l.label_voided_at and l.label_never_scanned]
+    stale_labels = [l for l in label_letters
+                    if not l.superseded and not l.label_voided_at and l.label_never_scanned
+                    and l.sent_date and (today - l.sent_date).days >= 7]
+
     # Fully confirmed deliveries (last 30 days)
     confirmed = (
         CertifiedLetter.query
@@ -1129,6 +1150,9 @@ def letters():
         can_act=current_user.is_heather,
         lot_sort=lot_sort,
         last_ups_poll=last_ups_poll,
+        label_letters=label_letters,
+        orphaned_labels=orphaned_labels,
+        stale_labels=stale_labels,
     )
 
 
