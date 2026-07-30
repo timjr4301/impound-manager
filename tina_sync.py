@@ -146,20 +146,22 @@ def confirm_still_on_lot(vehicle_id, actor=None):
     return True
 
 
-def auto_clear_possible_release(vehicle):
+def auto_clear_possible_release(vehicle, source='Towbook CSV import'):
     """
     Clears the possible_release flag when the vehicle reappears in a Towbook
-    CSV import — a full current-lot snapshot listing the stock number means
-    the car is still impounded. Mirrors confirm_still_on_lot() but takes an
-    in-session Vehicle and does NOT commit; the import's single end-of-run
-    commit persists the change (and rolls it back atomically on failure).
+    pull — a full current-lot snapshot listing the stock number means the
+    car is still impounded. `source` names the pull in the audit note
+    ('Towbook CSV import' or 'Towbook API sync'). Mirrors
+    confirm_still_on_lot() but takes an in-session Vehicle and does NOT
+    commit; the caller's single end-of-run commit persists the change (and
+    rolls it back atomically on failure).
     """
     vehicle.possible_release = False
     vehicle.updated_at = datetime.utcnow()
     db.session.add(VehicleNote(
         vehicle_id=vehicle.id,
         body=(f'Possible Release flag auto-cleared — vehicle reappeared in '
-              f'Towbook CSV import on {datetime.utcnow().strftime("%m/%d/%Y")}.'),
+              f'{source} on {datetime.utcnow().strftime("%m/%d/%Y")}.'),
         author='System',
         created_at=datetime.utcnow(),
     ))
