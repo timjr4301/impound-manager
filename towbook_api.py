@@ -217,6 +217,7 @@ def upsert_calls(calls):
                         setattr(existing, k, v)
                 if release_date and existing.status == 'ACTIVE':
                     existing.status = 'RELEASED'
+                existing.towbook_seen = True  # seen in this API pull — eligible for future possible_release checks
                 existing.updated_at = datetime.utcnow()
                 updated += 1
             else:
@@ -227,6 +228,7 @@ def upsert_calls(calls):
                     **fields,
                     impound_type='PPI',
                     status='RELEASED' if release_date else 'ACTIVE',
+                    towbook_seen=True,  # inserted via API — eligible for future possible_release checks
                     created_at=datetime.utcnow(),
                     updated_at=datetime.utcnow(),
                 )
