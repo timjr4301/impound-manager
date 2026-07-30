@@ -1806,15 +1806,35 @@ def create_app():
             vehicle.title_search_confirmed = True
         vehicle.updated_at = datetime.utcnow()
 
+        # Auto-read the document with the same AI extractor Daily Intake uses,
+        # so owner info fills in no matter where the PDF is dropped. Failure
+        # never blocks the upload — staff can still enter owner info manually.
+        extract_msg = ''
+        try:
+            from blueprints.bmv_document_scanner import extract_from_document
+            result = extract_from_document(
+                vehicle, doc_type, file_bytes,
+                upload.content_type or 'application/pdf',
+            )
+            if result['ok'] and result['filled']:
+                extract_msg = f' Auto-read: owner info filled in ({result["owner_name"]}).'
+            elif result['ok']:
+                extract_msg = ' Auto-read: no new info (fields already filled or none found on document).'
+            else:
+                extract_msg = f' Auto-read skipped: {result["error"]}. Enter owner info via BMV Done or Edit.'
+        except Exception as exc:
+            extract_msg = f' Auto-read unavailable ({exc}). Enter owner info via BMV Done or Edit.'
+
         db.session.add(VehicleNote(
             vehicle_id=vehicle.id,
-            body=f'{"LKA (BMV 2433)" if doc_type == "LKA" else "Title Search (BMV 1148)"} document uploaded by {actor}.',
+            body=(f'{"LKA (BMV 2433)" if doc_type == "LKA" else "Title Search (BMV 1148)"} '
+                  f'document uploaded by {actor}.{extract_msg}'),
             author=actor,
             created_at=datetime.utcnow(),
         ))
         db.session.commit()
 
-        flash(f'Document uploaded and confirmed.', 'success')
+        flash(f'Document uploaded and confirmed.{extract_msg}', 'success')
         return redirect(url_for('vehicles_detail', vehicle_id=vehicle_id) + '#documents')
 
     @app.route('/documents/<int:doc_id>')

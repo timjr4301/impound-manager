@@ -46,7 +46,14 @@ no_information_found: true if the "No information found" checkbox is marked.
 consent_not_provided: true if the consent disclosure checkbox is marked."""
 
 
-def _analyze_lka(image_b64, mime_type):
+def _source_block(data_b64, media_type):
+    """Content block for one document source: PDF → document block, else image."""
+    if (media_type or '').lower() == 'application/pdf':
+        return {'type': 'document', 'source': {'type': 'base64', 'media_type': 'application/pdf', 'data': data_b64}}
+    return {'type': 'image', 'source': {'type': 'base64', 'media_type': media_type or 'image/jpeg', 'data': data_b64}}
+
+
+def _analyze_lka_blocks(source_blocks):
     client = _client()
     response = client.messages.create(
         model='claude-opus-4-8',
@@ -55,7 +62,7 @@ def _analyze_lka(image_b64, mime_type):
         messages=[{
             'role': 'user',
             'content': [
-                {'type': 'image', 'source': {'type': 'base64', 'media_type': mime_type, 'data': image_b64}},
+                *source_blocks,
                 {'type': 'text', 'text': 'Extract all data from this BMV Last Known Address document.'}
             ]
         }]
@@ -64,6 +71,10 @@ def _analyze_lka(image_b64, mime_type):
     raw = re.sub(r'^```json\s*', '', raw)
     raw = re.sub(r'\s*```$', '', raw)
     return json.loads(raw)
+
+
+def _analyze_lka(image_b64, mime_type):
+    return _analyze_lka_blocks([_source_block(image_b64, mime_type)])
 
 
 # ── Title Abstract extraction ──────────────────────────────────────────────────
@@ -118,13 +129,10 @@ ODOMETER DISCREPANCY" — this is operationally important for the title packet.
 Liens are typically on page 2 under "Lien Information" — look for Lien Name and address."""
 
 
-def _analyze_title_abstract(images_b64_list, mime_type):
-    """Title abstract may be 2 pages — pass both images."""
+def _analyze_title_blocks(source_blocks):
     client = _client()
-    content = []
-    for img_b64 in images_b64_list:
-        content.append({'type': 'image', 'source': {'type': 'base64', 'media_type': mime_type, 'data': img_b64}})
-    content.append({'type': 'text', 'text': 'Extract all data from this BMV Title Abstract (may be 2 pages).'})
+    content = [*source_blocks,
+               {'type': 'text', 'text': 'Extract all data from this BMV Title Abstract (may be 2 pages).'}]
     response = client.messages.create(
         model='claude-opus-4-8',
         max_tokens=1200,
@@ -135,6 +143,11 @@ def _analyze_title_abstract(images_b64_list, mime_type):
     raw = re.sub(r'^```json\s*', '', raw)
     raw = re.sub(r'\s*```$', '', raw)
     return json.loads(raw)
+
+
+def _analyze_title_abstract(images_b64_list, mime_type):
+    """Title abstract may be 2 pages — pass both images."""
+    return _analyze_title_blocks([_source_block(b, mime_type) for b in images_b64_list])
 
 
 # ── Discrepancy detection ──────────────────────────────────────────────────────
@@ -269,6 +282,74 @@ def compare_lka_and_title(lka, title):
 
 
 # ── Vehicle matching ───────────────────────────────────────────────────────────
+def extract_from_document(vehicle, doc_type, file_bytes, content_type):
+    """
+    Server-side auto-read for a single LKA or TITLE document attached to a known
+    vehicle (vehicle-detail upload path — Daily Intake has its own client-side
+    flow). Fills empty owner/lienholder fields on the vehicle; never overwrites
+    existing values and does NOT commit — the caller's commit persists changes.
+    Returns {'ok': True, 'filled': [...], 'owner_name': ...} or {'ok': False, 'error': ...}.
+    """
+    import base64 as _b64
+    try:
+        data_b64 = _b64.b64encode(file_bytes).decode('ascii')
+        block = _source_block(data_b64, content_type)
+        if doc_type == 'LKA':
+            parsed = _analyze_lka_blocks([block])
+        else:
+            parsed = _analyze_title_blocks([block])
+    except Exception as exc:
+        return {'ok': False, 'error': f'auto-read failed: {exc}'}
+
+    # Safety: if the document names a VIN and it doesn't match this vehicle,
+    # do not fill anything — wrong owner info on a letter is a legal problem.
+    doc_vin = (parsed.get('vin') or '').strip().upper()
+    veh_vin = (vehicle.vin or '').strip().upper()
+    if doc_vin and veh_vin and doc_vin != veh_vin:
+        return {'ok': False, 'error': f'VIN on document ({doc_vin}) does not match this vehicle ({veh_vin}) — nothing filled'}
+
+    filled = []
+
+    def fill(attr, value):
+        if value and not getattr(vehicle, attr):
+            setattr(vehicle, attr, value)
+            filled.append(attr)
+
+    if doc_type == 'LKA':
+        if parsed.get('no_information_found'):
+            return {'ok': False, 'error': 'BMV reported "No information found" on this LKA'}
+        fill('owner_name', parsed.get('owner_name'))
+        fill('owner_address', parsed.get('owner_street'))
+        fill('owner_city', parsed.get('owner_city'))
+        fill('owner_state', parsed.get('owner_state'))
+        fill('owner_zip', parsed.get('owner_zip'))
+        if parsed.get('is_po_box'):
+            vehicle.po_box_flag = True
+    else:  # TITLE abstract
+        owner = (parsed.get('owner_company_name')
+                 or ' '.join(p for p in (parsed.get('owner_first_name'), parsed.get('owner_last_name')) if p))
+        fill('owner_name', owner or None)
+        fill('owner_address', parsed.get('owner_street'))
+        fill('owner_city', parsed.get('owner_city'))
+        fill('owner_state', parsed.get('owner_state'))
+        fill('owner_zip', parsed.get('owner_zip'))
+        fill('lienholder_name', parsed.get('lienholder_name'))
+        fill('lienholder_address', parsed.get('lienholder_street'))
+        fill('lienholder_city', parsed.get('lienholder_city'))
+        fill('lienholder_state', parsed.get('lienholder_state'))
+        fill('lienholder_zip', parsed.get('lienholder_zip'))
+        fill('title_number', parsed.get('title_number'))
+        if parsed.get('mileage') and not vehicle.mileage:
+            try:
+                vehicle.mileage = int(re.sub(r'[^\d]', '', str(parsed['mileage'])))
+            except (ValueError, TypeError):
+                pass
+
+    if filled:
+        vehicle.updated_at = datetime.utcnow()
+    return {'ok': True, 'filled': filled, 'owner_name': vehicle.owner_name}
+
+
 def _match_vehicle_by_vin(vin):
     if not vin:
         return None
