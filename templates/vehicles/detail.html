@@ -1879,8 +1879,8 @@ function showGeneralDocImage(btn) {
         <form method="POST" action="{{ url_for('damage_photos.upload_single', vehicle_id=vehicle.id) }}"
               enctype="multipart/form-data" class="row g-2 align-items-end">
           <div class="col-md-6">
-            <label class="form-label small text-muted mb-1">Photo (camera or file)</label>
-            <input type="file" name="file" accept="image/*" capture="environment" class="form-control form-control-sm" required>
+            <label class="form-label small text-muted mb-1">Photos or ZIP — select as many as you want</label>
+            <input type="file" name="file" accept="image/*,.zip" multiple class="form-control form-control-sm" required>
           </div>
           <div class="col-md-4">
             <label class="form-label small text-muted mb-1">Caption (optional)</label>

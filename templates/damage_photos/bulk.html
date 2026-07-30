@@ -15,8 +15,8 @@
       Drop one or more <strong>ZIP files</strong> exported from Towbook
       (named <code>call_XXXXXX_files.zip</code>) — the call number is parsed
       automatically and photos are matched to the right vehicle. Loose image
-      files (jpg/jpeg/png/webp) are also accepted as a fallback; enter a
-      Call Number below so they can be attached.
+      files (jpg/jpeg/png/webp) and <strong>renamed ZIPs</strong> are also
+      accepted — enter a Call Number below so they can be attached.
     </p>
     <form method="POST" action="{{ url_for('damage_photos.bulk_upload') }}"
           enctype="multipart/form-data">
