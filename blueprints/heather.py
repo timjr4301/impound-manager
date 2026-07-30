@@ -1052,34 +1052,42 @@ def letters():
     today = date.today()
     lot_sort = _lot_sort_param()
 
-    # All unsent letters (pending)
+    # All unsent letters (pending) — superseded rows are historical (impound-
+    # type correction / Returned to Sender restart), never sendable.
     pending = (
         CertifiedLetter.query
         .join(Vehicle)
         .filter(Vehicle.status == 'ACTIVE')
         .filter(CertifiedLetter.sent_date.is_(None))
+        .filter(CertifiedLetter.superseded.isnot(True))
         .filter(_after_cutoff())
         .order_by(_lot_order(lot_sort, CertifiedLetter.due_date.asc()))
         .all()
     )
 
-    # Sent letters awaiting delivery confirmation
+    # Sent letters awaiting delivery confirmation — a superseded sent letter
+    # (processed Returned to Sender) will never be delivered; drop it here.
     awaiting = (
         CertifiedLetter.query
         .join(Vehicle)
         .filter(Vehicle.status == 'ACTIVE')
         .filter(CertifiedLetter.sent_date.isnot(None))
         .filter(CertifiedLetter.delivery_confirmed_date.is_(None))
+        .filter(CertifiedLetter.superseded.isnot(True))
         .filter(_after_cutoff())
         .order_by(_lot_order(lot_sort, CertifiedLetter.sent_date.asc()))
         .all()
     )
 
-    # Return-to-sender letters
+    # Return-to-sender letters still needing action. Once staff process the
+    # return on the vehicle page (Returned to Sender → date + envelope image →
+    # round restart) the row is superseded and leaves this queue — its history
+    # lives on the vehicle's letter timeline.
     returned = (
         CertifiedLetter.query
         .join(Vehicle)
         .filter(CertifiedLetter.return_to_sender == True)
+        .filter(CertifiedLetter.superseded.isnot(True))
         .filter(Vehicle.status == 'ACTIVE')
         .filter(_after_cutoff())
         .order_by(_lot_order(lot_sort, CertifiedLetter.sent_date.desc()))

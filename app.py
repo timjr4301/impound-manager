@@ -306,6 +306,14 @@ def run_migrations(app):
                 if 'superseded' not in cols:
                     conn.execute(text('ALTER TABLE certified_letters ADD COLUMN superseded BOOLEAN DEFAULT FALSE'))
                     conn.execute(text('UPDATE certified_letters SET superseded = FALSE WHERE superseded IS NULL'))
+                # Returned to Sender processing — return date + envelope image
+                # (evidence for refund claims and the compliance file).
+                if 'returned_date' not in cols:
+                    conn.execute(text('ALTER TABLE certified_letters ADD COLUMN returned_date DATE'))
+                if 'returned_envelope_image_data' not in cols:
+                    conn.execute(text('ALTER TABLE certified_letters ADD COLUMN returned_envelope_image_data TEXT'))
+                if 'returned_envelope_image_type' not in cols:
+                    conn.execute(text('ALTER TABLE certified_letters ADD COLUMN returned_envelope_image_type VARCHAR(20)'))
                 # Backfill letter_kind on pre-existing letter_number 1/2 rows
                 # (created before the 5-letter system existed) so their print
                 # content routes correctly. Safe to re-run — only touches
@@ -914,6 +922,7 @@ def create_app():
             .join(Vehicle)
             .filter(Vehicle.status == 'ACTIVE')
             .filter(CertifiedLetter.sent_date.is_(None))
+            .filter(CertifiedLetter.superseded.isnot(True))
             .filter(Vehicle.possible_release.isnot(True))
             .all()
         )
@@ -1298,6 +1307,7 @@ def create_app():
             .join(Vehicle)
             .filter(Vehicle.status == 'ACTIVE')
             .filter(CertifiedLetter.sent_date.is_(None))
+            .filter(CertifiedLetter.superseded.isnot(True))
             .filter(CertifiedLetter.due_date <= horizon)
             .filter(Vehicle.possible_release.isnot(True))
             .order_by(CertifiedLetter.due_date.asc())
@@ -2067,6 +2077,107 @@ def create_app():
         flash('Delivery confirmation recorded.', 'success')
         return redirect(url_for('vehicles_detail', vehicle_id=letter.vehicle_id))
 
+    @app.route('/letters/<int:letter_id>/returned-to-sender', methods=['POST'])
+    @login_required
+    def letters_returned_to_sender(letter_id):
+        """Process a certified letter that came back Returned to Sender: record
+        the date the envelope arrived back (+ optional envelope image as
+        refund/compliance evidence), supersede the current round's owner
+        letters, and restart the process at a fresh Letter 1 — the next round.
+        The release gate, task engine, and Heather's queues all follow the new
+        round because superseded rows are excluded everywhere; the returned
+        letter stays on the row as history (returned_date + image)."""
+        letter = db.get_or_404(CertifiedLetter, letter_id)
+        vehicle = letter.vehicle
+
+        if not current_user.is_heather:
+            flash('Permission denied.', 'danger')
+            return redirect(url_for('vehicles_detail', vehicle_id=vehicle.id))
+        if letter.superseded or not letter.sent_date:
+            flash('Only a sent, current-round letter can be marked Returned to Sender.', 'danger')
+            return redirect(url_for('vehicles_detail', vehicle_id=vehicle.id) + '#letters')
+        if letter.recipient_type == 'lienholder':
+            flash('Returned to Sender processing covers owner letters — handle a '
+                  'returned lienholder notice manually for now.', 'danger')
+            return redirect(url_for('vehicles_detail', vehicle_id=vehicle.id) + '#letters')
+
+        returned_str = request.form.get('returned_date', '').strip()
+        returned_on = date.fromisoformat(returned_str) if returned_str else date.today()
+        label = letter.label
+
+        # Optional envelope image — stored on the letter row like the POD
+        # images; it's the evidence for a certified-mail refund claim.
+        img = request.files.get('envelope_image')
+        if img and img.filename:
+            raw = img.read()
+            if len(raw) > 10 * 1024 * 1024:
+                flash('Envelope image is over 10 MB — use a smaller photo.', 'danger')
+                return redirect(url_for('vehicles_detail', vehicle_id=vehicle.id) + '#letters')
+            letter.returned_envelope_image_data = base64.b64encode(raw).decode('ascii')
+            letter.returned_envelope_image_type = img.mimetype or 'image/jpeg'
+
+        now = datetime.utcnow()
+        actor = current_user.display_name or current_user.username
+
+        letter.return_to_sender = True
+        letter.returned_date = returned_on
+        letter.superseded = True
+        letter.updated_at = now
+
+        # End the whole current owner round — any other active owner letters
+        # (sent or unsent) were anchored to the failed service and are replaced
+        # by the new round. Lienholder notices go to a different address and
+        # are untouched.
+        for l in vehicle.letters:
+            if l.id != letter.id and not l.superseded and l.recipient_type != 'lienholder':
+                l.superseded = True
+                l.updated_at = now
+
+        # Fresh round: new Letter 1, letter clock re-anchored to the returned
+        # date (same restart_date mechanics as Restart Letter Clock —
+        # title_eligible_date still reads impound_date, never this).
+        days_offset = PPI_LETTER1_DAYS if vehicle.impound_type == 'PPI' else POLICE_LETTER1_DAYS
+        new_l1 = CertifiedLetter(
+            vehicle_id=vehicle.id,
+            letter_number=1,
+            due_date=returned_on + timedelta(days=days_offset),
+            recipient_type='owner',
+            letter_kind='notice_of_lien' if vehicle.impound_type == 'POLICE' else 'first_notice',
+            created_at=now,
+        )
+        db.session.add(new_l1)
+
+        vehicle.restart_date = returned_on
+        vehicle.restart_reason = (f'{label} returned to sender — received back '
+                                  f'{returned_on.strftime("%m/%d/%Y")}')
+        vehicle.restart_set_by = actor
+        vehicle.restart_set_at = now
+        vehicle.letter_flag = None
+        vehicle.letter_flag_detail = None
+        vehicle.letter_stage = 'needs_1st'
+        vehicle.updated_at = now
+
+        round_no = vehicle.letter_round
+        note = (f'{label} came back Returned to Sender — received '
+                f'{returned_on.strftime("%m/%d/%Y")}, recorded by {actor}.')
+        if letter.returned_envelope_image_data:
+            note += ' Envelope image on file.'
+        if letter.tracking_number:
+            note += f' Tracking {letter.tracking_number} (certified-mail cost may be refundable).'
+        note += (f' Letter process restarted — Round {round_no}: '
+                 f'Letter 1 due {new_l1.due_date.strftime("%m/%d/%Y")}.')
+        db.session.add(VehicleNote(vehicle_id=vehicle.id, body=note,
+                                   author=actor, created_at=now))
+        db.session.commit()
+
+        from task_engine import recalculate_vehicle
+        recalculate_vehicle(vehicle)
+        db.session.commit()
+
+        flash(f'{label} marked Returned to Sender. Round {round_no} started — '
+              f'Letter 1 due {new_l1.due_date.strftime("%m/%d/%Y")}.', 'warning')
+        return redirect(url_for('vehicles_detail', vehicle_id=vehicle.id) + '#letters')
+
     @app.route('/letters/<int:letter_id>/refresh-tracking', methods=['POST'])
     @login_required
     def letters_refresh_tracking(letter_id):
@@ -2286,6 +2397,7 @@ def create_app():
             .join(Vehicle)
             .filter(Vehicle.status == 'ACTIVE')
             .filter(CertifiedLetter.sent_date.is_(None))
+            .filter(CertifiedLetter.superseded.isnot(True))
             .filter(Vehicle.possible_release.isnot(True))
             .all()
         )

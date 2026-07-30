@@ -1077,7 +1077,15 @@ function showGeneralDocImage(btn) {
 
     <div class="card shadow-sm mb-4" id="letters">
       <div class="card-header fw-semibold d-flex justify-content-between align-items-center">
-        <span><i class="bi bi-envelope me-1"></i> Certified Letter Timeline</span>
+        <span>
+          <i class="bi bi-envelope me-1"></i> Certified Letter Timeline
+          {% if vehicle.letter_round > 1 %}
+          <span class="badge bg-warning text-dark ms-1"
+                title="A letter came back Returned to Sender and the process was restarted. Earlier rounds are listed under Returned Letters below.">
+            Round {{ vehicle.letter_round }} — restarted after Return to Sender
+          </span>
+          {% endif %}
+        </span>
         {% if vehicle.status == 'ACTIVE' and current_user.is_heather %}
         <button type="button" class="btn btn-outline-warning btn-sm" data-bs-toggle="modal" data-bs-target="#restartLettersModal">
           <i class="bi bi-arrow-repeat"></i> Restart Letter Clock
@@ -1086,6 +1094,53 @@ function showGeneralDocImage(btn) {
       </div>
       <div class="card-body">
         {{ pod_modal() }}
+
+        {# ── Returned to Sender: button + per-letter modal. Records the date the
+           envelope came back (+ optional photo as refund/compliance evidence),
+           ends the current letter round, and starts the next round at a fresh
+           Letter 1 so the release gate and task queue follow the restart. ── #}
+        {% macro rts_controls(l, today) %}
+        {% if current_user.is_heather %}
+        <button type="button" class="btn btn-sm btn-outline-danger"
+                data-bs-toggle="modal" data-bs-target="#rtsModal{{ l.id }}">
+          <i class="bi bi-arrow-return-left"></i> Returned to Sender
+        </button>
+        <div class="modal fade" id="rtsModal{{ l.id }}" tabindex="-1">
+          <div class="modal-dialog modal-dialog-centered">
+            <div class="modal-content">
+              <form method="POST" action="{{ url_for('letters_returned_to_sender', letter_id=l.id) }}"
+                    enctype="multipart/form-data">
+                <div class="modal-header">
+                  <h5 class="modal-title"><i class="bi bi-arrow-return-left me-1"></i>{{ l.label }} — Returned to Sender</h5>
+                  <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                  <div class="mb-3">
+                    <label class="form-label">Date we received it back</label>
+                    <input type="date" name="returned_date" class="form-control" value="{{ today.isoformat() }}" required>
+                  </div>
+                  <div class="mb-3">
+                    <label class="form-label">Envelope photo <span class="text-muted">(optional — kept as evidence for a postage refund claim and the compliance file)</span></label>
+                    <input type="file" name="envelope_image" class="form-control" accept="image/*,application/pdf">
+                  </div>
+                  <div class="alert alert-warning small mb-0">
+                    This <strong>restarts the letter process</strong>: the current round's letters end here
+                    (kept as history under Returned Letters) and a fresh
+                    <strong>Letter 1 — Round {{ vehicle.letter_round + 1 }}</strong> is created with a new
+                    due date anchored to the returned date. Letter 2 will follow once the new Letter 1
+                    is sent, same as always.
+                  </div>
+                </div>
+                <div class="modal-footer">
+                  <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                  <button type="submit" class="btn btn-danger">Mark Returned &amp; Restart Letters</button>
+                </div>
+              </form>
+            </div>
+          </div>
+        </div>
+        {% endif %}
+        {% endmacro %}
 
         {# ── Letter 1 ── #}
         {% set l1 = vehicle.letter1 %}
@@ -1153,6 +1208,7 @@ function showGeneralDocImage(btn) {
             <button type="submit" class="btn btn-sm btn-outline-secondary"><i class="bi bi-arrow-repeat"></i> Refresh from UPS</button>
           </form>
           {% endif %}
+          {{ rts_controls(l1, today) }}
           {% endif %}
           {{ pod_section(l1) }}
           {% else %}
@@ -1230,6 +1286,7 @@ function showGeneralDocImage(btn) {
             <button type="submit" class="btn btn-sm btn-outline-secondary"><i class="bi bi-arrow-repeat"></i> Refresh from UPS</button>
           </form>
           {% endif %}
+          {{ rts_controls(l2, today) }}
           {% endif %}
           {{ pod_section(l2) }}
           {% else %}
@@ -1241,7 +1298,7 @@ function showGeneralDocImage(btn) {
         {# ── Extended 5-letter system: POLICE Owner Notices + Lienholder Notices
              (letter_number 3-6) — only appear once their trigger condition has
              created them (see letter_triggers.py); nothing to show otherwise. ── #}
-        {% set extra_letters = vehicle.letters | selectattr('letter_number', 'in', [3, 4, 5, 6]) | sort(attribute='letter_number') | list %}
+        {% set extra_letters = vehicle.letters | selectattr('letter_number', 'in', [3, 4, 5, 6]) | rejectattr('superseded') | sort(attribute='letter_number') | list %}
         {% for xl in extra_letters %}
         <hr>
         <div class="mb-3">
@@ -1315,20 +1372,59 @@ function showGeneralDocImage(btn) {
         <p class="text-muted small ms-1">1st/2nd Owner Notice (and Lienholder Notices, if applicable) will appear once BMV Search is marked complete.</p>
         {% endif %}
 
-        {# ── Historical Letters (pre-type-correction) ── #}
-        {% set superseded_letters = vehicle.letters | selectattr('superseded') | sort(attribute='letter_number') | list %}
+        {# ── Returned Letters (Returned to Sender history) ── #}
+        {% set returned_letters = vehicle.letters | selectattr('returned_date') | sort(attribute='returned_date') | list %}
+        {% if returned_letters %}
+        <hr>
+        <div class="mb-2">
+          <div class="fw-semibold small text-danger mb-2">
+            <i class="bi bi-arrow-return-left me-1"></i>Returned Letters
+            {% if vehicle.letter_round > 1 %}<span class="text-muted fw-normal">— process restarted, now on Round {{ vehicle.letter_round }}</span>{% endif %}
+          </div>
+          {% for rl in returned_letters %}
+          <div class="d-flex align-items-center gap-2 small border border-danger-subtle rounded px-2 py-1 mb-1 flex-wrap">
+            <span class="badge bg-danger-subtle text-danger border border-danger-subtle">{{ rl.label }}</span>
+            <span>Sent {{ rl.sent_date|mdY if rl.sent_date else '—' }}</span>
+            <span class="text-danger">Returned {{ rl.returned_date|mdY }}</span>
+            {% if rl.tracking_number %}<span class="font-monospace text-muted">{{ rl.tracking_number }}</span>{% endif %}
+            {% if rl.returned_envelope_image_data %}
+              {% if rl.returned_envelope_image_type == 'application/pdf' %}
+              <a href="data:application/pdf;base64,{{ rl.returned_envelope_image_data }}" target="_blank"
+                 class="btn btn-sm btn-outline-danger py-0">
+                <i class="bi bi-envelope-paper"></i> View Envelope
+              </a>
+              {% else %}
+              <button type="button" class="btn btn-sm btn-outline-danger py-0"
+                      data-pod-src="data:{{ rl.returned_envelope_image_type or 'image/jpeg' }};base64,{{ rl.returned_envelope_image_data }}"
+                      data-pod-label="Returned envelope — {{ rl.label }}" onclick="showPodImage(this)">
+                <i class="bi bi-envelope-paper"></i> View Envelope
+              </button>
+              {% endif %}
+            {% endif %}
+            <a href="{{ url_for('print_letter', letter_id=rl.id) }}" target="_blank"
+               class="btn btn-sm btn-link p-0 text-muted ms-auto"><i class="bi bi-printer"></i></a>
+          </div>
+          {% endfor %}
+        </div>
+        {% endif %}
+
+        {# ── Historical Letters (superseded — impound-type correction or a
+           Returned to Sender restart; returned letters themselves show in the
+           Returned Letters block above instead) ── #}
+        {% set superseded_letters = vehicle.letters | selectattr('superseded') | rejectattr('returned_date') | sort(attribute='letter_number') | list %}
         {% if superseded_letters %}
         <hr>
         <div class="mb-2">
           <button class="btn btn-link btn-sm p-0 text-muted" type="button"
                   data-bs-toggle="collapse" data-bs-target="#historicalLetters">
             <i class="bi bi-clock-history me-1"></i>
-            Historical Records — {{ superseded_letters|length }} letter(s) before type correction
+            Historical Records — {{ superseded_letters|length }} superseded letter(s)
           </button>
           <div class="collapse" id="historicalLetters">
             <div class="alert alert-secondary py-2 mt-2 small">
-              These letters were sent (or created) before the impound type was corrected. They are
-              kept for your records but are no longer part of the active letter sequence.
+              These letters are no longer part of the active sequence — the impound type was
+              corrected, or the letter process was restarted after a Returned to Sender.
+              They are kept for your records.
             </div>
             {% for sl in superseded_letters %}
             <div class="d-flex align-items-center gap-2 small border rounded px-2 py-1 mb-1 bg-light text-muted">

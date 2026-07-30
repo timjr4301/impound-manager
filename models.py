@@ -773,6 +773,17 @@ class Vehicle(db.Model):
         return next((l for l in self.letters if l.letter_number == 2 and not l.superseded), None)
 
     @property
+    def letter_round(self):
+        """Which round of the owner-letter sequence is running. Round 1 is the
+        original. Each Returned to Sender restart supersedes the returned
+        letter, stamps returned_date on it, and starts the next round at a
+        fresh Letter 1 — so the round is 1 + the number of processed returns.
+        (return_to_sender alone doesn't count: UPS polling sets that flag
+        before staff have processed the return.)"""
+        return 1 + sum(1 for l in self.letters
+                       if l.superseded and l.returned_date is not None)
+
+    @property
     def lka_document(self):
         """Most recently uploaded LKA document (documents are ordered newest-first)."""
         return next((d for d in self.documents if d.doc_type == 'LKA'), None)
@@ -838,7 +849,10 @@ class Vehicle(db.Model):
         legal path."""
         if self.title_filing:
             return None
-        overdue = [l for l in self.letters if l.is_overdue]
+        # Superseded rows are historical records (impound-type correction,
+        # Returned to Sender restart) — an unsent superseded letter must not
+        # block release; its replacement in the current round carries the clock.
+        overdue = [l for l in self.letters if not l.superseded and l.is_overdue]
         if overdue:
             names = ', '.join(l.label for l in overdue)
             return f'Overdue, unsent letter(s): {names}. Send them or file for title before releasing.'
@@ -996,6 +1010,15 @@ class CertifiedLetter(db.Model):
     scheduled_delivery = db.Column(db.Date)
     ups_status = db.Column(db.String(50))
     return_to_sender = db.Column(db.Boolean, default=False)
+    # Returned to Sender processing (distinct from the return_to_sender status
+    # flag UPS polling can set): returned_date is stamped when staff record the
+    # envelope physically arriving back, which supersedes this letter and
+    # restarts the letter process at a round-2 Letter 1. The envelope image is
+    # stored like the POD images (base64 in the row) — it's the evidence for a
+    # certified-mail refund claim and for the compliance file.
+    returned_date = db.Column(db.Date)
+    returned_envelope_image_data = db.Column(db.Text)
+    returned_envelope_image_type = db.Column(db.String(20))
     notes = db.Column(db.Text)
     created_at = db.Column(db.DateTime)
     updated_at = db.Column(db.DateTime)
