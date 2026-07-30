@@ -280,6 +280,11 @@
             <button class="btn btn-success btn-sm py-0 px-2 flex-fill" data-bs-toggle="modal" data-bs-target="#bmvModal{{ vehicle.id }}">Done</button>
             <button class="btn btn-danger btn-sm py-0 px-2 flex-fill" data-bs-toggle="modal" data-bs-target="#noRecordModal{{ vehicle.id }}">No Rec</button>
           </div>
+          <button class="btn btn-outline-info btn-sm py-0 px-2 mt-1 w-100" style="font-size:.72rem;"
+                  title="Copies the VIN and opens the Ohio BMV Last Known Address search — paste the VIN there"
+                  onclick='openBmvSearch(this, {{ (vehicle.vin or vehicle.plate or "")|tojson }})'>
+            <i class="bi bi-box-arrow-up-right me-1"></i>Open BMV search
+          </button>
           {% endif %}
         </div>
       </div>

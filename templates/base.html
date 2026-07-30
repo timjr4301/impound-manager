@@ -236,6 +236,22 @@
 
   <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
 
+  <script>
+  // Ohio BMV Last Known Address search — the portal form can't be pre-filled
+  // from a URL, so copy the VIN (or plate) for pasting into Search Value.
+  function openBmvSearch(btn, searchValue) {
+    if (searchValue && navigator.clipboard) {
+      navigator.clipboard.writeText(searchValue).catch(() => {});
+      if (btn) {
+        const orig = btn.innerHTML;
+        btn.innerHTML = '<i class="bi bi-clipboard-check-fill me-1"></i>Copied — paste it there';
+        setTimeout(() => { btn.innerHTML = orig; }, 2500);
+      }
+    }
+    window.open('https://services.dps.ohio.gov/AbstractAccounts/User/LastKnownAddress', '_blank');
+  }
+  </script>
+
   {% if current_user.is_authenticated and current_user.role == 'tim' %}
   <script>
   async function triggerApiSync(btn) {
