@@ -373,7 +373,7 @@ details.section[open] .sec-arrow { transform: rotate(180deg); }
           </tr>
           <tr>
             <td class="nav-label">Letters</td>
-            <td>Four sub-tabs: Need to Send · Awaiting Delivery · Returned/RTS · Confirmed (30 days). Camera button to scan envelopes.</td>
+            <td>Sub-tabs: Need to Send · Awaiting Delivery · Returned/RTS · Confirmed (30 days) · Scan History · Labels (printed-label status + void). Camera button to scan envelopes.</td>
             <td><div class="nav-who"><span class="role role-h">Heather</span><span class="role role-t">Tim</span></div></td>
           </tr>
           <tr>
@@ -703,7 +703,9 @@ details.section[open] .sec-arrow { transform: rotate(180deg); }
         </ul>
       </div>
 
-      <div class="note"><strong>RTS (Return to Sender):</strong> If UPS refresh detects a letter came back, it sets an RTS flag. Use the <strong>"Restart Letter Clock"</strong> button on the vehicle detail page after correcting the address.</div>
+      <div class="note"><strong>RTS (Return to Sender):</strong> If UPS refresh detects a letter came back, it sets an RTS flag (red). When the envelope physically arrives back, open the vehicle detail page and click <strong>"Returned to Sender"</strong> next to Confirm Delivery: enter the date it came back and snap a photo of the envelope (kept as refund/compliance evidence). This <strong>restarts the letter process automatically</strong> — the old letters move to history, a fresh <strong>Round 2 Letter 1</strong> is created with a new due date, and the timeline shows a "Round 2" badge. Correct the address before sending the new Letter 1. <em>(The older "Restart Letter Clock" button still exists for date corrections, but returned mail should use the Returned to Sender button — it keeps the paper trail and the letter gate consistent.)</em></div>
+
+      <div class="note"><strong>Labels tab (Letters page):</strong> shows every UPS label printed in the last 90 days with its status. UPS only bills a label when the package is first scanned — but labels that will never ship (a letter that was replaced after an RTS restart, a reprint) should be <strong>voided</strong> so they can't ever be billed. Labels stranded on replaced letters are voided <strong>automatically</strong> by the nightly UPS poll; anything marked "Never scanned" is a judgment call — check the envelope isn't just sitting in the outbox before voiding.</div>
     </div>
   </details>
 
