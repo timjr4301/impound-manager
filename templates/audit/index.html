@@ -80,7 +80,8 @@
         </thead>
         <tbody>
         {% for r in csv_data.flagged %}
-        <tr class="{% if r.category == 'TINA_CASE' %}table-success{% elif r.category == 'REVIEW' %}table-warning{% endif %}">
+        <tr class="{% if r.category == 'TINA_CASE' %}table-success{% elif r.category == 'REVIEW' %}table-warning{% endif %}"
+            {% if r.was_flagged %}style="border-left:4px solid #ffc107;"{% endif %}>
           <td class="text-center">
             {% if r.category == 'BULK_ELIGIBLE' %}
             <input type="checkbox" class="form-check-input bulk-cb" value="{{ r.id }}">
@@ -88,7 +89,15 @@
           </td>
           <td class="font-monospace small">{{ r.stock_number or '—' }}</td>
           <td class="font-monospace small">{{ r.vin or '—' }}</td>
-          <td>{{ r.description }}</td>
+          <td>
+            {{ r.description }}
+            {% if r.was_flagged %}
+            <span class="badge bg-warning text-dark ms-1"
+                  title="This vehicle was flagged Possible Release (missing from a Towbook current-lot export). This release export documents the release — that's the verification the flag was waiting for.">
+              &#9888;&#65039; was flagged Possible Release
+            </span>
+            {% endif %}
+          </td>
           <td>{{ r.release_date }}</td>
           <td class="small">
             {{ r.release_reason }}
