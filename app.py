@@ -705,6 +705,7 @@ def build_top_nav(user):
         item('Disposition Pipeline', 'bi-kanban', 'tina.pipeline') if user.can_see_tina_dashboard else None,
         item('Title Eligibility', 'bi-file-earmark-arrow-up', 'tina.title_eligibility') if r in ('tim', 'tina', 'jim') else None,
         item('Letter Calendar', 'bi-calendar3', 'pipeline') if r == 'tina' else None,
+        item('Date Change Log', 'bi-clock-history', 'date_changes_report') if r in ('tim', 'tina', 'heather', 'jim') else None,
     )
     if lt:
         sections.append(lt)
@@ -2967,6 +2968,25 @@ def create_app():
         db.session.commit()
         return redirect(url_for('vehicles_detail', vehicle_id=vehicle_id) + '#title-packet')
 
+    # ── Date Change Log ───────────────────────────────────────────────────────
+    # Audit report of every letter-clock date change (Tina's ask): manual
+    # Restart Letter Clock uses and RTS round-restarts, read from the audit
+    # notes both flows write. Impound dates never change, so this is the
+    # complete record of anything that moved a letter deadline.
+    @app.route('/reports/date-changes')
+    @login_required
+    def date_changes_report():
+        if not current_user.is_heather:
+            flash('Permission denied.', 'danger')
+            return redirect(url_for('dashboard'))
+        notes = (VehicleNote.query.join(Vehicle)
+                 .filter(db.or_(VehicleNote.body.ilike('%clock restarted%'),
+                                VehicleNote.body.ilike('%Letter process restarted%')))
+                 .order_by(VehicleNote.created_at.desc())
+                 .limit(500)
+                 .all())
+        return render_template('reports/date_changes.html', notes=notes)
+
     # ── Letter Clock Restart ──────────────────────────────────────────────────
     # impound_date is locked forever and the 60-day title-eligibility clock
     # (Vehicle.title_eligible_date) always reads it directly — restart_date never
@@ -3014,7 +3034,9 @@ def create_app():
 
         target = vehicle.letter2 or vehicle.letter1
         if target is None:
-            target = CertifiedLetter(vehicle_id=vehicle.id, letter_number=1, created_at=datetime.utcnow())
+            # Pass the relationship (not just the FK) — target.label reads
+            # self.vehicle.impound_type before the session is flushed.
+            target = CertifiedLetter(vehicle=vehicle, letter_number=1, created_at=datetime.utcnow())
             db.session.add(target)
 
         if target.letter_number == 1:
