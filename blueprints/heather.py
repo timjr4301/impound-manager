@@ -384,6 +384,88 @@ def dashboard():
     )
 
 
+@bp.route('/today')
+@_heather_view
+def today_view():
+    """Flat, date-sorted work list — every open task across all types, split
+    into Overdue / Today / Upcoming tabs (Towbook-style presentation). Tasks
+    derive from vehicle and letter state, so rows disappear on their own the
+    moment the underlying work is recorded — there is nothing to tick off."""
+    today = date.today()
+    horizon = today + timedelta(days=7)
+
+    tasks = []
+
+    def add(kind, label, due, vehicle, badge):
+        tasks.append({'kind': kind, 'label': label, 'due': due,
+                      'vehicle': vehicle, 'badge': badge})
+
+    # Verify Possible Release — blocks all letters, so always due today
+    for v in (Vehicle.query
+              .filter(Vehicle.status == 'ACTIVE')
+              .filter(Vehicle.possible_release == True)
+              .all()):
+        add('verify', 'Verify Possible Release', today, v, 'warning')
+
+    # No Record Found — needs Tim's review call
+    for v in (Vehicle.query
+              .filter(Vehicle.status.in_(['ACTIVE', 'TITLE_FILED']))
+              .filter(Vehicle.task_no_record == True)
+              .filter(or_(Vehicle.task_no_record_resolved == False,
+                          Vehicle.task_no_record_resolved.is_(None)))
+              .filter(_after_cutoff())
+              .all()):
+        add('no_record', 'No Record Found — review', today, v, 'danger')
+
+    # BMV search — target day 3 so Letter 1 can still make its day-5 deadline
+    for v in (Vehicle.query
+              .filter(Vehicle.status == 'ACTIVE')
+              .filter(or_(Vehicle.heather_complete == False,
+                          Vehicle.heather_complete.is_(None)))
+              .filter(or_(Vehicle.bmv_stage.in_([None, 'PENDING', 'QUEUED'])))
+              .filter(_after_cutoff())
+              .filter(Vehicle.not_snoozed_filter())
+              .all()):
+        if v.impound_date:
+            add('bmv', 'BMV Search', v.impound_date + timedelta(days=3), v, 'info')
+
+    def _letter_label(l):
+        return (l.display_title
+                or (l.letter_kind or '').replace('_', ' ')
+                or f'Letter {l.letter_number}').title()
+
+    # Send letters — every unsent, unsuperseded letter with a due date
+    for l in (CertifiedLetter.query.join(Vehicle)
+              .filter(Vehicle.status == 'ACTIVE')
+              .filter(CertifiedLetter.sent_date.is_(None))
+              .filter(CertifiedLetter.superseded.isnot(True))
+              .filter(Vehicle.possible_release.isnot(True))
+              .filter(_after_cutoff())
+              .filter(Vehicle.not_snoozed_filter())
+              .all()):
+        add('letter', f'Send {_letter_label(l)}', l.due_date, l.vehicle, 'primary')
+
+    # Tracking follow-up — sent letters with no delivery confirmation after 7 days
+    for l in (CertifiedLetter.query.join(Vehicle)
+              .filter(Vehicle.status == 'ACTIVE')
+              .filter(CertifiedLetter.sent_date.isnot(None))
+              .filter(CertifiedLetter.delivery_confirmed_date.is_(None))
+              .filter(_after_cutoff())
+              .filter(Vehicle.not_snoozed_filter())
+              .all()):
+        add('tracking', f'Tracking — {_letter_label(l)}',
+            l.sent_date + timedelta(days=7), l.vehicle, 'secondary')
+
+    overdue = sorted((t for t in tasks if t['due'] < today), key=lambda t: t['due'])
+    due_today = sorted((t for t in tasks if t['due'] == today), key=lambda t: t['label'])
+    upcoming = sorted((t for t in tasks if today < t['due'] <= horizon), key=lambda t: t['due'])
+
+    return render_template('heather/today.html',
+        today=today,
+        overdue=overdue, due_today=due_today, upcoming=upcoming,
+    )
+
+
 @bp.route('/recalculate', methods=['POST'])
 @_heather_required
 def recalculate():

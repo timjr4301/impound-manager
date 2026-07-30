@@ -687,6 +687,7 @@ def build_top_nav(user):
     # 1) Morning Workflow — Heather's daily intake pipeline
     mw = section('Morning Workflow', 'bi-sunrise',
         item('Overview', 'bi-speedometer2', 'dashboard') if (user.can_see_all or r == 'demo') else None,
+        item('Today', 'bi-list-check', 'heather.today_view') if user.can_see_heather_dashboard else None,
         item('Heather Queue', 'bi-envelope-check', 'heather.dashboard') if user.can_see_heather_dashboard else None,
         item('Background Vehicles', 'bi-archive', 'heather.background') if user.can_see_heather_dashboard else None,
         item('Daily Intake / CSV', 'bi-inboxes', 'heather.daily_intake') if r in ('tim', 'heather', 'lori', 'brady', 'jim') else None,

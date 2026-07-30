@@ -1,0 +1,86 @@
+{% extends "base.html" %}
+{% block title %}Today — Impound Manager{% endblock %}
+
+{% block content %}
+<div class="d-flex align-items-center justify-content-between mb-3">
+  <h2 class="h4 mb-0 fw-bold"><i class="bi bi-list-check me-2"></i>Today's Tasks</h2>
+  <span class="text-muted small">{{ today.strftime('%A, %B %d') }} — tasks clear themselves as work is recorded</span>
+</div>
+
+{% macro task_table(rows, empty_msg) %}
+  {% if rows %}
+  <table class="table table-sm table-hover mb-0">
+    <thead><tr>
+      <th>Task</th><th>Due</th><th>Stock #</th><th>Vehicle</th><th>Plate</th><th class="text-end"></th>
+    </tr></thead>
+    <tbody>
+    {% for t in rows %}
+    {% set v = t.vehicle %}
+    {% set late = (today - t.due).days %}
+    <tr>
+      <td>
+        <span class="badge bg-{{ t.badge }}{% if t.badge in ('warning', 'info') %} text-dark{% endif %}">{{ t.label }}</span>
+      </td>
+      <td class="small">
+        {{ t.due|mdY }}
+        {% if late > 0 %}<span class="badge bg-danger ms-1">{{ late }}d late</span>{% endif %}
+      </td>
+      <td class="font-monospace small">{{ v.stock_number or '—' }}</td>
+      <td><a href="{{ url_for('vehicles_detail', vehicle_id=v.id) }}" class="row-link fw-semibold">{{ v.display_name }}</a></td>
+      <td class="small">{{ v.plate or '—' }}</td>
+      <td class="text-end">
+        {% if t.kind == 'bmv' %}
+        <button class="btn btn-sm btn-outline-info py-0"
+                title="Copies the VIN and opens the Ohio BMV Last Known Address search — paste the VIN there"
+                onclick='openBmvSearch(this, {{ (v.vin or v.plate or "")|tojson }})'>
+          BMV <i class="bi bi-box-arrow-up-right"></i>
+        </button>
+        {% endif %}
+        <a href="{{ url_for('vehicles_detail', vehicle_id=v.id) }}" class="btn btn-sm btn-outline-secondary py-0">Open</a>
+      </td>
+    </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <div class="text-success p-4 text-center"><i class="bi bi-check-circle me-1"></i>{{ empty_msg }}</div>
+  {% endif %}
+{% endmacro %}
+
+<ul class="nav nav-tabs" id="todayTabs" role="tablist">
+  <li class="nav-item">
+    <button class="nav-link {% if overdue %}active{% endif %}" data-bs-toggle="tab" data-bs-target="#pane-overdue" type="button">
+      Overdue <span class="badge {% if overdue %}bg-danger{% else %}bg-secondary{% endif %} ms-1">{{ overdue|length }}</span>
+    </button>
+  </li>
+  <li class="nav-item">
+    <button class="nav-link {% if not overdue %}active{% endif %}" data-bs-toggle="tab" data-bs-target="#pane-today" type="button">
+      Today <span class="badge bg-primary ms-1">{{ due_today|length }}</span>
+    </button>
+  </li>
+  <li class="nav-item">
+    <button class="nav-link" data-bs-toggle="tab" data-bs-target="#pane-upcoming" type="button">
+      Upcoming 7 days <span class="badge bg-secondary ms-1">{{ upcoming|length }}</span>
+    </button>
+  </li>
+</ul>
+
+<div class="tab-content border border-top-0 rounded-bottom bg-white shadow-sm mb-4">
+  <div class="tab-pane fade {% if overdue %}show active{% endif %}" id="pane-overdue">
+    {{ task_table(overdue, 'Nothing overdue — you are caught up.') }}
+  </div>
+  <div class="tab-pane fade {% if not overdue %}show active{% endif %}" id="pane-today">
+    {{ task_table(due_today, 'Nothing due today.') }}
+  </div>
+  <div class="tab-pane fade" id="pane-upcoming">
+    {{ task_table(upcoming, 'Nothing coming up in the next 7 days.') }}
+  </div>
+</div>
+
+<p class="text-muted small">
+  <i class="bi bi-info-circle me-1"></i>
+  Tasks are generated from vehicle and letter status — there's nothing to check off.
+  Mark the letter sent, complete the BMV search, or verify the vehicle, and its row disappears here automatically.
+  Possible-Release and No-Record items always show under Today until resolved because they block letters.
+</p>
+{% endblock %}

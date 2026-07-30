@@ -266,6 +266,11 @@
         <td>{{ v.impound_date|mdY }}</td>
         <td><span class="badge {% if v.days_in_storage >= 5 %}bg-danger{% elif v.days_in_storage >= 3 %}bg-warning text-dark{% else %}bg-secondary{% endif %}">{{ v.days_in_storage }}d</span></td>
         <td class="text-end d-flex gap-1 justify-content-end">
+          <button class="btn btn-sm btn-outline-info py-0"
+                  title="Copies the VIN and opens the Ohio BMV Last Known Address search — paste the VIN there"
+                  onclick='openBmvSearch(this, {{ (v.vin or v.plate or "")|tojson }})'>
+            BMV <i class="bi bi-box-arrow-up-right"></i>
+          </button>
           {% if can_act %}
           <button class="btn btn-sm btn-outline-primary py-0"
                   data-bs-toggle="modal" data-bs-target="#bmvModal{{ v.id }}">
