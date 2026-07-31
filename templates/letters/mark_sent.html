@@ -71,7 +71,14 @@
         <i class="bi bi-check-circle-fill text-success me-1"></i> UPS Label Created — Tracking {{ letter.tracking_number }}
       </div>
       <div class="card-body text-center">
+        {% if letter.tracking_number and letter.tracking_number.startswith('1ZFAKE') %}
+        <div class="border border-warning bg-warning bg-opacity-10 d-flex align-items-center justify-content-center text-warning-emphasis fw-semibold"
+             style="max-width:4in; height:2.5in; margin:0 auto;">
+          STAGING — no real UPS label was created.<br>This is a placeholder, not something to mail.
+        </div>
+        {% else %}
         <img src="data:image/gif;base64,{{ label_b64 }}" class="img-fluid border" style="max-width:4in;" alt="UPS shipping label">
+        {% endif %}
         <div class="mt-2">
           <button onclick="window.print()" class="btn btn-outline-primary btn-sm"><i class="bi bi-printer"></i> Print Label</button>
         </div>
@@ -83,7 +90,14 @@
         <i class="bi bi-check-circle-fill text-success me-1"></i> 2nd {{ letter.recipient_type|capitalize }} Label Created — Tracking {{ letter.tracking_number_2 }}
       </div>
       <div class="card-body text-center">
+        {% if letter.tracking_number_2 and letter.tracking_number_2.startswith('1ZFAKE') %}
+        <div class="border border-warning bg-warning bg-opacity-10 d-flex align-items-center justify-content-center text-warning-emphasis fw-semibold"
+             style="max-width:4in; height:2.5in; margin:0 auto;">
+          STAGING — no real UPS label was created.<br>This is a placeholder, not something to mail.
+        </div>
+        {% else %}
         <img src="data:image/gif;base64,{{ label_2_b64 }}" class="img-fluid border" style="max-width:4in;" alt="UPS shipping label — 2nd {{ letter.recipient_type }}">
+        {% endif %}
         <div class="mt-2">
           <button onclick="window.print()" class="btn btn-outline-primary btn-sm"><i class="bi bi-printer"></i> Print 2nd Label</button>
         </div>
