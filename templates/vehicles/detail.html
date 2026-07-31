@@ -1616,13 +1616,8 @@ function showGeneralDocImage(btn) {
                 ({{ (vehicle.title_eligible_date - today).days }} days from now)
               </span>
               {% endif %}
-            {% elif vehicle.impound_type == 'PPI' %}
-            <span class="text-muted">
-              Eligibility calculated after both letters are sent.<br>
-              Will be the later of: 60 days from impound or 30 days after Letter 2.
-            </span>
             {% else %}
-            <span class="text-muted">Eligibility calculated after notification letter is sent (sent date + 30 days).</span>
+            <span class="text-muted">{{ vehicle.title_blocked_reason or 'Eligibility not yet calculable.' }}</span>
             {% endif %}
           </div>
         </div>

@@ -7,8 +7,20 @@ All functions raise on failure (network error, missing creds, bad response) —
 callers are expected to catch and flash a message, same as the VinAudit
 lookup_wholesale_value pattern, except UPS has no silent fallback value since
 a failed label/tracking call has no safe default to substitute.
+
+STAGING SAFETY: staging's env vars are copied straight from production
+(same UPS_CLIENT_ID/SECRET/ACCOUNT_NUMBER), and _BASE below is UPS's real,
+billed production endpoint — there is no separate UPS sandbox account wired
+up. Without a guard, "Create UPS Label" on a fake staging vehicle would
+create a real, billed shipment on the real account. So: when IS_STAGING is
+set, create_label()/void_shipment() never call UPS at all — they fabricate a
+believable response instead, clearly tagged so nobody mistakes it for a real
+shipment (tracking numbers start with the FAKE_TRACKING_PREFIX below).
+Production is untouched — it never has IS_STAGING set, so it always takes
+the real-call path exactly as before this was added.
 """
 
+import base64
 import os
 import time
 import requests
@@ -17,9 +29,25 @@ _BASE = 'https://onlinetools.ups.com'
 
 _token_cache = {'token': None, 'expires_at': 0}
 
+# Recognizable, never-real prefix for staging-fabricated tracking numbers.
+# Real UPS 1Z numbers are never generated with this shape, so anything
+# starting with it is unambiguously a staging fake, not a live shipment.
+FAKE_TRACKING_PREFIX = '1ZFAKE'
+
+# A tiny valid 1x1 GIF, base64-encoded — a real image so anything that tries
+# to render/print the "label" doesn't choke on garbage bytes, clearly not a
+# real UPS label.
+_FAKE_LABEL_GIF_B64 = (
+    'R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBTAA7'
+)
+
 
 def is_configured():
     return bool(os.environ.get('UPS_CLIENT_ID') and os.environ.get('UPS_CLIENT_SECRET'))
+
+
+def _is_staging():
+    return os.environ.get('IS_STAGING', 'false').strip().lower() == 'true'
 
 
 def _get_token():
@@ -60,7 +88,14 @@ def _headers(trans_id):
 
 def create_label(reference, recipient_name, recipient_address, recipient_city,
                   recipient_state, recipient_zip, trans_id):
-    """Call UPS Ship API, return (tracking_number, label_b64_gif)."""
+    """Call UPS Ship API, return (tracking_number, label_b64_gif).
+
+    On staging, fabricates the response instead — see the STAGING SAFETY note
+    at the top of this file for why a real call here is never acceptable."""
+    if _is_staging():
+        fake_tracking = f'{FAKE_TRACKING_PREFIX}{abs(hash(trans_id)) % 10**12:012d}'
+        return fake_tracking, _FAKE_LABEL_GIF_B64
+
     account_number = os.environ.get('UPS_ACCOUNT_NUMBER', '81Y7X1')
     company_name = os.environ.get('COMPANY_NAME', 'Broad & James Towing')
 
@@ -163,7 +198,12 @@ def void_shipment(tracking_number, trans_id):
     voided, or past the void window. A refusal is a normal outcome (and the
     real safety net against voiding a label that's actually moving), so it's
     surfaced as data, not an exception. Raises only on network/auth failure,
-    same contract as the other calls here."""
+    same contract as the other calls here.
+
+    On staging (or for any fake-prefixed tracking number, belt-and-suspenders),
+    fabricates success without calling UPS — see STAGING SAFETY note above."""
+    if _is_staging() or tracking_number.startswith(FAKE_TRACKING_PREFIX):
+        return True, 'Voided (staging fake — no real UPS shipment ever existed)'
     resp = requests.delete(
         f'{_BASE}/api/shipments/v1/void/cancel/{tracking_number}',
         headers=_headers(trans_id),
@@ -237,7 +277,22 @@ def _parse_track_response(data):
 
 
 def lookup_by_tracking_number(tracking_number, trans_id):
-    """Returns a single parsed package dict, or None if not found."""
+    """Returns a single parsed package dict, or None if not found.
+
+    A fake-prefixed tracking number (staging only) never existed at UPS, so
+    a real lookup would just 404 — simulate an already-delivered package
+    instead so the delivery-confirmation flow is still testable end to end."""
+    if tracking_number.startswith(FAKE_TRACKING_PREFIX):
+        today = time.strftime('%Y%m%d')
+        return {
+            'tracking_number': tracking_number,
+            'status_code': 'D',
+            'status_description': 'Delivered (staging fake — no real UPS shipment)',
+            'is_delivered': True,
+            'is_rts': False,
+            'exception_description': None,
+            'delivered_date': today,
+        }
     resp = requests.get(
         f'{_BASE}/api/track/v1/details/{tracking_number}',
         headers=_headers(trans_id),
@@ -256,7 +311,12 @@ def fetch_pod(tracking_number, trans_id):
     if UPS doesn't have it ready yet -- POD can lag real delivery by 7-10
     days, so a None result here is the normal/expected case for a recently-
     delivered package, not an error. Raises on a genuine API/network failure,
-    same as the other lookup functions -- callers are expected to catch."""
+    same as the other lookup functions -- callers are expected to catch.
+
+    A fake-prefixed tracking number (staging only) has no real POD to fetch --
+    returns the normal "not ready yet" shape rather than calling UPS."""
+    if tracking_number.startswith(FAKE_TRACKING_PREFIX):
+        return None, None
     resp = requests.get(
         f'{_BASE}/api/track/v1/details/{tracking_number}',
         headers=_headers(trans_id),

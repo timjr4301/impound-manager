@@ -308,11 +308,10 @@
     if (type === 'PPI') {
       const l1 = addDays(d, 5);
       const l2 = addDays(l1, 30);
-      const titleMin = addDays(d, 60);
-      const titleActual = titleMin > addDays(l2, 30) ? titleMin : addDays(l2, 30);
       html = `<strong>Letter 1</strong> due by <strong>${fmt(l1)}</strong><br>` +
              `<strong>Letter 2</strong> due ~${fmt(l2)} (30 days after Letter 1 is sent)<br>` +
-             `<strong>Earliest title filing</strong>: ${fmt(titleActual)} (60 days from impound AND 30 days after Letter 2)`;
+             `<strong>Earliest title filing</strong>: 60 days after Letter 1 is delivered or ` +
+             `confirmed undeliverable (not knowable until that happens — not from impound date, not from Letter 2)`;
     } else {
       const l1 = addDays(d, 10);
       const title = addDays(l1, 30);
