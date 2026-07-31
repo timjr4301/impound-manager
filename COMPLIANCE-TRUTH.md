@@ -1,7 +1,7 @@
 ---
 type: wp2a-output
-status: DRAFT — awaiting Tim's typed confirmation at CP-CLOCK below. Nothing in this document is enforced until he signs off. WP-2b (the code change) does not start until this file carries his confirmation.
-produced_by: Claude Code, read-only session, 2026-07-31
+status: PARTIALLY CONFIRMED 2026-07-31 — item 4 (PPI title eligibility) confirmed by Tim and implemented in WP-2b. Items 3 and 5 (POLICE chain / POLICE title clock) remain OPEN, unchanged in code, pending counsel. Items 1, 2, 6 unchanged (already correct / deferred as non-urgent).
+produced_by: Claude Code, read-only research 2026-07-31; WP-2b code change same day after Tim's confirmation
 ---
 
 # COMPLIANCE-TRUTH — the one page Tim reads at CP-CLOCK
@@ -61,19 +61,30 @@ Code holds two beliefs at once: it builds POLICE a 1→3→4(+lienholder) chain 
 
 ## 6. CP-CLOCK — Tim's confirmation
 
-**STOP. Do not edit any code based on this document until Tim has typed his answer below and it's committed to the repo.**
-
-If you're not certain on items 3, 4, or 5 — and given what I found, you shouldn't sign off on those from my research alone — the named escalation is Ohio counsel or your towing-association seminar materials, not a guess (yours or mine).
-
 ```
-Tim's confirmation (paste below, then this doc is done):
+1. Letter 1 deadline: UNCHANGED — no conflict found, not re-litigated.
+2. Letter 2 timing: UNCHANGED — 30 days after Letter 1 sent, matches statute
+   text and code already, not re-litigated.
+3. POLICE letter chain: OPEN — not confirmed, not changed. Still needs counsel.
+4. PPI title-eligibility date: CONFIRMED — Tim noticed a title-eligibility
+   date "on the wrong day" independently, before seeing this document's
+   finding, which corroborates it. Confirmed 2026-07-31 in chat: "yes you are
+   correct i noticed earlier today the date look like it caluclated on wrong
+   day." Explicitly chose "lock it in now, verify later" over waiting for
+   formal counsel confirmation first. IMPLEMENTED in WP-2b same day
+   (models.py: title_eligible_date, title_blocked_reason,
+   CertifiedLetter.delivery_or_undeliverable_date) — 60 days from Letter 1's
+   confirmed delivery or confirmed return-to-sender, impound_date and Letter 2
+   no longer part of the PPI formula. Tim still intends to verify this with
+   counsel or the seminar materials as a backstop — this is not yet a
+   substitute for that, only a lock-in of the working rule in the meantime.
+5. POLICE 60-day floor / same-rule-as-PPI question: OPEN — not confirmed, not
+   changed. POLICE title_eligible_date is UNCHANGED in code
+   (Letter1.sent_date + 30, no floor). Do not assume the PPI fix extends here.
+6. Auto-create Letter 1 on import: OPEN — not implemented this session, no
+   urgency/legal-risk driver, deferred to a future WP-1/WP-2 follow-up.
 
-1. Letter 1 deadline: [ ]
-2. Letter 2 timing: [ ]
-3. POLICE letter chain: [ ]
-4. PPI title-eligibility date: [ ]
-5. POLICE 60-day floor / same-rule-as-PPI question: [ ]
-6. Auto-create Letter 1 on import: [ ]
-
-Confirmed by: ______________   Date: ______________
+Confirmed by: Tim (in chat)   Date: 2026-07-31
 ```
+
+**Anything still marked OPEN above is still gated — no session may implement 3, 5, or 6 without a fresh, explicit confirmation the same way item 4 got one.**

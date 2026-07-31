@@ -2220,8 +2220,10 @@ def create_app():
                 l.updated_at = now
 
         # Fresh round: new Letter 1, letter clock re-anchored to the returned
-        # date (same restart_date mechanics as Restart Letter Clock —
-        # title_eligible_date still reads impound_date, never this).
+        # date (same restart_date mechanics as Restart Letter Clock). As of
+        # WP-2, PPI's title_eligible_date reads THIS new letter's own
+        # delivery/RTS outcome (via Vehicle.letter1 -> the non-superseded
+        # row), so it re-anchors naturally rather than staying on impound_date.
         days_offset = PPI_LETTER1_DAYS if vehicle.impound_type == 'PPI' else POLICE_LETTER1_DAYS
         new_l1 = CertifiedLetter(
             vehicle_id=vehicle.id,
@@ -2988,9 +2990,13 @@ def create_app():
         return render_template('reports/date_changes.html', notes=notes)
 
     # ── Letter Clock Restart ──────────────────────────────────────────────────
-    # impound_date is locked forever and the 60-day title-eligibility clock
-    # (Vehicle.title_eligible_date) always reads it directly — restart_date never
-    # touches that. This only re-anchors the due date of whichever letter is
+    # impound_date is locked forever and never changes. As of WP-2, PPI's
+    # title-eligibility clock (Vehicle.title_eligible_date) no longer reads
+    # impound_date at all — it reads Letter 1's own delivery/RTS outcome, so a
+    # restart (which supersedes Letter 1 and creates a fresh one) re-anchors it
+    # naturally. POLICE's title clock is unchanged (still Letter 1 sent_date +
+    # 30, pending counsel confirmation — COMPLIANCE-TRUTH.md item 5). This
+    # restart action itself only re-anchors the due date of whichever letter is
     # currently pending (Letter 2 if it exists, otherwise Letter 1/Notification),
     # and — if that letter was already sent and came back RTS/address-issue —
     # resets it to unsent so it re-enters the Need to Send queue for a resend.

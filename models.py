@@ -11,10 +11,16 @@ db = SQLAlchemy()
 # Ohio BMV title-by-abandonment deadlines
 PPI_LETTER1_DAYS = 5        # Letter 1 must be sent within 5 days of impound
 PPI_LETTER2_DAYS = 30       # Letter 2 sent 30 days after Letter 1
-PPI_TITLE_FROM_IMPOUND = 60 # Must be 60 days since impound
-PPI_TITLE_FROM_LETTER2 = 30 # Must be 30 days since Letter 2
+
+# WP-2 / CP-CLOCK (confirmed 2026-07-31, COMPLIANCE-TRUTH.md item 4): title
+# eligibility runs 60 days from Letter 1 being confirmed DELIVERED or confirmed
+# UNDELIVERABLE (ORC 4505.101(B)(3), cross-referencing 4513.601(F)) — NOT from
+# impound_date, and NOT from Letter 2 at all. Replaces the old two-constant
+# max(impound+60, letter2+30) formula, which had no statutory basis found.
+PPI_TITLE_FROM_LETTER1_DELIVERY = 60
 
 POLICE_LETTER1_DAYS = 10    # Notification required within 10 days (ORC 4513.61)
+# UNCHANGED pending counsel — COMPLIANCE-TRUTH.md item 5 is still open.
 POLICE_TITLE_FROM_LETTER1 = 30
 
 ROLES = ['tim', 'heather', 'tina', 'dispatcher', 'lawrence', 'lori', 'brady', 'jim', 'robert', 'demo']
@@ -804,12 +810,10 @@ class Vehicle(db.Model):
     @property
     def title_eligible_date(self):
         if self.impound_type == 'PPI':
-            l2 = self.letter2
-            if l2 and l2.sent_date:
-                return max(
-                    self.impound_date + timedelta(days=PPI_TITLE_FROM_IMPOUND),
-                    l2.sent_date + timedelta(days=PPI_TITLE_FROM_LETTER2),
-                )
+            l1 = self.letter1
+            anchor = l1.delivery_or_undeliverable_date if l1 else None
+            if anchor:
+                return anchor + timedelta(days=PPI_TITLE_FROM_LETTER1_DELIVERY)
         elif self.impound_type == 'POLICE':
             l1 = self.letter1
             if l1 and l1.sent_date:
@@ -825,9 +829,11 @@ class Vehicle(db.Model):
     def title_blocked_reason(self):
         """Why title_eligible_date is None — what Tina is waiting on before a date can even be projected."""
         if self.impound_type == 'PPI':
-            l2 = self.letter2
-            if not l2 or not l2.sent_date:
-                return 'Waiting on Letter 2 to be sent'
+            l1 = self.letter1
+            if not l1 or not l1.sent_date:
+                return 'Waiting on Letter 1 to be sent'
+            if not l1.delivery_or_undeliverable_date:
+                return 'Waiting on Letter 1 delivery confirmation or return-to-sender'
         elif self.impound_type == 'POLICE':
             l1 = self.letter1
             if not l1 or not l1.sent_date:
@@ -867,7 +873,10 @@ class Vehicle(db.Model):
         """Anchor date for the next LETTER's due-date math (Letter 1/Notification,
         or Letter 2 once it's the pending one). Defaults to impound_date; overridden
         by restart_date after Heather restarts the clock (e.g. address corrected
-        post-RTS). title_eligible_date always uses impound_date directly — never this."""
+        post-RTS). title_eligible_date (PPI) no longer reads impound_date at all as
+        of WP-2 — it reads the CURRENT (non-superseded) Letter 1's own delivery/RTS
+        outcome, so a restart naturally re-anchors title eligibility too, since
+        letter1 then points at the fresh round's letter."""
         return self.restart_date or self.impound_date
 
     @property
@@ -1098,6 +1107,22 @@ class CertifiedLetter(db.Model):
         if not s:
             return True
         return any(p in s for p in self._UNSCANNED_PHRASES)
+
+    @property
+    def delivery_or_undeliverable_date(self):
+        """The date this letter counts as 'received, or confirmed undeliverable'
+        for compliance-clock purposes (ORC 4505.101(B)(3)'s language) — a real
+        UPS delivery scan wins; a confirmed return-to-sender is the fallback,
+        estimated 3 days after send (UPS doesn't report an RTS-received date on
+        this row, only the boolean). None means the outcome isn't known yet.
+        This is the same delivery-or-RTS logic task_engine used pre-2026-07-29
+        for Task 3 timing (removed there when that clock became sent-anchored);
+        title_eligible_date below is a different clock and reuses it here."""
+        if self.delivery_confirmed_date:
+            return self.delivery_confirmed_date
+        if self.return_to_sender and self.sent_date:
+            return self.sent_date + timedelta(days=3)
+        return None
 
     @property
     def is_overdue(self):
