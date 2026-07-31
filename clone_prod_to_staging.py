@@ -88,7 +88,18 @@ def main():
                 if not rows:
                     print(f'  {table.name}: 0 rows')
                     continue
-                dst_conn.execute(insert(table), [dict(r) for r in rows])
+                # Same idea as the table-level skip: production can carry
+                # columns (e.g. police_departments.hook_fee/storage_fee)
+                # left over from an earlier build that current models.py no
+                # longer defines. Only load columns the destination actually
+                # has; drop anything else, once, with a note.
+                dst_cols = set(dst_meta.tables[table.name].columns.keys())
+                extra_cols = set(rows[0].keys()) - dst_cols
+                if extra_cols:
+                    print(f'  {table.name}: dropping column(s) not in current schema: '
+                          f'{", ".join(sorted(extra_cols))}')
+                filtered = [{k: v for k, v in dict(r).items() if k in dst_cols} for r in rows]
+                dst_conn.execute(insert(table), filtered)
                 print(f'  {table.name}: {len(rows)} row(s) copied')
 
     print('\nDone. Now run, against the STAGING database only:')
