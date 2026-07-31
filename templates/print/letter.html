@@ -61,13 +61,13 @@
 {% set is_lienholder = letter.recipient_type == 'lienholder' %}
 {% set days = 'thirty (30)' if kind == 'second_notice' else 'sixty (60)' %}
 
-{# WP-1(a): the addressee block above is the ONLY address on the letter now —
-   it sits right after the fixed-length letterhead/meta, so its position never
-   shifts with body-text length, which is what a window envelope needs. The
-   old design duplicated the same address on a forced second page instead;
-   removed so a standard letter prints as one page. Test-fold a printed
-   letter against a real envelope before relying on this for real mail — the
-   exact window position wasn't available to verify against here. #}
+{# WP-1(a): the addressee block above is the ONLY address on the letter now.
+   The old design duplicated the same address on a forced second page,
+   apparently for a window envelope — not actually how these ship: letters go
+   out in letter-size UPS envelopes with a UPS-generated shipping label
+   carrying the address (see the UPS Label button above), so no page of this
+   template needs to show through any window. Removed so a standard letter
+   prints as one page. (Confirmed with Tim 2026-07-31.) #}
 {# Rates: POLICE pulls from police_departments, PPI uses the PUCO defaults.
    rate_pending is only ever true for a POLICE impound with no department. #}
 {% set tow = vehicle.effective_tow_rate %}
