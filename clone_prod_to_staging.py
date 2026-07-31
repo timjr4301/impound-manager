@@ -99,8 +99,33 @@ def main():
                     print(f'  {table.name}: dropping column(s) not in current schema: '
                           f'{", ".join(sorted(extra_cols))}')
                 filtered = [{k: v for k, v in dict(r).items() if k in dst_cols} for r in rows]
-                dst_conn.execute(insert(table), filtered)
-                print(f'  {table.name}: {len(rows)} row(s) copied')
+
+                # Try the whole table in one batch first (fast path). If a
+                # value doesn't fit the destination's current column type
+                # (e.g. production data that predates a stricter/narrower
+                # column definition), fall back to one row at a time inside
+                # its own savepoint, so a single bad row is reported and
+                # skipped instead of blocking every other row in the table.
+                savepoint = dst_conn.begin_nested()
+                try:
+                    dst_conn.execute(insert(table), filtered)
+                    savepoint.commit()
+                    print(f'  {table.name}: {len(rows)} row(s) copied')
+                except Exception:
+                    savepoint.rollback()
+                    copied, failed = 0, []
+                    for row in filtered:
+                        row_sp = dst_conn.begin_nested()
+                        try:
+                            dst_conn.execute(insert(table), [row])
+                            row_sp.commit()
+                            copied += 1
+                        except Exception as row_exc:
+                            row_sp.rollback()
+                            failed.append((row.get('id', '?'), str(row_exc).splitlines()[0]))
+                    print(f'  {table.name}: {copied} row(s) copied, {len(failed)} row(s) FAILED and skipped')
+                    for pk, err in failed:
+                        print(f'    id={pk}: {err}')
 
     print('\nDone. Now run, against the STAGING database only:')
     print('    python3 scrub_for_staging.py --confirm-staging')
