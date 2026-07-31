@@ -1,0 +1,176 @@
+---
+type: build-spec
+status: design-truth v1.1 — amended 2026-07-31 per independent validation (V-1–V-15, Tom's approval relayed by Tim) — awaiting Tim's approval to start WP-0
+created: 2026-07-31
+authored_by: Tom (Cowork) from the 07/30 call transcript + repo read @ a060865; amended by Tim's validation session (same repo state)
+run_in: Claude Code (Tim's impound-manager clone) — the Build Manager room observes, verdicts, and tracks; it NEVER builds
+design_truth: this file. If MASTER_CONTEXT.md and this file disagree about the BUILD, this file wins. If they disagree about COMPLIANCE RULES, stop and resolve via WP-2 — do not pick silently.
+tracker: "Impound Manager Remediation — Tracker.html (repo root)"
+validation: "VALIDATION REPORT — Impound Manager Remediation Spec — 2026-07-31.md (repo root)"
+---
+
+# BUILD — Impound Manager Remediation — Spec
+
+## 0. What this is, in Tim's words
+
+> "I have a puzzle that's completed, but the pieces are in the wrong order. It works, the UPS thing. It works, but I can't tell how it works."
+
+> "It cannot be chaotic. It's too chaotic right now. Clean cut and it needs to be user friendly. Need to be able to see where stuff's at."
+
+> "I need to know what cars we impounded and need a letter sent."
+
+**The acceptance test (binding):** Heather's five stages — Towbook export in → BMV/LKA search → Letter 1 out → returned/delivered marked → Letter 2 out — can each be completed by a person who has never seen the app before, from the task card alone, without hunting for a button. And Tim can see, on one screen, every piece of UPS postage that is out and where it stands.
+
+**This is a remediation and rearrangement, NOT a rewrite.** The compliance engine works. The pieces are in the wrong order. Any session that proposes rebuilding from scratch has drifted — stop it.
+
+## 1. Why this spec exists
+
+Tim built the app in nightly autonomous Claude Code sessions (full push-to-Render permission). Speed was the point; the cost is that no one — including Tim — holds a current map of what exists, what's broken, and what's merely unfindable. On the 07/30 call he demoed a bug fixed two hours earlier, asked for a feature that already ships (the Labels tab), and described a compliance rule the code doesn't implement. This spec is the map, and the work packages repair the gap between the app that exists and the app Tim can operate, demonstrate, and hand to staff.
+
+## 2. What already exists (verified in the repo, 2026-07-31 @ a060865)
+
+| Asset | State | Reuse |
+|---|---|---|
+| Letter pipeline (task_engine.py, ~270 lines) | Working; sent-anchored since 07/29 | Untouched core |
+| BMV→Letter 1 server-side gate | Shipped 07/26 (d5f8e3a), both send paths, no role bypass | Keep; WP-6 builds on it |
+| UPS labels, tracking auto-poll (3-hourly), POD pull | Working | Keep |
+| Labels tab (Letters page) — label lifecycle + status + Void (90-day window unverified — WP-0 confirms, V-12) | **Shipped (PRs #11/#12); Tim doesn't know it exists** | WP-9 surfaces it as "UPS Postage" |
+| /heather/today — flat Overdue/Today/Upcoming task list | Shipped 07/30 (PR #18) | Keep |
+| /admin/ups-test, /reports/date-changes, /admin/reclassify, Detect-from-VIN, BMV quick-link | Shipped | WP-0 inventories all of it |
+| Structured owner fields in BMV Done modals | Shipped 07/30 (PR #19) | WP-3 backfills the pre-07/30 records |
+| Possible-release auto-clear on reappearance (CSV + API) | Shipped 07/30 (PRs #14/#16/#17) | Keep |
+| Towbook API sync code | Built, dark — needs 2 env vars when Towbook grants access | Not this build's problem |
+| MASTER_CONTEXT.md | Rich but layered — a ⚠ 07/29 banner marks the compliance flip, but older stale entries are otherwise unmarked | WP-0 extends the existing STALE convention |
+
+**What does NOT exist:** a sandbox (all testing is against production) · a single computation site for the Letter-2 30-day rule (four independent constants, consistent today, nothing keeps them so: `task_engine.TASK3_DELAY_DAYS` · `models.letter_send_block_reason` · `letter_triggers.PPI_LETTER2_DAYS` · `audit.LETTER2_SENT_GAP_DAYS`; title eligibility itself is already single-sited in `models.title_eligible_date` — V-6) · a defect ledger · inline editing in task cards · role-scoped views · deploy verification (`/version` confirmed absent) · any way for Tim to see what shipped each night · any test infrastructure (no tests/ dir, no test files — V-9).
+
+## 3. The finding that reshapes the build
+
+*(This section was corrected 2026-07-31 per validation V-1/V-2/V-3 — the first draft called the title clock a three-way conflict; two of those legs in fact agree.)*
+
+**Two conflicting definitions of the PPI title clock are in circulation — plus a third question the first draft missed.** Tim's verbal rule (60 days after Letter 1 is *delivered or returned*) conflicts with the implemented rule, on which MASTER_CONTEXT.md and `models.py` **agree**: `title_eligible_date` = the later of `impound_date + 60` and `Letter 2 sent + 30` (models.py:805–812; KEY OHIO COMPLIANCE RULES). The missed third question (V-2): POLICE title eligibility is computed as `Letter 1 sent + 30` with **no 60-day-from-impound floor** (models.py:813–816) — a POLICE impound whose letter went out day 10 reads title-eligible on day 40.
+
+A related conflict stands exactly as originally written (confirmed, V-3): Tim says POLICE impounds take *one* letter; `letter_triggers.py` builds POLICE a 1→3→4 owner chain plus lienholder notices — while title eligibility reads only letter 1, so the code holds both beliefs at once.
+
+These cannot all be right, and every downstream feature renders whichever answer its author happened to believe. **WP-2 resolves all of it on paper, gets Tim's typed confirmation, then enforces each rule in exactly one function.** Until WP-2 passes, no WP may add a new reader of either rule.
+
+## 4. The defect ledger seed (from the 07/30 walkthrough)
+
+WP-0 verifies each against today's main. IDs are stable — cite them everywhere.
+
+| ID | Observed 07/30 | Initial read (verify, don't trust) |
+|---|---|---|
+| D1 | Generate Letter didn't populate owner fields | Likely FIXED-ALREADY (PR #19, merged 20:03 that night). Pre-07/30 POLICE records still broken → WP-3 |
+| D2 | No UPS label on the record; couldn't find how to generate one | Needs repro + discoverability fix → WP-1/WP-6 |
+| D3 | Letter print has junk pages; wants one-page PDF | Template/print-CSS → WP-1 |
+| D4 | Generate Letter button found "on accident" | Discoverability → WP-6 |
+| D5 | Send button unfindable | Discoverability → WP-6 |
+| D6 | Task 2 completed before Task 1 in old data | Historical residue; gate shipped 07/26. One-time data note → WP-0 records count |
+| D7 | Stale Possible-Release flag (2000 Honda Accord) | Possibly the 07/29 false-flag wave; auto-clear shipped 07/30 → verify |
+| D8 | Towbook export failed that day | Upstream vendor; out of code scope. Towbook API is the fix → parked |
+| D9 | A Render deploy didn't land; nobody knew | Deploy verification → WP-5 |
+| D10 | Hub tiles dead or mystery destinations | Cleanup → WP-1 |
+| D11 | Envelope unmatched queue badly backed up | Operational + matching quality → WP-0 counts it; ops item |
+| D12 | Vehicle class not editable | Contradicts code (effective-rate override exists) — UI/permission defect → WP-1 |
+| D13 | Impound type defaults PPI instead of reading the Towbook export | CONFIRMED real gap (V-7): `impound_type='PPI'` hardcoded on insert; no impound-type column exists in the export — fix is inference, insert-only → WP-1 |
+
+## 5. Work packages
+
+Strictly sequential. One WP per Claude Code session unless marked. CP0 before any disk write; CP1 evidence as pasted text. A failed WP parks and reports — it never silently continues.
+
+### WP-0 — Verify & inventory *(first; read-only; one session)*
+Retest D1–D13 against main. Produce `DEFECT-LEDGER.md` (one row each: status FIXED-ALREADY / REPRODUCED / NEEDS-LIVE-TEST / NOT-A-BUG / BY-DESIGN, evidence file:line or PR#, fix WP) and `ALREADY-BUILT.md` (plain-language map of Tim's asks → existing features, with nav path + one-line "try it" for each). Also: count D6 out-of-order rows and D11 unmatched-queue depth via safe read-only checks (expect NEEDS-LIVE-TEST — a local clone has no production DB access); count the relo-trans transport cars sitting in inventory (V-13); mark stale MASTER_CONTEXT compliance text with the STALE convention (strikethrough + date + pointer to WP-2) — **ONLY text that conflicts with code at a cited file:line** (per validation V-4: the "60 days from `impound_date` + 30 days after Letter 2" line MATCHES models.py:805–812 and must NOT be struck) — the ONLY MASTER_CONTEXT edit permitted before WP-2.
+*Why:* the 07/30 call showed the map is wrong in both directions — believed-broken things that work, believed-missing things that ship.
+**Done means:** both files in repo root · every row cites evidence or says NOT FOUND · zero code files changed · one commit.
+
+### WP-1 — Small visible fixes *(one session)*
+(a) One-page letter PDF — print output carries no UI chrome, fits one page for standard letters. (b) D12: vehicle class editable on the ticket; letter price follows `effective_storage_rate`. (c) D13: importer **infers** impound type — the Towbook export has NO impound-type column (verified against `Report-impounds (5).csv` headers, V-7). Infer POLICE when the Account field fuzzy-matches a police department (the matcher `_match_police_department` already exists in towbook_import.py); default PPI otherwise; name the signal used in CP1. **Set on INSERT only — never on update** (the importer's update path would silently revert manual PPI→POLICE corrections on every daily import — V-8, binding). (d) D10: hub tiles either route somewhere real or are removed.
+*Why:* these are the failures Tim watches happen; fixing them buys trust for the bigger WPs.
+**Done means:** sample letter renders one page · class edit saves and the letter's daily rate follows it · a test CSV import sets impound_type on NEW rows only and CP1 pastes the import result line · zero dead hub tiles.
+
+### WP-2 — Compliance truth: one clock, one chain *(two sessions; the human gate)*
+**Session A (read-only):** produce `COMPLIANCE-TRUTH.md`: fetch current ORC 4513.601 / 4513.61 text and quote the operative clauses; lay the verbal-vs-implemented clock definitions and the two POLICE-chain beliefs side by side with file:line citations; propose the single rule for (1) Letter 1 deadline, (2) Letter 2 timing, (3) POLICE letter chain, (4) title-eligibility date, **(5) whether the 60-day-from-impound floor applies to POLICE** (code currently has none — models.py:813–816, V-2), and **(6) whether the daily Towbook import should auto-create Letter 1 rows** (the July-outage handoff gap — §8b, V-14). **CP-CLOCK: STOP. Tim reads the one page and types his confirmation into the doc** — if he is not certain, the named escalation is Ohio counsel or the towing-association seminar materials, not a guess.
+**Session B (only after CP-CLOCK):** implement each confirmed rule in exactly one place (`models.py` property or one module), repoint every reader — specifically consolidating the four Letter-2 30-day constants (`task_engine`, `models`, `letter_triggers`, `blueprints/audit.py`) and any templates — boot backfill for stored rows that disagree (idempotent, logged), tests covering PPI and POLICE paths. **The repo has no test infrastructure (V-9):** create a minimal pytest harness as part of this session, or CP1 pastes scripted assertion output instead — Tom's manager room accepts either, but not prose claims.
+*Why:* the rule already reversed once mid-operation and required a data repair; multiple definitions in circulation is how it happens again.
+**Done means:** COMPLIANCE-TRUTH.md carries Tim's typed confirm · grep shows one computation site per rule · backfill logged N rows on boot · tests (or pasted assertions) pass · MASTER_CONTEXT compliance section replaced (not appended) with the confirmed text.
+
+### WP-3 — POLICE owner backfill *(one session)*
+One-time script parsing `bmv_search_notes` → structured owner columns for pre-07/30 POLICE vehicles. Dry-run by default, `--apply` flag, VehicleNote audit per change, never overwrites a non-empty field, unparseable rows listed for hand entry.
+*Why:* D1's tail — those vehicles still print `[REGISTERED OWNER NAME]` on legal notices.
+**Done means:** CP1 pastes the dry-run summary (N parsed / M skipped / K unparseable) · applied count logged · three spot-checked vehicles render real owner names in letter preview.
+
+### WP-4 — Sandbox *(one session + a Render decision)*
+Staging: `staging` branch → second Render service + separate Postgres seeded from a scrubbed prod copy (base64 blob tables truncated; users reset to demo passwords), unmissable STAGING banner, `UAT-CHECKLIST.md` adapted from the training guide's 8 tests. **CP0 flags the monthly Render cost for Tim's yes before creating anything** — read the instance size from the Render dashboard, NOT render.yaml (its "Starter/1GB" comment is stale; the live service is Standard 2GB per MASTER_CONTEXT OPS — V-11).
+*Why:* every test so far has been against production; Heather will never be handed a production login "to try things."
+**Done means:** staging URL up with banner · login works with demo creds · prod untouched (SHA unchanged) · checklist committed.
+
+### WP-5 — Deploy verification *(one session)*
+`/version` endpoint returning commit SHA + deploy time; post-deploy smoke check (script or GitHub Action: `/` and `/vehicles` return 200/302, `/version` matches pushed SHA); decision recorded on `reset_users.py` (fold into guarded boot vs. keep manual — Tim confirms at CP0, it's a behavior change).
+*Why:* D9 — a deploy silently didn't land and cost a night of confusion.
+**Done means:** `/version` live on prod and staging · one command answers "did my push deploy?" · reset_users decision written into this spec's STATUS LOG.
+
+### WP-6 — Inline field editing in task cards *(two sessions; staging-first)*
+Each task card in the pipeline exposes the fields its step needs — BMV Done owner fields, Mark Sent date/tracking, Confirm Delivered date — posting to the SAME routes the vehicle detail page uses. Server-side gates unchanged and re-verified (a locked task's fields render read-only with the block reason). Generate Letter / Create Label actions surfaced ON the card (D2/D4/D5).
+*Why:* the agreed anchor design — "then literally I'm just working through the task." Assessed "not hard" on the call because the routes exist.
+**Done means:** one vehicle walked end-to-end on staging from task cards alone, no visit to the detail page's scattered sections · gate still blocks a pre-BMV letter send · CP1 pastes the walk-through sequence + files touched.
+
+### WP-7 — Declutter: accordions + dedupe *(one session; staging-first)*
+Vehicle detail sections collapse (default open: active task + letters card only); envelope scanner reachable from exactly one place per role; nav redundancy pass.
+*Why:* "way too complex looking for as simple as it is."
+**Done means:** detail page above-the-fold shows task pipeline + active sections only · every collapsed section reachable in one click · no duplicate nav entries (list the removals in CP1).
+
+### WP-8 — Role-lens views *(one session; staging-first)*
+Heather's login shows only her flow (dashboard, Today, Letters, Envelopes, her guides); Lawrence keeps large-text + release list; admin roles see everything. Built on the existing `build_top_nav` per-role machinery — this is scoping, not new nav.
+*Why:* "on her version she should only see what's relevant to her."
+**Done means:** CP1 pastes the nav list per role (heather / lawrence / tim) · no BuildError on any role's pages · nothing reachable by Heather that her role couldn't already reach (this narrows, never widens, permissions).
+
+### WP-9 — UPS Postage view *(one session)*
+The Labels tab surfaced as a first-class "UPS Postage" nav item: all outstanding postage (label created → not yet delivered) grouped by status, with void flow; delivered/returned roll into the existing tabs.
+*Why:* Tim's explicit ask, twice on the call — the feature exists, the *view of it* doesn't match how he thinks.
+**Done means:** one click from anywhere shows every outstanding label with status · void exercised once on staging · Tim can answer "what postage is out right now?" on one screen.
+
+## 6. The UX contract (what Tim sees, total)
+
+One launch card at a time — never the whole plan. The paste block is the only thing he touches. CP evidence he copies back to the Build Manager room. Exactly one next action at the end of every manager reply. The tracker is one row per WP. Everything else is audit trail in files.
+
+## 7. Guardrails (all binding)
+
+- **`main` is production.** Every push deploys and restarts the app (seconds; drops chat websockets). Batch commits; never leave main broken at end of session. Until WP-5 lands, every prod deploy is followed by `python3 reset_users.py` in the Render Shell — **docs-only pushes are exempt** (passwords persist in Postgres across restarts; the restart itself is harmless — V-10).
+- **One WP per session. CP0 (plan, then STOP) before any disk write. CP1 evidence is pasted text artifacts** — command output, table contents, SHAs — never prose claims.
+- **Compliance rules change only through WP-2's CP-CLOCK.** The sent-anchored Letter 2 rule (corrected 2026-07-29) is not up for re-litigation by any session. `impound_date` is immutable — never a restart source.
+- **No destructive data operations without dry-run + `--apply` + per-row audit note.** Never touch `damage_photos` (driver wizard — marked do-not-touch). No schema drops; new columns via the existing `run_migrations()` guarded pattern.
+- **The Towbook importer's update path never changes `impound_type`** (V-8 — protects manual PPI→POLICE corrections).
+- **Staging-first after WP-4** for anything touching letters, money, or permissions.
+- **Park, don't halt.** A blocked item is recorded and skipped; the session continues. Hard stops only: auth failure, prod incident, or any action risking vehicle/letter data loss → stop, report, wait.
+- **A drifting session** (rewriting instead of remediating, touching another WP's files, re-deciding settled rules) is failed at checkpoint, not argued with.
+- **Out-of-repo escalations:** junk/salvage national database → Ohio attorney, HARD PARK, no code. Autodata Direct → Jim conversation, not a build. Towbook API → two env vars when granted, zero code.
+
+## 8. Not building
+
+Full rewrite (§0 — remediation only) · Towbook web scraping (API path is live with Gabe) · BMV API integration (Tim's privacy call stands until he reverses it) · junk/salvage database automation (attorney first) · Autodata Direct integration · Tow Nexus fold-in · interactive tooltip walkthroughs and in-app bot training (until the UI settles — WP-6/7/8 first) · Connecteam replacement · email/SMS digest layers.
+
+**Also parked, from MASTER_CONTEXT's open queue (V-13):** relo-trans categorization (2 transport cars generating letter/storage tasks — WP-0 counts them in the ledger; the categorization design is a Tim+Tom conversation, not a session) · per-class tow rates (awaiting Tim's numbers) · Black Book portal URL swap (awaiting the URL) · VinAudit / Build 14 (blocked on API key) · image backup + monthly purge (blocked on IT choosing a destination) · disposition follow-ups (post-remediation queue).
+
+## 8b. Failure → countermeasure map (the mistakes, and where each lesson now lives)
+
+| Failure (real, theirs) | Where the lesson is baked in |
+|---|---|
+| July outage: 56 letters mailed outside the app; reconciliation matched zero because Towbook sync creates no letter rows | WP-0 records the handoff gap; daily-import-auto-creates-Letter-1 is now WP-2a question (6) — decided at CP-CLOCK, not silently |
+| Letter-2 clock reversed mid-operation (07/29), needed a boot backfill to repair stored rows | WP-2: one rule, one function, typed human confirm, backfill pattern reused |
+| ~551 vehicles false-flagged Possible Release from a date-windowed export (07/29) | Export recipe corrected upstream; WP-0 verifies flag hygiene (D7); auto-clear shipped (PRs #14/16/17) |
+| POLICE letters printed `[REGISTERED OWNER NAME]` — data in free-text notes, not columns | PR #19 (structured fields) + WP-3 (backfill the stragglers) |
+| A deploy silently didn't land (D9) | WP-5: /version + smoke check |
+| Tim demoed a fixed bug as broken; asked for a shipped feature | WP-0's ledger + ALREADY-BUILT.md; STATUS LOG discipline so "what shipped" is readable every morning |
+| Autonomous sessions implemented 2 of 7 required items and relaunched anyway (pattern from Tom's ecosystem) | CP1 evidence lists are enumerated; the manager counts items, not vibes |
+| Pasted evidence disagreed with disk six times in prior manager rooms | Manager verifies in the repo (commit, files, diffs) before any PASS |
+| The spec itself shipped with a misread compliance conflict (V-1) | Independent validation before Launch Card #1; findings folded in 2026-07-31 — the pattern to repeat before any future spec goes live |
+
+## 9. Sequence & size
+
+**WP-0 (one evening) → WP-1 (one) → WP-2a truth (one) → CP-CLOCK (Tim, minutes) → WP-2b (one) → WP-3 (one) → WP-4 (one + cost yes) → WP-5 (one) → WP-6 (two) → WP-7 (one) → WP-8 (one) → WP-9 (one).**
+≈ twelve evenings. Visible wins land in the first two sessions by design. WP-6 through WP-9 are the "make it feel like one system" arc and run staging-first. *(Validation V-15: no dependency errors found in this order.)*
+
+## STATUS LOG
+
+- **2026-07-31 — Spec authored** (Tom, Cowork) from the 07/30 call + repo read @ a060865. Awaiting Tim's go on WP-0. Nothing built.
+- **2026-07-31 — Independent validation run** (Tim's Cowork instance) against the same @ a060865: verdict **SOUND WITH AMENDMENTS**, findings V-1–V-15 (full report in repo root). BLOCKERs: V-1 (the "three conflicting definitions" was two-way — MASTER_CONTEXT and models.py agree for PPI — plus a missed POLICE 60-day-floor question) and V-4 (WP-0's STALE pass rescoped to code-cited conflicts only). All BLOCKER/AMEND findings folded into §2, §3, §4 (D13), §5 (WP-0/1/2/4), §7, §8, §8b this same day, on Tom's approval relayed by Tim. Nothing built. Still awaiting Tim's go on WP-0.
