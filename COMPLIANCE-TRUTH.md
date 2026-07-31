@@ -1,7 +1,7 @@
 ---
 type: wp2a-output
-status: PARTIALLY CONFIRMED 2026-07-31 — item 4 (PPI title eligibility) confirmed by Tim and implemented in WP-2b. Items 3 and 5 (POLICE chain / POLICE title clock) remain OPEN, unchanged in code, pending counsel. Items 1, 2, 6 unchanged (already correct / deferred as non-urgent).
-produced_by: Claude Code, read-only research 2026-07-31; WP-2b code change same day after Tim's confirmation
+status: PARTIALLY CONFIRMED 2026-07-31 — items 4 (PPI title eligibility) and 3 (POLICE letter chain — one letter only) confirmed by Tim and implemented (WP-2b and WP-6 respectively). Item 5 (POLICE title clock) remains OPEN, unchanged in code, pending counsel. Items 1, 2 unchanged (already correct). Item 6 (auto-create Letter 1 on import) remains OPEN — confirmed live and real during UAT, still not implemented.
+produced_by: Claude Code, read-only research 2026-07-31; WP-2b code change same day after Tim's confirmation; WP-6 item 3 code change same day after Tim's confirmation
 ---
 
 # COMPLIANCE-TRUTH — the one page Tim reads at CP-CLOCK
@@ -65,7 +65,23 @@ Code holds two beliefs at once: it builds POLICE a 1→3→4(+lienholder) chain 
 1. Letter 1 deadline: UNCHANGED — no conflict found, not re-litigated.
 2. Letter 2 timing: UNCHANGED — 30 days after Letter 1 sent, matches statute
    text and code already, not re-litigated.
-3. POLICE letter chain: OPEN — not confirmed, not changed. Still needs counsel.
+3. POLICE letter chain: CONFIRMED 2026-07-31 in chat, during WP-6 — Tim
+   confirmed his original verbal rule stands: POLICE impounds get ONE letter
+   (the Notice of Lien, letter_number=1), not the coded 1→3→4(+lienholder)
+   chain. Matches his 07/30 call statement and the fact that title
+   eligibility for POLICE already only ever read letter_number=1 — the 3/4
+   chain was generated and sendable but had zero effect on the actual
+   compliance clock, exactly the "two beliefs at once" gap this document
+   flagged in §4. Statutory basis for a second POLICE notice was never
+   confirmed either way (§3 above still says NEEDS COUNSEL on whether 4513.61
+   requires one) — Tim's call is the same "lock in now, verify with counsel
+   as a backstop" pattern as item 4, not a claim that counsel has reviewed
+   this. IMPLEMENTED same day in letter_triggers.py (on_bmv_complete/
+   on_letter_sent no longer create letter_number 3/4/5/6 for POLICE) and
+   app.py (Generate Letters hub no longer offers those slugs for POLICE).
+   Existing already-sent letter_number 3/4/5/6 rows on real vehicles are
+   NOT touched or deleted — they were real letters that were really sent;
+   this only stops new ones from being generated going forward.
 4. PPI title-eligibility date: CONFIRMED — Tim noticed a title-eligibility
    date "on the wrong day" independently, before seeing this document's
    finding, which corroborates it. Confirmed 2026-07-31 in chat: "yes you are
@@ -87,4 +103,4 @@ Code holds two beliefs at once: it builds POLICE a 1→3→4(+lienholder) chain 
 Confirmed by: Tim (in chat)   Date: 2026-07-31
 ```
 
-**Anything still marked OPEN above is still gated — no session may implement 3, 5, or 6 without a fresh, explicit confirmation the same way item 4 got one.**
+**Anything still marked OPEN above is still gated — no session may implement 5 or 6 without a fresh, explicit confirmation the same way items 3 and 4 got one.**

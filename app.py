@@ -36,6 +36,14 @@ except ImportError:
 # mark_sent.html — see letters_create_ups_label for why this stays in-memory.
 _pending_label_2_cache = {}
 
+# WP-6: same idea as _pending_label_2_cache, but for the inline Mark Sent
+# modal on the vehicle detail page's Task Pipeline cards — holds BOTH labels
+# (primary + 2nd party) keyed by letter_id, since redirecting back to
+# vehicles_detail (rather than mark_sent.html) has no query string to carry
+# the primary label in either. Single-worker-process assumption, same as
+# _pending_label_2_cache above.
+_pending_inline_label_cache = {}
+
 # Rendered by /admin/ups-test — a plain, self-contained results page.
 _UPS_TEST_PAGE = """{% extends 'base.html' %}
 {% block title %}UPS Connection Test — Impound Manager{% endblock %}
@@ -1583,6 +1591,13 @@ def create_app():
         storage_days, storage_total, storage_breakdown = calculate_storage(
             vehicle.impound_date, date.today(), vehicle.daily_storage_rate or 0
         )
+        # WP-6: a label just created from the Task Pipeline's inline Mark Sent
+        # modal (letters_create_ups_label) lands here instead of mark_sent.html
+        # — pop whichever letter(s) it was for so the modal can show it.
+        inline_labels = {}
+        for l in (vehicle.letter1, vehicle.letter2):
+            if l and l.id in _pending_inline_label_cache:
+                inline_labels[l.id] = _pending_inline_label_cache.pop(l.id)
         return render_template(
             'vehicles/detail.html',
             vehicle=vehicle,
@@ -1590,6 +1605,7 @@ def create_app():
             storage_days=storage_days,
             storage_total=storage_total,
             storage_breakdown=storage_breakdown,
+            inline_labels=inline_labels,
         )
 
     @app.route('/vehicles/<int:vehicle_id>/edit', methods=['GET', 'POST'])
@@ -2032,6 +2048,10 @@ def create_app():
                 notes=request.form.get('notes', '').strip(),
             )
             flash(message, 'success')
+            # WP-6: the inline Task Pipeline modal submits here too — send it
+            # back to the vehicle page it came from, not the dashboard.
+            if request.form.get('from_vehicle_card'):
+                return redirect(url_for('vehicles_detail', vehicle_id=letter.vehicle_id))
             return redirect(url_for('dashboard'))
 
         import ups_api
@@ -2157,13 +2177,21 @@ def create_app():
             letter.tracking_number_2 = tracking_number_2
             db.session.commit()
             message += f' 2nd label tracking: {tracking_number_2}.'
+        flash(f'{message} Tracking: {tracking_number}', 'success')
+
+        # WP-6: the inline Task Pipeline modal submits here too — send it back
+        # to the vehicle page it came from (with the label(s) to show there)
+        # instead of the standalone mark_sent.html page.
+        if request.form.get('from_vehicle_card'):
+            _pending_inline_label_cache[letter.id] = (label_b64, label_2_b64)
+            return redirect(url_for('vehicles_detail', vehicle_id=vehicle.id))
+
         if label_2_b64:
             # In-memory only, keyed by letter id, popped on next render — relies
             # on this app's confirmed single gunicorn worker (render.yaml -w 1,
             # same assumption the Wally chat fix already depends on). Avoids
             # doubling the query-string size of the existing label redirect.
             _pending_label_2_cache[letter.id] = label_2_b64
-        flash(f'{message} Tracking: {tracking_number}', 'success')
         return redirect(url_for('letters_mark_sent', letter_id=letter.id) + f'?label={label_b64}')
 
     # Per-letter UPS refresh + POD pull now live in ups_poll.py (module-level)
@@ -2694,12 +2722,13 @@ def create_app():
             'first_lienholder':   (5, 'first_notice',  'lienholder'),
             'second_lienholder':  (6, 'second_notice', 'lienholder'),
         },
+        # COMPLIANCE-TRUTH.md item 3, confirmed 2026-07-31: POLICE gets ONE
+        # letter (the Notice of Lien). The 3/4/5/6 owner/lienholder chain
+        # this hub used to also offer for POLICE never affected title
+        # eligibility or the Task Pipeline — removed here so the hub can't
+        # generate letters that duplicate/confuse the one that matters.
         'POLICE': {
             'police':             (1, 'notice_of_lien', 'owner'),
-            'first_owner':        (3, 'first_notice',   'owner'),
-            'second_owner':       (4, 'second_notice',  'owner'),
-            'first_lienholder':   (5, 'first_notice',   'lienholder'),
-            'second_lienholder':  (6, 'second_notice',  'lienholder'),
         },
     }
 
@@ -2745,10 +2774,11 @@ def create_app():
         if number == 1:
             return None, 'Not yet created by intake.'
 
-        # 2nd notices wait on their 1st notice actually being sent.
-        if number in (2, 4, 6):
-            trigger_number = 1 if vehicle.impound_type == 'PPI' else 3
-            trigger = _letter_by_number(vehicle, trigger_number)
+        # 2nd notices wait on their 1st notice actually being sent. Only
+        # reachable for PPI now (item 3: POLICE only has the 'police' slug,
+        # letter_number 1) — 1st-notice is always letter_number 1 here.
+        if number in (2, 6):
+            trigger = _letter_by_number(vehicle, 1)
             if not trigger or not trigger.sent_date:
                 return None, 'The 1st Notice must be sent first.'
             due = trigger.sent_date + timedelta(days=PPI_LETTER2_DAYS)
@@ -2778,9 +2808,9 @@ def create_app():
 
         # Which slugs to offer. Second notices always show (per spec) — they
         # render disabled with a reason when the pipeline hasn't unlocked them.
+        # POLICE: item 3, one letter only — nothing else to offer.
         if vehicle.impound_type == 'POLICE':
-            slugs = ['police', 'first_owner', 'first_lienholder',
-                     'second_owner', 'second_lienholder']
+            slugs = ['police']
         else:
             slugs = ['first_owner', 'first_lienholder',
                      'second_owner', 'second_lienholder']

@@ -1,15 +1,20 @@
 """
-Extended letter trigger logic — the 5-letter system.
+Extended letter trigger logic.
 
-Creates the newer letter_number 3-6 records (POLICE owner notices for
-letter_number 1/2 not covered, plus lienholder notices for both impound
-types) at the right moments. letter_number 1 and 2 keep their ORIGINAL
-creation logic and meaning completely untouched — task_engine.py and
-Vehicle.title_eligible_date/stoplight_color/next_action_label only ever
-read letter_number 1/2, so nothing here can affect them. See the full
-numbering scheme documented on Vehicle in models.py.
+COMPLIANCE-TRUTH.md item 3, confirmed by Tim 2026-07-31: POLICE impounds
+get ONE letter (the Notice of Lien, letter_number=1) — not the 1->3->4
+owner-notice chain this module used to build. That chain was generated and
+sendable but had zero effect on title eligibility or the Task Pipeline
+(both only ever read letter_number=1 for POLICE), so removing it changes
+nothing about compliance timing — it only stops generating letters nobody
+was relying on. on_bmv_complete() is now a no-op kept for the existing
+call site in blueprints/heather.py; on_letter_sent()'s POLICE branch is
+removed outright since letter_number=3 will never exist to trigger it.
+
+PPI's lienholder notices (letter_number 5/6) are untouched — letter_number
+1 and 2 keep their ORIGINAL creation logic completely unchanged.
 """
-from datetime import date, datetime, timedelta
+from datetime import datetime, timedelta
 
 from models import db, CertifiedLetter, PPI_LETTER2_DAYS
 
@@ -41,36 +46,25 @@ ensure_letter = _ensure_letter
 def on_vehicle_created(vehicle, letter1_due):
     """Call right after a new vehicle's initial letter_number=1 is created
     (app.py's vehicles_new route). Only PPI needs anything extra here —
-    POLICE's lienholder 1st notice (letter_number=5) isn't triggered until
-    BMV search completes, same as its owner counterpart (letter_number=3)."""
+    POLICE is one letter only (item 3), nothing further to create."""
     if vehicle.impound_type == 'PPI' and vehicle.lienholder_name:
         _ensure_letter(vehicle, 5, 'first_notice', 'lienholder', letter1_due)
 
 
 def on_bmv_complete(vehicle):
-    """Call when Heather marks Task 1 (BMV Search) complete (heather.py's
-    bmv_complete route). POLICE impounds only — this is what unlocks their
-    1st Owner/Lienholder Notice, since letter_number=1 for POLICE is already
-    spoken for by the Notice of Lien."""
-    if vehicle.impound_type != 'POLICE':
-        return
-    today = date.today()
-    _ensure_letter(vehicle, 3, 'first_notice', 'owner', today)
-    if vehicle.lienholder_name:
-        _ensure_letter(vehicle, 5, 'first_notice', 'lienholder', today)
+    """No-op as of COMPLIANCE-TRUTH.md item 3 (2026-07-31) — POLICE gets one
+    letter only, so BMV completion no longer creates anything extra. Kept
+    (rather than removed) only because blueprints/heather.py's bmv_complete
+    route still calls it; safe to delete entirely in a later cleanup."""
+    return
 
 
 def on_letter_sent(vehicle, letter):
     """Call right after a CertifiedLetter is marked sent (app.py's
-    letters_mark_sent route), to create whichever next letter(s) in the
-    5-letter sequence this send unlocks."""
+    letters_mark_sent route). PPI only, as of COMPLIANCE-TRUTH.md item 3 —
+    POLICE's letter_number=3 will never exist to trigger a second notice."""
     if vehicle.impound_type == 'PPI' and letter.letter_number == 1:
         due = letter.sent_date + timedelta(days=PPI_LETTER2_DAYS)
         _ensure_letter(vehicle, 2, 'second_notice', 'owner', due)
-        if vehicle.lienholder_name:
-            _ensure_letter(vehicle, 6, 'second_notice', 'lienholder', due)
-    elif vehicle.impound_type == 'POLICE' and letter.letter_number == 3:
-        due = letter.sent_date + timedelta(days=PPI_LETTER2_DAYS)  # same 30-day gap as PPI's 2nd notice
-        _ensure_letter(vehicle, 4, 'second_notice', 'owner', due)
         if vehicle.lienholder_name:
             _ensure_letter(vehicle, 6, 'second_notice', 'lienholder', due)

@@ -244,6 +244,76 @@
 </div>
 {% endif %}
 
+{# ══ WP-6: inline "Mark Sent" for a Task Pipeline card — same routes the
+   standalone /letters/<id>/mark-sent page uses, so the compliance gate
+   (Vehicle.letter_send_block_reason, checked server-side in both routes)
+   is unchanged. Redirects land back on this page (from_vehicle_card=1)
+   instead of the dashboard or a separate screen. ══ #}
+{% macro mark_sent_controls(l, today, inline_labels, show_button=true) %}
+{% if show_button %}
+<button type="button" class="btn btn-danger btn-sm py-0 mt-1 w-100"
+        data-bs-toggle="modal" data-bs-target="#markSentModal{{ l.id }}">Send Now</button>
+{% endif %}
+<div class="modal fade" id="markSentModal{{ l.id }}" tabindex="-1">
+  <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title"><i class="bi bi-send me-1"></i>{{ l.label }} — Mark Sent</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        {% if inline_labels and l.id in inline_labels %}
+          {% set label_b64, label_2_b64 = inline_labels[l.id] %}
+          <div class="alert alert-success py-2 small mb-2">
+            <i class="bi bi-check-circle-fill me-1"></i>Sent — tracking {{ l.tracking_number }}
+          </div>
+          {% if l.tracking_number and l.tracking_number.startswith('1ZFAKE') %}
+          <div class="border border-warning bg-warning bg-opacity-10 text-center py-4 small text-warning-emphasis mb-2">
+            STAGING — no real UPS label was created.<br>This is a placeholder, not something to mail.
+          </div>
+          {% else %}
+          <img src="data:image/gif;base64,{{ label_b64 }}" class="img-fluid border mb-2" alt="UPS shipping label">
+          {% endif %}
+          {% if label_2_b64 %}
+          <div class="small text-muted mb-1">2nd recipient label — tracking {{ l.tracking_number_2 }}</div>
+          {% if l.tracking_number_2 and l.tracking_number_2.startswith('1ZFAKE') %}
+          <div class="border border-warning bg-warning bg-opacity-10 text-center py-4 small text-warning-emphasis">
+            STAGING — no real UPS label was created.<br>This is a placeholder, not something to mail.
+          </div>
+          {% else %}
+          <img src="data:image/gif;base64,{{ label_2_b64 }}" class="img-fluid border" alt="UPS shipping label — 2nd recipient">
+          {% endif %}
+          {% endif %}
+        {% else %}
+        <form method="POST" action="{{ url_for('letters_create_ups_label', letter_id=l.id) }}" class="mb-3">
+          <input type="hidden" name="from_vehicle_card" value="1">
+          <button type="submit" class="btn btn-primary btn-sm w-100">
+            <i class="bi bi-upc-scan me-1"></i>Create UPS Label &amp; Mark Sent
+          </button>
+        </form>
+        <div class="text-center text-muted small mb-2">— or enter a tracking number by hand —</div>
+        <form method="POST" action="{{ url_for('letters_mark_sent', letter_id=l.id) }}">
+          <input type="hidden" name="from_vehicle_card" value="1">
+          <div class="mb-2">
+            <label class="form-label small mb-0">Date Sent</label>
+            <input type="date" name="sent_date" class="form-control form-control-sm" value="{{ today.isoformat() }}" required>
+          </div>
+          <div class="mb-2">
+            <label class="form-label small mb-0">UPS Tracking Number <span class="text-muted">(optional)</span></label>
+            <input type="text" name="tracking_number" class="form-control form-control-sm">
+          </div>
+          <button type="submit" class="btn btn-outline-secondary btn-sm w-100">Mark Sent (manual entry)</button>
+        </form>
+        {% endif %}
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">Close</button>
+      </div>
+    </div>
+  </div>
+</div>
+{% endmacro %}
+
 {# ══ Task Pipeline Widget ══ #}
 {% if vehicle.status in ('ACTIVE', 'TITLE_FILED') %}
 {% set t1_done = vehicle.heather_complete or vehicle.bmv_stage == 'COMPLETE' %}
@@ -307,7 +377,11 @@
           <div class="text-muted" style="font-size:.75rem;">Opens day 5 ({{ (5 - l1_clock_days) }}d){% if vehicle.restart_date %} <span class="text-info">(from restart)</span>{% endif %}</div>
           {% endif %}
           {% if l1 and not l1_sent and l1_clock_days >= 5 and vehicle.status == 'ACTIVE' and not vehicle.possible_release %}
-          <a href="{{ url_for('letters_mark_sent', letter_id=l1.id) }}" class="btn btn-danger btn-sm py-0 mt-1 w-100">Send Now</a>
+          {{ mark_sent_controls(l1, today, inline_labels) }}
+          {% elif l1 and l1_sent and inline_labels and l1.id in inline_labels %}
+          {# Just came back from creating a label inline — modal only, no
+             visible button, auto-opened by the script below to show it. #}
+          {{ mark_sent_controls(l1, today, inline_labels, show_button=false) }}
           {% elif l1 and not l1_sent and l1_clock_days >= 5 and vehicle.possible_release %}
           <span class="badge bg-secondary d-block mt-1">Blocked — verify Possible Release</span>
           {% endif %}
@@ -334,7 +408,9 @@
           <div class="text-muted" style="font-size:.75rem;">Locked — complete Task 2 first</div>
           {% endif %}
           {% if l2 and not l2_sent and task3_open and today >= task3_open and vehicle.status == 'ACTIVE' and not vehicle.possible_release %}
-          <a href="{{ url_for('letters_mark_sent', letter_id=l2.id) }}" class="btn btn-danger btn-sm py-0 mt-1 w-100">Send Now</a>
+          {{ mark_sent_controls(l2, today, inline_labels) }}
+          {% elif l2 and l2_sent and inline_labels and l2.id in inline_labels %}
+          {{ mark_sent_controls(l2, today, inline_labels, show_button=false) }}
           {% elif l2 and not l2_sent and task3_open and today >= task3_open and vehicle.possible_release %}
           <span class="badge bg-secondary d-block mt-1">Blocked — verify Possible Release</span>
           {% endif %}
@@ -2117,6 +2193,14 @@ function showGeneralDocImage(btn) {
 
 {% block scripts %}
 <script>
+{% if inline_labels %}
+// WP-6: just came back from creating a UPS label via the inline Mark Sent
+// modal — pop that modal back open so the result is visible immediately.
+{% for letter_id in inline_labels %}
+new bootstrap.Modal(document.getElementById('markSentModal{{ letter_id }}')).show();
+{% endfor %}
+{% endif %}
+
 function applyPreset(sel) {
   if (!sel.value) return;
   const parts = sel.value.split('|');
