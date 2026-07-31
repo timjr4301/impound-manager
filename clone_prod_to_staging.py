@@ -57,6 +57,37 @@ def is_connection_error(exc):
     return isinstance(exc, (OperationalError, InterfaceError))
 
 
+def fetch_all_with_retry(src_engine, table):
+    """Read a table's rows in ordered chunks, each over its own fresh
+    connection, retrying on a connection-level failure. A table with large
+    blob columns (LKA/title PDFs, envelope images) can be too much to pull
+    in one unbroken SELECT * — chunking the read the same way the write
+    side is chunked means a dropped connection only costs one chunk, not
+    the whole table's read."""
+    pk_cols = list(table.primary_key.columns) or [list(table.columns)[0]]
+    rows = []
+    offset = 0
+    while True:
+        chunk = None
+        last_exc = None
+        for attempt in range(1, MAX_RETRIES + 1):
+            try:
+                with src_engine.connect() as conn:
+                    stmt = table.select().order_by(*pk_cols).limit(CHUNK_SIZE).offset(offset)
+                    chunk = conn.execute(stmt).mappings().all()
+                break
+            except Exception as exc:
+                if is_connection_error(exc) and attempt < MAX_RETRIES:
+                    last_exc = exc
+                    continue
+                raise
+        if not chunk:
+            break
+        rows.extend(chunk)
+        offset += CHUNK_SIZE
+    return rows
+
+
 def insert_with_retry(dst_engine, table, params):
     """Insert `params` (a list of one or more row dicts) in its own fresh
     connection + transaction. Retries with a brand-new connection on a
@@ -130,47 +161,46 @@ def main():
             dst_conn.execute(delete(table))
     print(f'Truncated {len(tables)} table(s) in staging.')
 
-    with src_engine.connect() as src_conn:
-        for table in tables:
-            rows = src_conn.execute(table.select()).mappings().all()
-            if not rows:
-                print(f'  {table.name}: 0 rows')
-                continue
-            # Same idea as the table-level skip: production can carry
-            # columns (e.g. police_departments.hook_fee/storage_fee) left
-            # over from an earlier build that current models.py no longer
-            # defines. Only load columns the destination actually has;
-            # drop anything else, once, with a note.
-            dst_cols = set(dst_meta.tables[table.name].columns.keys())
-            extra_cols = set(rows[0].keys()) - dst_cols
-            if extra_cols:
-                print(f'  {table.name}: dropping column(s) not in current schema: '
-                      f'{", ".join(sorted(extra_cols))}')
-            filtered = [{k: v for k, v in dict(r).items() if k in dst_cols} for r in rows]
+    for table in tables:
+        rows = fetch_all_with_retry(src_engine, table)
+        if not rows:
+            print(f'  {table.name}: 0 rows')
+            continue
+        # Same idea as the table-level skip: production can carry columns
+        # (e.g. police_departments.hook_fee/storage_fee) left over from an
+        # earlier build that current models.py no longer defines. Only
+        # load columns the destination actually has; drop anything else,
+        # once, with a note.
+        dst_cols = set(dst_meta.tables[table.name].columns.keys())
+        extra_cols = set(rows[0].keys()) - dst_cols
+        if extra_cols:
+            print(f'  {table.name}: dropping column(s) not in current schema: '
+                  f'{", ".join(sorted(extra_cols))}')
+        filtered = [{k: v for k, v in dict(r).items() if k in dst_cols} for r in rows]
 
-            copied, failed = 0, []
-            for i in range(0, len(filtered), CHUNK_SIZE):
-                chunk = filtered[i:i + CHUNK_SIZE]
-                try:
-                    insert_with_retry(dst_engine, table, chunk)
-                    copied += len(chunk)
-                except Exception:
-                    # Something in this chunk won't go in as a batch — drop
-                    # to one row at a time so only the actual bad row(s) in
-                    # it are reported, not the whole chunk.
-                    for row in chunk:
-                        try:
-                            insert_with_retry(dst_engine, table, [row])
-                            copied += 1
-                        except Exception as row_exc:
-                            failed.append((row.get('id', '?'), str(row_exc).splitlines()[0]))
+        copied, failed = 0, []
+        for i in range(0, len(filtered), CHUNK_SIZE):
+            chunk = filtered[i:i + CHUNK_SIZE]
+            try:
+                insert_with_retry(dst_engine, table, chunk)
+                copied += len(chunk)
+            except Exception:
+                # Something in this chunk won't go in as a batch — drop to
+                # one row at a time so only the actual bad row(s) in it are
+                # reported, not the whole chunk.
+                for row in chunk:
+                    try:
+                        insert_with_retry(dst_engine, table, [row])
+                        copied += 1
+                    except Exception as row_exc:
+                        failed.append((row.get('id', '?'), str(row_exc).splitlines()[0]))
 
-            if failed:
-                print(f'  {table.name}: {copied} row(s) copied, {len(failed)} row(s) FAILED and skipped')
-                for pk, err in failed:
-                    print(f'    id={pk}: {err}')
-            else:
-                print(f'  {table.name}: {copied} row(s) copied')
+        if failed:
+            print(f'  {table.name}: {copied} row(s) copied, {len(failed)} row(s) FAILED and skipped')
+            for pk, err in failed:
+                print(f'    id={pk}: {err}')
+        else:
+            print(f'  {table.name}: {copied} row(s) copied')
 
     print('\nDone. Now run, against the STAGING database only:')
     print('    python3 scrub_for_staging.py --confirm-staging')
