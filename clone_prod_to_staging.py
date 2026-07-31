@@ -42,7 +42,7 @@ dashboard (Database -> Connect -> External Connection String):
 import argparse
 import sys
 
-from sqlalchemy import create_engine, MetaData, insert, delete
+from sqlalchemy import create_engine, MetaData, insert, delete, text
 from sqlalchemy.exc import OperationalError, InterfaceError
 
 CHUNK_SIZE = 20
@@ -201,6 +201,25 @@ def main():
                 print(f'    id={pk}: {err}')
         else:
             print(f'  {table.name}: {copied} row(s) copied')
+
+    # Rows above were inserted with their real production `id` already set,
+    # which never advances Postgres's per-table auto-increment sequence —
+    # left alone, the very next row the app inserts normally (no explicit
+    # id) would collide with one of the ids just copied in. Bring every
+    # sequence up to the data's real MAX(id) so new rows start past it.
+    with dst_engine.begin() as dst_conn:
+        for table in tables:
+            if 'id' not in table.columns:
+                continue
+            col = table.columns['id']
+            if not col.primary_key or not col.autoincrement:
+                continue
+            dst_conn.execute(text(
+                f'SELECT setval(pg_get_serial_sequence(:tbl, :col), '
+                f'COALESCE((SELECT MAX(id) FROM "{table.name}"), 1), '
+                f'(SELECT MAX(id) FROM "{table.name}") IS NOT NULL)'
+            ), {'tbl': table.name, 'col': 'id'})
+    print(f'Reset auto-increment sequences on {len(tables)} table(s).')
 
     print('\nDone. Now run, against the STAGING database only:')
     print('    python3 scrub_for_staging.py --confirm-staging')
