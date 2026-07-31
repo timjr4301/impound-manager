@@ -39,9 +39,6 @@
     .rate-pending { color: #b00; font-weight: bold; }
     .addr-heading { font-weight: bold; margin-top: 16px; }
 
-    /* Envelope-window page — same sheet, forced to a new page */
-    .page-2 { page-break-before: always; padding-top: 1.5in; }
-
     table.charges-table { width:100%; border-collapse:collapse; margin:10px 0; font-size:10.5pt; }
     table.charges-table td { padding:2px 4px; }
     table.charges-table tr:last-child td { border-top:1px solid #000; font-weight:bold; }
@@ -64,6 +61,13 @@
 {% set is_lienholder = letter.recipient_type == 'lienholder' %}
 {% set days = 'thirty (30)' if kind == 'second_notice' else 'sixty (60)' %}
 
+{# WP-1(a): the addressee block above is the ONLY address on the letter now —
+   it sits right after the fixed-length letterhead/meta, so its position never
+   shifts with body-text length, which is what a window envelope needs. The
+   old design duplicated the same address on a forced second page instead;
+   removed so a standard letter prints as one page. Test-fold a printed
+   letter against a real envelope before relying on this for real mail — the
+   exact window position wasn't available to verify against here. #}
 {# Rates: POLICE pulls from police_departments, PPI uses the PUCO defaults.
    rate_pending is only ever true for a POLICE impound with no department. #}
 {% set tow = vehicle.effective_tow_rate %}
@@ -215,18 +219,6 @@
   If you have any questions regarding this matter, please contact {{ CO_NAME }} at {{ CO_PHONE }}.
 </p>
 
-{# ── Page 2: envelope window ── #}
-<div class="page-2">
-  <div class="addr-heading">Registered owners name:</div>
-  <div>{{ owner_block() }}</div>
-
-  {% if vehicle.lienholder_name %}
-  <div class="addr-heading">Lien holders name:</div>
-  <div>{{ lienholder_block() }}</div>
-  {% endif %}
-</div>
-
-
 {# ══════════════════════════════════════════════════════════════════════════
    LETTER TYPES 2 & 3 — FIRST / SECOND NOTICE (Owner or Lienholder)
    Identical but for the title and the 60-day vs 30-day claim window.
@@ -300,26 +292,18 @@
   may be evidenced by a certificate of title or memorandum certificate of title to the motor vehicle.
 </p>
 
-<div class="addr-heading">Registered owners name:</div>
-<div>{{ owner_block() }}</div>
-
-{% if vehicle.lienholder_name %}
+{# The recipient's address already appears once, fixed-position, in the
+   .addressee block at the top of this letter (WP-1(a) — see the comment
+   near the top of the template). A same-page repeat here was removed as
+   redundant; the lienholder-on-an-owner-letter cross-reference below is
+   kept since it's letter content, not an address duplicate. #}
+{% if vehicle.lienholder_name and not is_lienholder %}
 <div class="addr-heading">Lien holders name:</div>
 <div>{{ lienholder_block() }}</div>
+{% elif is_lienholder %}
+<div class="addr-heading">Registered owners name:</div>
+<div>{{ owner_block() }}</div>
 {% endif %}
-
-{# ── Page 2: envelope window — addressed to this letter's recipient ── #}
-<div class="page-2">
-  {% if is_lienholder %}
-  <div class="addr-heading">Lien holders name:</div>
-  <div>{{ lienholder_block() }}</div>
-
-  <div class="addr-heading">Registered owners name:</div>
-  <div>{{ owner_block() }}</div>
-  {% else %}
-  <div>{{ owner_block() }}</div>
-  {% endif %}
-</div>
 
 {% endif %}
 

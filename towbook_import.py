@@ -256,9 +256,22 @@ def _do_import():
                 if not impound_date:
                     skipped += 1
                     continue
+                # WP-1(c): Towbook's export has no dedicated impound-type
+                # column (confirmed against this file's own header row), so
+                # infer it from the Account field the same way the existing
+                # department fee-lookup below already fuzzy-matches it — a
+                # match means a requesting police department (POLICE);
+                # otherwise this is a private-property impound (PPI), the
+                # prior always-PPI default. INSERT-ONLY: impound_type is
+                # never part of `fields`, so the update branch above never
+                # touches it and can't silently revert a manual PPI<->POLICE
+                # correction on a later daily import (V-8).
+                account_value = fields.get('account')
+                inferred_dept = _match_police_department(account_value) if account_value else None
+                inferred_type = 'POLICE' if inferred_dept else 'PPI'
                 v = Vehicle(
                     **fields,
-                    impound_type='PPI',
+                    impound_type=inferred_type,
                     status='RELEASED' if release_date else 'ACTIVE',
                     towbook_seen=True,  # inserted via CSV — eligible for future possible_release checks
                     created_at=datetime.utcnow(),
