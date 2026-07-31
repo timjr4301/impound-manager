@@ -54,8 +54,26 @@ def main():
     src_engine = create_engine(args.source)
     dst_engine = create_engine(args.dest)
 
+    # Reflect BOTH sides. Production turned out to also hold at least one
+    # table (bj_books_invoices) that belongs to a different app sharing the
+    # same physical database, not to Impound Manager. Copying only the
+    # tables the FRESH staging database already has (created straight from
+    # this repo's own models.py on its first boot) is what keeps that other
+    # app's tables out automatically, rather than trusting "whatever's
+    # sitting in the source database" the way a plain reflect(source) would.
+    src_meta = MetaData()
+    src_meta.reflect(bind=src_engine)
+    dst_meta = MetaData()
+    dst_meta.reflect(bind=dst_engine)
+
+    dst_names = set(dst_meta.tables)
+    skipped = sorted(name for name in src_meta.tables if name not in dst_names)
+    if skipped:
+        print(f'Skipping {len(skipped)} table(s) in source not part of Impound Manager '
+              f'(not present in the freshly-created staging schema): {", ".join(skipped)}')
+
     meta = MetaData()
-    meta.reflect(bind=src_engine)
+    meta.reflect(bind=src_engine, only=lambda name, _: name in dst_names)
     tables = meta.sorted_tables  # dependency order: parents before children
 
     with dst_engine.begin() as dst_conn:
