@@ -764,6 +764,13 @@ def create_app():
     # only) turns this on.
     app.config['IS_STAGING'] = os.environ.get('IS_STAGING', 'false').strip().lower() == 'true'
 
+    # WP-5: captured once, at process start — Render restarts (spins up a new
+    # process) on every deploy, so "when this process booted" is the same
+    # thing as "when this deploy went live." Combined with RENDER_GIT_COMMIT
+    # (a real env var Render sets automatically, no config needed), /version
+    # can answer "did my push actually deploy?" without guessing.
+    app.config['BOOT_TIME'] = datetime.utcnow()
+
     app.config['COMPANY_NAME'] = os.environ.get('COMPANY_NAME', 'Broad & James Towing')
     app.config['COMPANY_ADDRESS'] = os.environ.get('COMPANY_ADDRESS', '3201 E Broad St, Columbus, OH 43213')
     app.config['COMPANY_PHONE'] = os.environ.get('COMPANY_PHONE', '(614) 235-4700')
@@ -950,6 +957,21 @@ def create_app():
             'towbook_sync_status': sync_status,
             'nav_sections': nav_sections,
         }
+
+    # ── Deploy verification (WP-5) ───────────────────────────────────────────────
+    # No login required — this needs to answer "did my push deploy?" from a
+    # plain curl/browser hit, not require being logged into the app that
+    # might not have deployed. Returns nothing sensitive (no data, no config
+    # beyond the commit SHA every collaborator already has in git log).
+    @app.route('/version')
+    def version():
+        commit = os.environ.get('RENDER_GIT_COMMIT', 'unknown')
+        return jsonify({
+            'commit': commit,
+            'commit_short': commit[:7] if commit != 'unknown' else 'unknown',
+            'deployed_at': app.config['BOOT_TIME'].isoformat() + 'Z',
+            'is_staging': app.config['IS_STAGING'],
+        })
 
     # ── Dashboard ──────────────────────────────────────────────────────────────
 
