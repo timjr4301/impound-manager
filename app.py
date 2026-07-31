@@ -758,6 +758,12 @@ def create_app():
     app.config['PERMANENT_SESSION_LIFETIME'] = timedelta(days=7)
     app.config['SESSION_COOKIE_NAME'] = 'bj_session'
 
+    # WP-4: unmissable banner on the staging deploy only. Defaults to False so
+    # a missing/misconfigured env var can never make production think it's
+    # staging — only an explicit IS_STAGING=true (set on the staging service
+    # only) turns this on.
+    app.config['IS_STAGING'] = os.environ.get('IS_STAGING', 'false').strip().lower() == 'true'
+
     app.config['COMPANY_NAME'] = os.environ.get('COMPANY_NAME', 'Broad & James Towing')
     app.config['COMPANY_ADDRESS'] = os.environ.get('COMPANY_ADDRESS', '3201 E Broad St, Columbus, OH 43213')
     app.config['COMPANY_PHONE'] = os.environ.get('COMPANY_PHONE', '(614) 235-4700')
