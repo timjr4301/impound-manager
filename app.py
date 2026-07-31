@@ -713,7 +713,11 @@ def build_top_nav(user):
         item('Disposition Pipeline', 'bi-kanban', 'tina.pipeline') if user.can_see_tina_dashboard else None,
         item('Title Eligibility', 'bi-file-earmark-arrow-up', 'tina.title_eligibility') if r in ('tim', 'tina', 'jim') else None,
         item('Letter Calendar', 'bi-calendar3', 'pipeline') if r == 'tina' else None,
-        item('Date Change Log', 'bi-clock-history', 'date_changes_report') if r in ('tim', 'tina', 'heather', 'jim') else None,
+        # WP-8: dropped 'heather' — it was the only reason her nav pulled in
+        # this whole extra section for one report she doesn't otherwise use.
+        # Route itself is untouched (narrows the nav, not the permission) —
+        # still reachable directly if she ever needs it.
+        item('Date Change Log', 'bi-clock-history', 'date_changes_report') if r in ('tim', 'tina', 'jim') else None,
     )
     if lt:
         sections.append(lt)
