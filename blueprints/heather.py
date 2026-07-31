@@ -1133,6 +1133,31 @@ def ups_lookup_attach():
     return redirect(url_for('heather.ups_lookup', reference=reference))
 
 
+def _compute_label_buckets(today):
+    """Every label printed in the last 90 days (UPS's void window), newest
+    first, plus the two "needs attention" sub-buckets: orphaned (superseded
+    letter, never scanned, not voided — auto-void targets) and stale (active
+    letter, never scanned 7+ days after printing — manual-void candidates;
+    the envelope may just be sitting in the outbox, so no auto-void).
+    Shared by the Letters page's Labels tab and the WP-9 UPS Postage view so
+    the two can never drift out of sync on what counts as what."""
+    label_cutoff = today - timedelta(days=90)
+    label_letters = (
+        CertifiedLetter.query
+        .filter(CertifiedLetter.tracking_number.isnot(None))
+        .filter(CertifiedLetter.sent_date.isnot(None))
+        .filter(CertifiedLetter.sent_date >= label_cutoff)
+        .order_by(CertifiedLetter.sent_date.desc())
+        .all()
+    )
+    orphaned_labels = [l for l in label_letters
+                       if l.superseded and not l.label_voided_at and l.label_never_scanned]
+    stale_labels = [l for l in label_letters
+                    if not l.superseded and not l.label_voided_at and l.label_never_scanned
+                    and l.sent_date and (today - l.sent_date).days >= 7]
+    return label_letters, orphaned_labels, stale_labels
+
+
 @bp.route('/letters')
 @_heather_view
 def letters():
@@ -1182,26 +1207,7 @@ def letters():
         .all()
     )
 
-    # Labels tab — every label printed in the last 90 days (UPS's void window),
-    # newest first. The template buckets them: orphaned (superseded letter,
-    # never scanned, not voided — auto-void targets), stale (active letter,
-    # never scanned 7+ days after printing — manual-void candidates; the
-    # envelope may just be sitting in the outbox, so no auto-void), voided,
-    # and normal in-flight/delivered.
-    label_cutoff = today - timedelta(days=90)
-    label_letters = (
-        CertifiedLetter.query
-        .filter(CertifiedLetter.tracking_number.isnot(None))
-        .filter(CertifiedLetter.sent_date.isnot(None))
-        .filter(CertifiedLetter.sent_date >= label_cutoff)
-        .order_by(CertifiedLetter.sent_date.desc())
-        .all()
-    )
-    orphaned_labels = [l for l in label_letters
-                       if l.superseded and not l.label_voided_at and l.label_never_scanned]
-    stale_labels = [l for l in label_letters
-                    if not l.superseded and not l.label_voided_at and l.label_never_scanned
-                    and l.sent_date and (today - l.sent_date).days >= 7]
+    label_letters, orphaned_labels, stale_labels = _compute_label_buckets(today)
 
     # Fully confirmed deliveries (last 30 days)
     confirmed = (
@@ -1241,6 +1247,38 @@ def letters():
         label_letters=label_letters,
         orphaned_labels=orphaned_labels,
         stale_labels=stale_labels,
+    )
+
+
+@bp.route('/ups-postage')
+@_heather_view
+def ups_postage():
+    """WP-9: 'what UPS postage is out right now?' on one screen — the same
+    label data the Letters page's Labels tab already had (that tab existed
+    but nobody knew it was there), narrowed to just what's still OUTSTANDING
+    (label created, not yet resolved). Delivered/voided/returned labels
+    already have a home — the Confirmed / Labels(history) / Returned tabs on
+    the Letters page — so they don't repeat here; this view is deliberately
+    just the "still needs eyes on it" subset, grouped by why it needs eyes.
+    """
+    today = date.today()
+    label_letters, orphaned_labels, stale_labels = _compute_label_buckets(today)
+
+    outstanding = [
+        l for l in label_letters
+        if not l.label_voided_at and not l.delivery_confirmed_date and not l.return_to_sender
+    ]
+    orphaned = [l for l in outstanding if l in orphaned_labels]
+    stale = [l for l in outstanding if l in stale_labels and l not in orphaned]
+    in_flight = [l for l in outstanding if l not in orphaned and l not in stale]
+
+    return render_template('heather/ups_postage.html',
+        today=today,
+        orphaned=orphaned,
+        stale=stale,
+        in_flight=in_flight,
+        outstanding_count=len(outstanding),
+        can_act=current_user.is_heather,
     )
 
 

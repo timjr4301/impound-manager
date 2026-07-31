@@ -1,0 +1,122 @@
+{% extends 'base.html' %}
+{% block title %}UPS Postage — Impound Manager{% endblock %}
+
+{% block content %}
+<div class="d-flex align-items-center mb-3 gap-3 flex-wrap">
+  <div>
+    <h2 class="h4 mb-0 fw-bold"><i class="bi bi-truck me-2"></i>UPS Postage</h2>
+    <small class="text-muted">Every label that's out and not yet resolved — {{ outstanding_count }} total.</small>
+  </div>
+  <div class="ms-auto d-flex gap-2 flex-wrap align-items-center">
+    <a href="{{ url_for('heather.letters') }}#tab-confirmed" class="btn btn-outline-secondary btn-sm">
+      Delivered / Returned history
+    </a>
+    <a href="{{ url_for('heather.dashboard') }}" class="btn btn-outline-secondary btn-sm">
+      <i class="bi bi-arrow-left me-1"></i> Back
+    </a>
+  </div>
+</div>
+
+<div class="alert alert-light border small mb-4">
+  <i class="bi bi-info-circle me-1"></i>
+  UPS bills a label only when the package is <strong>first scanned</strong> — printing costs nothing.
+  Labels that will never ship should still be <strong>voided</strong> (possible within ~90 days) so they
+  can't ever hit an invoice. Delivered, returned, and already-voided labels have their own history —
+  this page is just what's still open.
+</div>
+
+{% if outstanding_count == 0 %}
+<div class="card shadow-sm border-success">
+  <div class="card-body text-center py-5 text-success">
+    <i class="bi bi-check-circle-fill fs-1 d-block mb-2"></i>
+    <div class="fw-semibold">Nothing outstanding — every label from the last 90 days is delivered, returned, or voided.</div>
+  </div>
+</div>
+{% endif %}
+
+{% macro label_table(rows) %}
+<div class="card shadow-sm">
+  <div class="card-body p-0">
+    <table class="table table-sm table-hover mb-0">
+      <thead><tr>
+        <th>Vehicle</th><th>Letter</th><th>Printed</th><th>Tracking</th><th>UPS Status</th><th>Status</th>
+        {% if can_act %}<th></th>{% endif %}
+      </tr></thead>
+      <tbody>
+      {% for l in rows %}
+      <tr>
+        <td>
+          <a href="{{ url_for('vehicles_detail', vehicle_id=l.vehicle_id) }}" class="row-link small fw-semibold">
+            {{ l.vehicle.display_name }}
+          </a>
+        </td>
+        <td class="small">{{ l.label }}{% if l.superseded %} <span class="badge bg-secondary">replaced</span>{% endif %}</td>
+        <td class="small text-muted">{{ l.sent_date|mdY }}</td>
+        <td class="font-monospace small">
+          {{ l.tracking_number }}
+          {% if l.tracking_number_2 %}<br>{{ l.tracking_number_2 }} <span class="text-muted">(2nd)</span>{% endif %}
+        </td>
+        <td class="small text-muted">{{ l.ups_status or 'no scans reported' }}</td>
+        <td>
+          {% if l in orphaned %}
+            <span class="badge bg-danger">Orphaned — void it</span>
+          {% elif l in stale %}
+            <span class="badge bg-warning text-dark">Never scanned ({{ (today - l.sent_date).days }}d)</span>
+          {% else %}
+            <span class="badge bg-light text-dark border">In flight</span>
+          {% endif %}
+        </td>
+        {% if can_act %}
+        <td class="text-end">
+          {% if not l.label_voided_at and l.label_never_scanned %}
+          <form method="POST" action="{{ url_for('letters_void_label', letter_id=l.id) }}" class="d-inline"
+                onsubmit="return confirm('Void label {{ l.tracking_number }}? Only do this if the envelope will never ship.');">
+            <input type="hidden" name="which" value="primary">
+            <button type="submit" class="btn btn-sm btn-outline-danger py-0">Void</button>
+          </form>
+          {% endif %}
+          {% if l.tracking_number_2 and not l.label_voided_at_2 and l.superseded %}
+          <form method="POST" action="{{ url_for('letters_void_label', letter_id=l.id) }}" class="d-inline"
+                onsubmit="return confirm('Void 2nd-party label {{ l.tracking_number_2 }}?');">
+            <input type="hidden" name="which" value="2nd">
+            <button type="submit" class="btn btn-sm btn-outline-danger py-0">Void 2nd</button>
+          </form>
+          {% endif %}
+        </td>
+        {% endif %}
+      </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endmacro %}
+
+{% if orphaned %}
+<div class="d-flex align-items-center gap-2 mb-2 mt-2">
+  <h5 class="mb-0 text-danger"><i class="bi bi-x-octagon-fill me-1"></i>Orphaned — void these ({{ orphaned|length }})</h5>
+  {% if can_act %}
+  <form method="POST" action="{{ url_for('letters_void_orphaned_labels') }}"
+        onsubmit="return confirm('Void {{ orphaned|length }} orphaned label(s)? UPS will refuse any that actually shipped.');">
+    <button type="submit" class="btn btn-danger btn-sm">
+      <i class="bi bi-x-octagon me-1"></i> Void All Orphaned ({{ orphaned|length }})
+    </button>
+  </form>
+  {% endif %}
+</div>
+<div class="small text-muted mb-2">Labels on replaced letters (RTS restart / type correction) that never scanned — safe to void.</div>
+<div class="mb-4">{{ label_table(orphaned) }}</div>
+{% endif %}
+
+{% if stale %}
+<h5 class="text-warning-emphasis mt-2 mb-2"><i class="bi bi-exclamation-triangle-fill me-1"></i>Never Scanned, 7+ Days ({{ stale|length }})</h5>
+<div class="small text-muted mb-2">Might just be sitting in the outbox — judgment call before voiding.</div>
+<div class="mb-4">{{ label_table(stale) }}</div>
+{% endif %}
+
+{% if in_flight %}
+<h5 class="mt-2 mb-2"><i class="bi bi-truck me-1"></i>In Flight ({{ in_flight|length }})</h5>
+<div class="mb-4">{{ label_table(in_flight) }}</div>
+{% endif %}
+
+{% endblock %}

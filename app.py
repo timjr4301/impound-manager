@@ -703,6 +703,10 @@ def build_top_nav(user):
         item('Notices', 'bi-truck', 'heather.notices_search') if r == 'heather' else None,
         item('Envelopes', 'bi-envelope-open-fill', 'envelopes.index') if r in ('heather', 'tim', 'brady', 'jim') else None,
         item('UPS Lookup', 'bi-search', 'heather.ups_lookup') if user.is_heather else None,
+        # WP-9: Tim's explicit ask, twice on the call — "what postage is out
+        # right now?" on one screen. Same roles as Envelopes, since it's the
+        # same audience (Heather does the voiding, Tim/Brady/Jim want the view).
+        item('UPS Postage', 'bi-truck', 'heather.ups_postage') if r in ('heather', 'tim', 'brady', 'jim') else None,
     )
     if mw:
         sections.append(mw)
