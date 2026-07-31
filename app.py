@@ -2646,6 +2646,9 @@ def create_app():
             vehicle.updated_at = datetime.utcnow()
             db.session.commit()
             flash(f'Title filing recorded for {vehicle.display_name}.', 'success')
+            # WP-6 Session 2: the inline Task Pipeline modal submits here too.
+            if request.form.get('from_vehicle_card'):
+                return redirect(url_for('vehicles_detail', vehicle_id=vehicle.id))
             return redirect(url_for('dashboard'))
 
         return render_template('vehicles/file_title.html', vehicle=vehicle, today=date.today())
