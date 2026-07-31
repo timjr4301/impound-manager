@@ -27,15 +27,15 @@
   <strong>Build:</strong> Impound Manager remediation — defects · compliance clock · sandbox · UX rework<br>
   <strong>Design truth:</strong> <em>BUILD — Impound Manager Remediation — Spec — 2026-07-31.md</em> (repo root)<br>
   <strong>Sequence:</strong> WP-0 → WP-1 → WP-2a → <strong>CP-CLOCK (Tim)</strong> → WP-2b → WP-3 → WP-4 → WP-5 → WP-6 → WP-7 → WP-8 → WP-9 · ≈ 12 evenings<br>
-  <strong>Last updated:</strong> <strong>2026-07-31 — WP-0 and WP-1 executed (this session). Awaiting verdict on both. Next: CP1 review, then Launch Card #3 (WP-2a).</strong>
+  <strong>Last updated:</strong> <strong>2026-07-31 — WP-0, WP-1, WP-2a executed (this session). WP-2a's statute research surfaced a bigger question than the spec anticipated — see COMPLIANCE-TRUTH.md. Hard stop at CP-CLOCK: nothing further happens until Tim confirms.</strong>
 </div>
 
 <table>
   <tr><th>WP</th><th>Scope (one line)</th><th>CC session</th><th>Status</th><th>Session date</th><th>Done-means verified?</th><th>Note</th></tr>
   <tr><td>WP-0</td><td>Verify D1–D13 + inventory what already exists (read-only)</td><td>this session</td><td class="insession">in-session</td><td>2026-07-31</td><td>pending verdict</td><td>DEFECT-LEDGER.md + ALREADY-BUILT.md committed; MASTER_CONTEXT STALE pass found zero qualifying strikes (section already matches code — see commit note)</td></tr>
   <tr><td>WP-1</td><td>One-page letters · class editable · impound type inferred (insert-only) · hub tiles</td><td>this session</td><td class="insession">in-session</td><td>2026-07-31</td><td>yes — see STATUS LOG</td><td>D3/D13 fixed and tested end-to-end (throwaway SQLite, not prod); D12/D10 already worked, no change needed</td></tr>
-  <tr><td>WP-2a</td><td>COMPLIANCE-TRUTH.md — statute + all implementations side by side (read-only)</td><td>—</td><td class="pending">pending</td><td>—</td><td>—</td><td>Ends at CP-CLOCK</td></tr>
-  <tr class="gate"><td>CP-CLOCK</td><td><strong>Tim reads one page and types his confirmation of the clock + POLICE chain rules (6 questions, incl. POLICE 60-day floor + import auto-create — spec §5 WP-2a)</strong></td><td>n/a — Tim</td><td class="pending">pending</td><td>—</td><td>—</td><td>The one human decision in the build. Escalation if unsure: Ohio counsel / seminar docs</td></tr>
+  <tr><td>WP-2a</td><td>COMPLIANCE-TRUTH.md — statute + all implementations side by side (read-only)</td><td>this session</td><td class="insession">in-session</td><td>2026-07-31</td><td>doc produced; CP-CLOCK unresolved</td><td>⚠ Statute research suggests the PPI title-eligibility formula (and possibly POLICE's) may have no statutory basis as currently coded — flagged NEEDS COUNSEL, not resolved by this session</td></tr>
+  <tr class="gate"><td>CP-CLOCK</td><td><strong>Tim reads one page and types his confirmation of the clock + POLICE chain rules (6 questions, incl. POLICE 60-day floor + import auto-create — spec §5 WP-2a)</strong></td><td>n/a — Tim</td><td class="pending">pending</td><td>—</td><td>—</td><td>The one human decision in the build. Escalation if unsure: Ohio counsel / seminar docs — strongly recommended here, not just offered</td></tr>
   <tr><td>WP-2b</td><td>One rule → one function; repoint all readers; boot backfill; tests</td><td>—</td><td class="pending">pending</td><td>—</td><td>—</td><td>Blocked by CP-CLOCK</td></tr>
   <tr><td>WP-3</td><td>Pre-07/30 POLICE owner backfill (dry-run → --apply, audited)</td><td>—</td><td class="pending">pending</td><td>—</td><td>—</td><td>Compliance-live defect until done — don't let it slip</td></tr>
   <tr><td>WP-4</td><td>Staging service + scrubbed DB + STAGING banner + UAT checklist</td><td>—</td><td class="pending">pending</td><td>—</td><td>—</td><td>CP0 includes Render cost yes/no from Tim</td></tr>
