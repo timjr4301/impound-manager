@@ -2166,13 +2166,21 @@ def create_app():
     @app.route('/letters/<int:letter_id>/returned-to-sender', methods=['POST'])
     @login_required
     def letters_returned_to_sender(letter_id):
-        """Process a certified letter that came back Returned to Sender: record
-        the date the envelope arrived back (+ optional envelope image as
-        refund/compliance evidence), supersede the current round's owner
-        letters, and restart the process at a fresh Letter 1 — the next round.
-        The release gate, task engine, and Heather's queues all follow the new
-        round because superseded rows are excluded everywhere; the returned
-        letter stays on the row as history (returned_date + image)."""
+        """Process a certified letter that came back Returned to Sender. Staff
+        choose one of two outcomes — added per COMPLIANCE-TRUTH.md item 4's
+        follow-up, since a single always-restart action couldn't represent a
+        genuinely valid (non-restart) return, which meant the 60-day title
+        clock could never start off an undeliverable-for-a-valid-reason
+        letter:
+          - address_error: the address was bad/incomplete — supersede this
+            round and restart at a fresh Letter 1 (the original behavior).
+          - valid_return: the address was correct but still undeliverable
+            (refused, unclaimed, moved with no forwarding) — no restart;
+            this letter's return_to_sender/returned_date stand as the
+            compliance record, and Vehicle.title_eligible_date (PPI) reads
+            returned_date + 60 directly via delivery_or_undeliverable_date.
+        Either way: records the date the envelope arrived back (+ optional
+        envelope image as refund/compliance evidence)."""
         letter = db.get_or_404(CertifiedLetter, letter_id)
         vehicle = letter.vehicle
 
@@ -2185,6 +2193,11 @@ def create_app():
         if letter.recipient_type == 'lienholder':
             flash('Returned to Sender processing covers owner letters — handle a '
                   'returned lienholder notice manually for now.', 'danger')
+            return redirect(url_for('vehicles_detail', vehicle_id=vehicle.id) + '#letters')
+
+        outcome = request.form.get('outcome', '').strip()
+        if outcome not in ('address_error', 'valid_return'):
+            flash('Choose why the letter came back before saving.', 'danger')
             return redirect(url_for('vehicles_detail', vehicle_id=vehicle.id) + '#letters')
 
         returned_str = request.form.get('returned_date', '').strip()
@@ -2207,8 +2220,34 @@ def create_app():
 
         letter.return_to_sender = True
         letter.returned_date = returned_on
-        letter.superseded = True
         letter.updated_at = now
+
+        if outcome == 'valid_return':
+            # No restart — this letter stays the current round's Letter 1.
+            note = (f'{label} came back Returned to Sender — received '
+                    f'{returned_on.strftime("%m/%d/%Y")}, recorded by {actor}. '
+                    f'Address confirmed correct — treated as a valid delivery '
+                    f'attempt, no restart. Title-eligibility clock now runs from '
+                    f'this return date.')
+            if letter.returned_envelope_image_data:
+                note += ' Envelope image on file.'
+            if letter.tracking_number:
+                note += f' Tracking {letter.tracking_number} (certified-mail cost may be refundable).'
+            db.session.add(VehicleNote(vehicle_id=vehicle.id, body=note,
+                                       author=actor, created_at=now))
+            db.session.commit()
+
+            from task_engine import recalculate_vehicle
+            recalculate_vehicle(vehicle)
+            db.session.commit()
+
+            flash(f'{label} marked Returned to Sender — valid return, no restart. '
+                  f'Title-eligibility clock now runs from {returned_on.strftime("%m/%d/%Y")}.', 'warning')
+            return redirect(url_for('vehicles_detail', vehicle_id=vehicle.id) + '#letters')
+
+        # outcome == 'address_error' — supersede this round, restart at a
+        # fresh Letter 1, same behavior as before this choice existed.
+        letter.superseded = True
 
         # End the whole current owner round — any other active owner letters
         # (sent or unsent) were anchored to the failed service and are replaced
@@ -2220,10 +2259,10 @@ def create_app():
                 l.updated_at = now
 
         # Fresh round: new Letter 1, letter clock re-anchored to the returned
-        # date (same restart_date mechanics as Restart Letter Clock). As of
-        # WP-2, PPI's title_eligible_date reads THIS new letter's own
-        # delivery/RTS outcome (via Vehicle.letter1 -> the non-superseded
-        # row), so it re-anchors naturally rather than staying on impound_date.
+        # date (same restart_date mechanics as Restart Letter Clock). PPI's
+        # title_eligible_date reads THIS new letter's own delivery/RTS outcome
+        # (via Vehicle.letter1 -> the non-superseded row), so it re-anchors
+        # naturally rather than staying on the old letter's returned_date.
         days_offset = PPI_LETTER1_DAYS if vehicle.impound_type == 'PPI' else POLICE_LETTER1_DAYS
         new_l1 = CertifiedLetter(
             vehicle_id=vehicle.id,
@@ -2236,7 +2275,7 @@ def create_app():
         db.session.add(new_l1)
 
         vehicle.restart_date = returned_on
-        vehicle.restart_reason = (f'{label} returned to sender — received back '
+        vehicle.restart_reason = (f'{label} returned to sender (address error) — received back '
                                   f'{returned_on.strftime("%m/%d/%Y")}')
         vehicle.restart_set_by = actor
         vehicle.restart_set_at = now
@@ -2247,7 +2286,7 @@ def create_app():
 
         round_no = vehicle.letter_round
         note = (f'{label} came back Returned to Sender — received '
-                f'{returned_on.strftime("%m/%d/%Y")}, recorded by {actor}.')
+                f'{returned_on.strftime("%m/%d/%Y")}, recorded by {actor}. Address error.')
         if letter.returned_envelope_image_data:
             note += ' Envelope image on file.'
         if letter.tracking_number:

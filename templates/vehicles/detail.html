@@ -1138,20 +1138,41 @@ function showGeneralDocImage(btn) {
                     <input type="date" name="returned_date" class="form-control" value="{{ today.isoformat() }}" required>
                   </div>
                   <div class="mb-3">
+                    <label class="form-label d-block">Why did it come back?</label>
+                    <div class="form-check">
+                      <input class="form-check-input" type="radio" name="outcome" id="rtsAddress{{ l.id }}"
+                             value="address_error" onchange="document.getElementById('rtsAddressNote{{ l.id }}').classList.remove('d-none'); document.getElementById('rtsValidNote{{ l.id }}').classList.add('d-none');" required>
+                      <label class="form-check-label" for="rtsAddress{{ l.id }}">
+                        The address was wrong or incomplete — we have a better one to try
+                      </label>
+                    </div>
+                    <div class="form-check">
+                      <input class="form-check-input" type="radio" name="outcome" id="rtsValid{{ l.id }}"
+                             value="valid_return" onchange="document.getElementById('rtsValidNote{{ l.id }}').classList.remove('d-none'); document.getElementById('rtsAddressNote{{ l.id }}').classList.add('d-none');" required>
+                      <label class="form-check-label" for="rtsValid{{ l.id }}">
+                        The address was correct — refused, unclaimed, or moved with no forwarding
+                      </label>
+                    </div>
+                  </div>
+                  <div class="mb-3">
                     <label class="form-label">Envelope photo <span class="text-muted">(optional — kept as evidence for a postage refund claim and the compliance file)</span></label>
                     <input type="file" name="envelope_image" class="form-control" accept="image/*,application/pdf">
                   </div>
-                  <div class="alert alert-warning small mb-0">
+                  <div id="rtsAddressNote{{ l.id }}" class="alert alert-warning small mb-0 d-none">
                     This <strong>restarts the letter process</strong>: the current round's letters end here
                     (kept as history under Returned Letters) and a fresh
                     <strong>Letter 1 — Round {{ vehicle.letter_round + 1 }}</strong> is created with a new
                     due date anchored to the returned date. Letter 2 will follow once the new Letter 1
                     is sent, same as always.
                   </div>
+                  <div id="rtsValidNote{{ l.id }}" class="alert alert-info small mb-0 d-none">
+                    This is treated as a valid delivery attempt — <strong>no restart</strong>. The 60-day
+                    title-eligibility clock starts from the returned date you entered above.
+                  </div>
                 </div>
                 <div class="modal-footer">
                   <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
-                  <button type="submit" class="btn btn-danger">Mark Returned &amp; Restart Letters</button>
+                  <button type="submit" class="btn btn-danger">Save</button>
                 </div>
               </form>
             </div>

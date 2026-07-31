@@ -1112,14 +1112,18 @@ class CertifiedLetter(db.Model):
     def delivery_or_undeliverable_date(self):
         """The date this letter counts as 'received, or confirmed undeliverable'
         for compliance-clock purposes (ORC 4505.101(B)(3)'s language) — a real
-        UPS delivery scan wins; a confirmed return-to-sender is the fallback,
-        estimated 3 days after send (UPS doesn't report an RTS-received date on
-        this row, only the boolean). None means the outcome isn't known yet.
-        This is the same delivery-or-RTS logic task_engine used pre-2026-07-29
-        for Task 3 timing (removed there when that clock became sent-anchored);
+        UPS delivery scan wins; a staff-recorded returned_date is next (set by
+        the Returned to Sender action, an actual date rather than a guess);
+        a bare return_to_sender flag with no date (e.g. from the UPS auto-poll,
+        before staff process it) falls back to an estimate of 3 days after
+        send. None means the outcome isn't known yet. The delivery-or-RTS
+        logic itself is the same one task_engine used pre-2026-07-29 for Task
+        3 timing (removed there when that clock became sent-anchored);
         title_eligible_date below is a different clock and reuses it here."""
         if self.delivery_confirmed_date:
             return self.delivery_confirmed_date
+        if self.returned_date:
+            return self.returned_date
         if self.return_to_sender and self.sent_date:
             return self.sent_date + timedelta(days=3)
         return None
