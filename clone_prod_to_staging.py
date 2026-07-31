@@ -8,6 +8,20 @@ Written as a plain SQLAlchemy script rather than relying on pg_dump/psql,
 which aren't installed on this machine — this only needs the psycopg2
 driver the app already depends on.
 
+RESILIENCE: a real run against production found two things that mattered —
+production holds tables/columns that don't belong to Impound Manager
+(another app sharing the same database) and don't fit the current schema
+(pre-rename leftovers), AND some tables (envelope_scans especially) carry
+multi-hundred-KB base64 images that can make a single giant INSERT trip
+over an unstable connection. So: rows are sent in small chunks, each chunk
+commits in its own transaction (earlier chunks/tables survive even if a
+later one fails), a connection-level failure (SSL drop, network blip) gets
+a fresh connection and a retry rather than being treated as bad data, and
+only a genuine per-row data problem (bad value, dangling FK) gets reported
+and skipped. If the whole script is interrupted, it's always safe to just
+re-run it from the top — truncation makes every run start from a clean
+slate, there's no partial state to reconcile by hand.
+
 SAFETY: takes both connection strings as required, explicit arguments —
 nothing is read from DATABASE_URL or any other ambient env var, so there's
 no way for it to silently pick up the wrong database. Source is opened
@@ -29,6 +43,39 @@ import argparse
 import sys
 
 from sqlalchemy import create_engine, MetaData, insert, delete
+from sqlalchemy.exc import OperationalError, InterfaceError
+
+CHUNK_SIZE = 20
+MAX_RETRIES = 3
+
+
+def is_connection_error(exc):
+    """True for a dead/dropped connection (SSL closed, network blip) —
+    worth retrying with a fresh connection. False for a real data problem
+    (bad value, constraint violation) — worth reporting and skipping, not
+    retrying, since retrying won't change a data-shape mismatch."""
+    return isinstance(exc, (OperationalError, InterfaceError))
+
+
+def insert_with_retry(dst_engine, table, params):
+    """Insert `params` (a list of one or more row dicts) in its own fresh
+    connection + transaction. Retries with a brand-new connection on a
+    connection-level failure; re-raises immediately on a data-level failure
+    so the caller can fall back to smaller units instead of retrying
+    something that will just fail the same way again."""
+    last_exc = None
+    for attempt in range(1, MAX_RETRIES + 1):
+        try:
+            with dst_engine.connect() as conn:
+                with conn.begin():
+                    conn.execute(insert(table), params)
+            return
+        except Exception as exc:
+            if is_connection_error(exc) and attempt < MAX_RETRIES:
+                last_exc = exc
+                continue
+            raise
+    raise last_exc
 
 
 def main():
@@ -76,56 +123,54 @@ def main():
     meta.reflect(bind=src_engine, only=lambda name, _: name in dst_names)
     tables = meta.sorted_tables  # dependency order: parents before children
 
+    # Truncation is its own single pass, all committed before any inserts
+    # start — children first (reverse order) so FKs never block a delete.
     with dst_engine.begin() as dst_conn:
-        # Truncate children first (reverse dependency order) so FKs never block.
         for table in reversed(tables):
             dst_conn.execute(delete(table))
-        print(f'Truncated {len(tables)} table(s) in staging.')
+    print(f'Truncated {len(tables)} table(s) in staging.')
 
-        with src_engine.connect() as src_conn:
-            for table in tables:
-                rows = src_conn.execute(table.select()).mappings().all()
-                if not rows:
-                    print(f'  {table.name}: 0 rows')
-                    continue
-                # Same idea as the table-level skip: production can carry
-                # columns (e.g. police_departments.hook_fee/storage_fee)
-                # left over from an earlier build that current models.py no
-                # longer defines. Only load columns the destination actually
-                # has; drop anything else, once, with a note.
-                dst_cols = set(dst_meta.tables[table.name].columns.keys())
-                extra_cols = set(rows[0].keys()) - dst_cols
-                if extra_cols:
-                    print(f'  {table.name}: dropping column(s) not in current schema: '
-                          f'{", ".join(sorted(extra_cols))}')
-                filtered = [{k: v for k, v in dict(r).items() if k in dst_cols} for r in rows]
+    with src_engine.connect() as src_conn:
+        for table in tables:
+            rows = src_conn.execute(table.select()).mappings().all()
+            if not rows:
+                print(f'  {table.name}: 0 rows')
+                continue
+            # Same idea as the table-level skip: production can carry
+            # columns (e.g. police_departments.hook_fee/storage_fee) left
+            # over from an earlier build that current models.py no longer
+            # defines. Only load columns the destination actually has;
+            # drop anything else, once, with a note.
+            dst_cols = set(dst_meta.tables[table.name].columns.keys())
+            extra_cols = set(rows[0].keys()) - dst_cols
+            if extra_cols:
+                print(f'  {table.name}: dropping column(s) not in current schema: '
+                      f'{", ".join(sorted(extra_cols))}')
+            filtered = [{k: v for k, v in dict(r).items() if k in dst_cols} for r in rows]
 
-                # Try the whole table in one batch first (fast path). If a
-                # value doesn't fit the destination's current column type
-                # (e.g. production data that predates a stricter/narrower
-                # column definition), fall back to one row at a time inside
-                # its own savepoint, so a single bad row is reported and
-                # skipped instead of blocking every other row in the table.
-                savepoint = dst_conn.begin_nested()
+            copied, failed = 0, []
+            for i in range(0, len(filtered), CHUNK_SIZE):
+                chunk = filtered[i:i + CHUNK_SIZE]
                 try:
-                    dst_conn.execute(insert(table), filtered)
-                    savepoint.commit()
-                    print(f'  {table.name}: {len(rows)} row(s) copied')
+                    insert_with_retry(dst_engine, table, chunk)
+                    copied += len(chunk)
                 except Exception:
-                    savepoint.rollback()
-                    copied, failed = 0, []
-                    for row in filtered:
-                        row_sp = dst_conn.begin_nested()
+                    # Something in this chunk won't go in as a batch — drop
+                    # to one row at a time so only the actual bad row(s) in
+                    # it are reported, not the whole chunk.
+                    for row in chunk:
                         try:
-                            dst_conn.execute(insert(table), [row])
-                            row_sp.commit()
+                            insert_with_retry(dst_engine, table, [row])
                             copied += 1
                         except Exception as row_exc:
-                            row_sp.rollback()
                             failed.append((row.get('id', '?'), str(row_exc).splitlines()[0]))
-                    print(f'  {table.name}: {copied} row(s) copied, {len(failed)} row(s) FAILED and skipped')
-                    for pk, err in failed:
-                        print(f'    id={pk}: {err}')
+
+            if failed:
+                print(f'  {table.name}: {copied} row(s) copied, {len(failed)} row(s) FAILED and skipped')
+                for pk, err in failed:
+                    print(f'    id={pk}: {err}')
+            else:
+                print(f'  {table.name}: {copied} row(s) copied')
 
     print('\nDone. Now run, against the STAGING database only:')
     print('    python3 scrub_for_staging.py --confirm-staging')
