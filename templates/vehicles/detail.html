@@ -1069,13 +1069,31 @@ function showGeneralDocImage(btn) {
     {% set envelope_scan_img = vehicle.latest_envelope_scan_with_image %}
     {% if envelope_scan_img %}
     <div class="card shadow-sm mb-4">
-      <div class="card-header fw-semibold">
-        <i class="bi bi-envelope-open me-1"></i> Scanned Return Envelope — {{ envelope_scan_img.scan_date.strftime('%m/%d/%Y') if envelope_scan_img.scan_date else '' }}
+      <div class="card-header fw-semibold d-flex align-items-center justify-content-between">
+        <span><i class="bi bi-envelope-open me-1"></i> Scanned Return Envelope — {{ envelope_scan_img.scan_date.strftime('%m/%d/%Y') if envelope_scan_img.scan_date else '' }}</span>
+        {% if envelope_scan_img.outcome == 'DELIVERED' %}<span class="badge bg-success">Delivered</span>
+        {% elif envelope_scan_img.outcome == 'ADDRESS_ISSUE' %}<span class="badge bg-danger">Address Issue</span>
+        {% elif envelope_scan_img.outcome == 'SERVICE_DISRUPTED' %}<span class="badge bg-secondary">Service Disrupted</span>
+        {% elif envelope_scan_img.outcome %}<span class="badge bg-light text-dark border">Unknown</span>{% endif %}
       </div>
       <div class="card-body">
-        <img src="{{ envelope_scan_img.image_data }}" alt="Scanned return envelope"
-             style="width:140px;height:140px;object-fit:cover;border-radius:6px;border:1px solid #dee2e6;cursor:pointer;"
-             data-bs-toggle="modal" data-bs-target="#envelopeImageModal">
+        <div class="d-flex gap-3 flex-wrap">
+          <img src="{{ envelope_scan_img.image_data }}" alt="Scanned return envelope"
+               style="width:140px;height:140px;object-fit:cover;border-radius:6px;border:1px solid #dee2e6;cursor:pointer;flex-shrink:0;"
+               data-bs-toggle="modal" data-bs-target="#envelopeImageModal">
+          {# Reason for return + the address on file — so Heather has what she
+             needs to decide the Returned to Sender outcome (address error vs.
+             valid return) without leaving this page. #}
+          <div class="small">
+            {% if envelope_scan_img.ai_read_summary %}
+            <div class="text-muted">{{ envelope_scan_img.ai_read_summary }}</div>
+            {% endif %}
+            <div class="mt-2"><strong>Address on file:</strong><br>
+              {{ vehicle.owner_address or '—' }}<br>
+              {{ [vehicle.owner_city, vehicle.owner_state, vehicle.owner_zip] | select | join(' ') or '—' }}
+            </div>
+          </div>
+        </div>
       </div>
     </div>
     <div class="modal fade" id="envelopeImageModal" tabindex="-1">

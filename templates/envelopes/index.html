@@ -33,7 +33,7 @@
     <div class="table-responsive">
       <table class="table table-sm align-middle">
         <thead class="table-light">
-          <tr><th>Vehicle</th><th>Outcome</th><th>Date Scanned</th><th>Image</th><th></th></tr>
+          <tr><th>Vehicle</th><th>Outcome</th><th>Reason / Address on File</th><th>Date Scanned</th><th>Image</th><th></th></tr>
         </thead>
         <tbody>
         {% for scan in matched %}
@@ -47,6 +47,11 @@
             {% elif scan.outcome == 'ADDRESS_ISSUE' %}<span class="badge bg-danger">Address Issue</span>
             {% elif scan.outcome == 'SERVICE_DISRUPTED' %}<span class="badge bg-secondary">Service Disrupted</span>
             {% else %}<span class="badge bg-light text-dark border">Unknown</span>{% endif %}
+          </td>
+          <td class="small">
+            {% if scan.ai_read_summary %}<div class="text-muted">{{ scan.ai_read_summary }}</div>{% endif %}
+            <div>{{ scan.vehicle.owner_address or '—' }}
+              {{ [scan.vehicle.owner_city, scan.vehicle.owner_state, scan.vehicle.owner_zip] | select | join(' ') }}</div>
           </td>
           <td class="small">{{ scan.scan_date.strftime('%m/%d/%Y') if scan.scan_date else '—' }}</td>
           <td>
