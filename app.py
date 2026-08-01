@@ -745,6 +745,8 @@ def build_top_nav(user):
         item('Find Trucks (VIN scan)', 'bi-truck', 'admin.reclassify') if r in ('tim', 'jim') else None,
         item('Admin / Users', 'bi-gear', 'admin.users') if r in ('tim', 'jim') else None,
         item('PD Rates', 'bi-shield-lock', 'admin.departments') if r in ('tim', 'jim') else None,
+        item('Training Data Reset', 'bi-arrow-counterclockwise', 'admin.training_reset')
+            if r in ('tim', 'jim') and os.environ.get('IS_STAGING', 'false').strip().lower() == 'true' else None,
     )
     if mg:
         sections.append(mg)

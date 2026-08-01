@@ -1,6 +1,7 @@
 """
 Admin blueprint — user management (Tim/Jim only).
 """
+import os
 from datetime import datetime
 
 from flask import Blueprint, render_template, request, redirect, url_for, flash, jsonify
@@ -363,3 +364,35 @@ def reclassify_apply():
         'errors': errors,
         'redirect': url_for('admin.reclassify'),
     })
+
+
+def _is_staging():
+    return os.environ.get('IS_STAGING', 'false').strip().lower() == 'true'
+
+
+@bp.route('/training-reset')
+@_tim_only_required
+def training_reset():
+    """One-click reset of the TRAIN-01..10 training baseline back to its
+    original 10-chapter story — staging only, so a stray click can never
+    touch anything on production."""
+    if not _is_staging():
+        flash('Training reset is only available on staging.', 'danger')
+        return redirect(url_for('dashboard'))
+    return render_template('admin/training_reset.html')
+
+
+@bp.route('/training-reset/run', methods=['POST'])
+@_tim_only_required
+def training_reset_run():
+    if not _is_staging():
+        flash('Training reset is only available on staging.', 'danger')
+        return redirect(url_for('dashboard'))
+    import seed_training_baseline
+    try:
+        seed_training_baseline.run()
+        flash('Training data reset — TRAIN-01 through TRAIN-10 are back to their original story.', 'success')
+    except Exception as exc:
+        db.session.rollback()
+        flash(f'Reset failed: {exc}', 'danger')
+    return redirect(url_for('admin.training_reset'))

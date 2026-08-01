@@ -1,0 +1,32 @@
+{% extends "base.html" %}
+{% block title %}Training Data Reset – Impound Manager{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-3">
+  <div>
+    <h4 class="mb-0 fw-bold"><i class="bi bi-arrow-counterclockwise me-2"></i>Training Data Reset</h4>
+    <small class="text-muted">Staging only — puts the 10-vehicle training story back to square one</small>
+  </div>
+</div>
+
+<div class="card shadow-sm">
+  <div class="card-body">
+    <p>
+      This resets <strong>TRAIN-01 through TRAIN-10</strong> — the 10 practice vehicles used in the
+      training video — back to their original chapters (new intake, letter sent, awaiting title,
+      auction ready, released, etc.). Anything you clicked through during a practice run
+      (BMV Done, Mark Sent, fake tracking numbers, Confirm Delivery) gets wiped and rebuilt fresh.
+    </p>
+    <p class="text-muted small mb-4">
+      It never touches anything else — real vehicles, the Marvel/DC intake practice set, or
+      anything outside the TRAIN-01–10 story stay exactly as they are.
+    </p>
+    <form method="POST" action="{{ url_for('admin.training_reset_run') }}"
+          onsubmit="return confirm('Reset TRAIN-01 through TRAIN-10 back to the start? This wipes any practice clicks on those 10 vehicles.');">
+      <button type="submit" class="btn btn-primary btn-lg">
+        <i class="bi bi-arrow-counterclockwise me-1"></i>Reset Training Data
+      </button>
+    </form>
+  </div>
+</div>
+{% endblock %}
