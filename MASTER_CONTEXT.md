@@ -1,5 +1,15 @@
 # [IMPOUND MANAGER — MASTER CONTEXT DOC]
-_Last updated: July 30, 2026 (evening) — daily-workflow batch, PRs #14 + #18–#21 all merged + deployed same day: possible-release auto-clear on reappearance (CSV + API paths), BMV ↗ quick-link, Today task view, police-letter blank-owner fix (structured owner fields in BMV Done), photo multi-file/ZIP upload, LKA/Title PDF auto-read on vehicle-page upload, Date Change Log report + restart-crash fix. Towbook API access: spec sent to Gabe, awaiting decision. Earlier same day: sent+30 remnant cleanup (PR #13). Parked: image backup (waiting on IT), relo-trans categorization. Open: verify fresh Towbook-synced car → 1st-letter queue handoff; owner-info backfill for pre-07/30 POLICE vehicles._
+_Last updated: August 1, 2026 — training-video tooling session (separate track from the July 31 WP-0..9
+remediation project — see that project's own `Impound Manager Remediation — Tracker.html`, not duplicated
+here). Built the 10-vehicle training baseline (`seed_training_baseline.py`) + a Marvel/DC intake-practice
+kit (`marvel_impound_test_kit/`), plus a staging-only one-click Training Data Reset admin page. Dogfooding
+that content surfaced and fixed two real production gaps: Daily Intake's BMV-document batch had no finish
+summary, and a Towbook CSV import never showed which vehicles were actually new. Both shipped to
+**production** same day (cherry-picked in isolation — see "Two-branch deploy model" below). Confirmed the
+old "Claude Code push 403s" limitation is gone — pushes now work directly from this environment on both
+branches. See "NEW — August 1, 2026" below for full detail._
+
+_Previous entry: July 30, 2026 (evening) — daily-workflow batch, PRs #14 + #18–#21 all merged + deployed same day: possible-release auto-clear on reappearance (CSV + API paths), BMV ↗ quick-link, Today task view, police-letter blank-owner fix (structured owner fields in BMV Done), photo multi-file/ZIP upload, LKA/Title PDF auto-read on vehicle-page upload, Date Change Log report + restart-crash fix. Towbook API access: spec sent to Gabe, awaiting decision. Earlier same day: sent+30 remnant cleanup (PR #13). Parked: image backup (waiting on IT), relo-trans categorization. Open: verify fresh Towbook-synced car → 1st-letter queue handoff; owner-info backfill for pre-07/30 POLICE vehicles._
 
 > ⚠ **CURRENT COMPLIANCE RULE (corrected 2026-07-29):** the 2nd notice letter is due **30 days after Letter 1 is SENT**, NOT after delivery. This reverses the earlier delivery-anchored design (de71135, commit f3cca7d fixes it). Some build entries below still describe the old delivery-anchored behavior — that's history; the sent-anchored rule under "KEY OHIO COMPLIANCE RULES" is what's live. **Do not revert to delivery-anchoring.**
 
@@ -86,6 +96,61 @@ An audit against the codebase found most of the old BUILD QUEUE was already ship
 **Stored-data backfill (boot migration in `run_migrations`)** — PPI `letter_number=2` rows created before commit f3cca7d, or imported verbatim from Towbook's "SECOND LETTER Due Date" column by `towbook_letter_backfill.py`, could carry a stored `due_date` disagreeing with the corrected rule (live example: vehicle 5354 / stock 28559544 — Letter 1 sent 06/11, stored due 07/10 vs computed 07/11, so Heather's dashboard and the detail page/audit disagreed by a day). The backfill sets `due_date = letter1.sent_date + 30` on non-superseded PPI letter-2 rows whose Letter 1 is sent, only when it differs; idempotent; logs `[letter2_backfill] … N row(s) changed` on boot. **POLICE chains need no equivalent:** their 2nd notices (letter_number 4/6) are only created by `letter_triggers.py`, whose formula has always been trigger `sent_date + 30`; anomalous POLICE letter-2 rows (Towbook import — POLICE's real 2nd owner notice is letter_number 4) are deliberately left untouched.
 
 **Last delivery-anchored logic/wording swept out** — the vehicle-detail **Task 3 card was still computing `task3_open` off `delivery_confirmed_date + 10`** (pre-de71135 remnant) with an "Awaiting delivery confirmation" wait state; now `l1.sent_date + 30` with subtitle "(30d after Letter 1 sent)". Stale comments fixed in `app.py` (`_finalize_letter_sent`, mark-sent gate), `task_engine.py` module docstring, `models.py` (`task_2_letter_completed_at`); removed the now-unused `task_engine.letter_delivery_date` helper; corrected letter-workflow-guide test item 6 (UPS Refresh: delivery sets POD only, due date does NOT shift). Delivery tracking itself (POD records, Awaiting Delivery tabs, auto-poll) is untouched — delivery just never gates or times Letter 2. Verified locally end-to-end: backfill scope (PPI-only, superseded/POLICE untouched), all readers agree on 07/11 for the 5354 replica, detail page renders sent-anchored and ignores early delivery.
+
+### ✅ NEW — August 1, 2026 (training-video tooling + 2 production fixes found via dogfooding)
+
+**Video 1 training baseline — `seed_training_baseline.py` (repo root).** Idempotent seed of 10 vehicles
+(`stock_number` `TRAIN-01`..`TRAIN-10`), each frozen at a different chapter of one clean, optimal-path
+story (new intake → BMV search → Letter 1 → 30-day wait → Letter 2 → Tina's sell/junk tracks → pending
+pickup → released) — deliberately zero anomalies, so it teaches "what right looks like" first. Safe to
+re-run any time (only ever touches `TRAIN-%` rows). Companion one-click **Training Data Reset** page at
+`/admin/training-reset` (`blueprints/admin.py`, Tim/Jim-only) — hard-gated on `IS_STAGING` so it cannot
+appear or run on production, no matter what.
+
+**Video 2 practice kit — `marvel_impound_test_kit/`.** A second, separate set of 10 fictional vehicles
+(`MV-2026-101`..`110`, Marvel/DC-themed — Stark, Rogers, Romanoff, Odinson, Banner, T'Challa, Danvers,
+Kent, Prince, Wayne), deliberately independent of TRAIN-01..10 so this exercise never disturbs video 1.
+Generator script `build_kit.py` in that folder produces 5 progressive daily Towbook CSV exports (2 new
+vehicles/day, cumulative full-lot snapshot, realistic day-over-day balance growth — tested end-to-end
+against the real `_do_import()` route) and 10 sample LKA/Title-Abstract BMV PDFs, deliberately mixed
+(clean pairs, one pair with a deliberate name/address mismatch to demo the discrepancy-flag UX, several
+single "still waiting on the other document" vehicles, a few with nothing uploaded yet).
+
+**Two real defects found and fixed while building the above (both now live on PRODUCTION):**
+1. **Daily Intake BMV Documents batch had no finish confirmation** (`templates/heather/daily_intake.html`)
+   — after dropping in a stack of LKA/Title PDFs, results just appended as a growing row list with nothing
+   tallying them up. Added a summary banner ("Done — N processed, X still waiting on the other document,
+   Y no match...") at the top once a batch finishes.
+2. **Towbook CSV import never showed which vehicles were new** (`towbook_import.py` + same template) —
+   only ever returned a bare "N new, M updated" count. Now returns a `new_vehicles` list (id/stock/plate/
+   year/make/model/impound_type) and the Daily Intake page renders it as a clickable list straight into
+   each new vehicle, so Heather doesn't have to separately go check the BMV Search Queue to see what
+   actually needs her.
+
+**⚠ Confirmed: `git push` from Claude Code's environment now works directly** — the long-standing "403,
+must push from Tim's own machine" limitation (2026-07-26 note) no longer applies. Don't re-litigate this
+each session; just push.
+
+**⚠ Two-branch deploy model, read before pushing anything:** `origin staging` deploys to
+`impound-manager-staging` (srv-d9m7oorm8hqs73a491d0); `origin main` deploys to production
+(srv-d909ske8bjmc7391ikig). Pushing local `main` wholesale to `origin main` would ship *everything* sitting
+on local main, including work only meant for staging. For production, isolate exactly the reviewed commits
+(cherry-pick onto a throwaway branch built off `origin/main`, confirm the diff-stat touches only the
+intended files, push that branch to `main`) rather than pushing local main directly. Verify any deploy via
+the no-login `/version` endpoint (`commit`, `commit_short`, `deployed_at`, `is_staging`) on the right host.
+
+**Staging has a real safety mechanism worth knowing about: `IS_STAGING` env var** (set `true` only on the
+staging service). Gates: (1) `ups_api.create_label()`/`void_shipment()` — fabricates a `1ZFAKE`-prefixed
+tracking number and placeholder label instead of ever calling the real (production, billed) UPS Ship API;
+(2) the Training Data Reset admin route above. Never weaken this gate.
+
+**Separate, NOT-done-here project exists in parallel: the WP-0..9 "Remediation" effort** (started
+2026-07-31, its own doc set — `BUILD — Impound Manager Remediation — Spec — 2026-07-31.md`,
+`DEFECT-LEDGER.md`, `COMPLIANCE-TRUTH.md`, `Impound Manager Remediation — Tracker.html` is the
+authoritative status table for that project, more current than this doc on that topic). Per that tracker
+as of today: all 9 work packages are code-complete and verified; WP-0–WP-5 (+ item 3) are already on
+production; **WP-6–WP-9 are staging-only, explicitly waiting on Tim's own UAT pass before promotion** —
+next session's stated priority. Items 5 and 6 remain deliberately OPEN/gated pending Tim's confirmation.
 
 ### ✅ NEW — July 30, 2026 PM (daily-workflow batch — PRs #14, #18–#21, all merged + deployed same day)
 
@@ -176,6 +241,10 @@ Awaiting Title → To Locate → Key Row → Inspection Pool → Needs Repairs
 - ✅ Top-nav 4-section overhaul — DONE (PR #1).
 
 ### ⬜ Open / not started (next-session queue)
+- ⬜ **PRIORITY — WP-6 through WP-9 UAT + promote to production.** Code-complete and tested on staging
+  (see "August 1" entry above and `Impound Manager Remediation — Tracker.html`). Tim wants to test these
+  himself on staging first, then promote to production — this is the explicit next-session goal, ahead of
+  continuing the training-video work.
 - ⬜ **Design / UX pass** — make the app more user-friendly. Not yet started; needs Tim's pick of where to begin (the vehicle ticket / the dashboards / a whole-app consistency polish / the mobile+large-text screens) and what "user-friendly" means to him (declutter / bigger text / consistency / fewer clicks).
 - ⬜ **Black Book URL** — the valuation button points at the marketing site; swap in the exact B&J subscriber-portal login URL when Tim provides it.
 - ⬜ **VinAudit (Build 14)** — blocked on `VINAUDIT_API_KEY` in Render; build the auto-lookup once the key is set.
