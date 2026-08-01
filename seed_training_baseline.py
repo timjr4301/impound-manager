@@ -19,7 +19,7 @@ point in time no matter when you run it.
 from datetime import date, datetime, timedelta
 
 from app import app
-from models import db, Vehicle, CertifiedLetter, VehicleCharge
+from models import db, Vehicle, CertifiedLetter, VehicleCharge, TitleFiling
 
 STOCK_PREFIX = 'TRAIN-'
 TODAY = date.today()
@@ -165,12 +165,14 @@ VEHICLES = [
         'heather_complete_date': d(109),
         'lka_document_confirmed': True, 'title_search_confirmed': True,
         'ups_delivery_confirmed': True, 'return_receipt_filed': True,
+        'status': 'TITLE_FILED',
         'disposition': 'SELL', 'disposition_set_date': d(70),
         'tina_stage': 'AUCTION_READY', 'tina_stage_at': datetime.utcnow() - timedelta(days=10),
         'inspection_done': True, 'inspection_diagnosis': 'AUCTION',
         'inspected_by': 'tina', 'inspected_at': datetime.utcnow() - timedelta(days=12),
         'key_location': 'TINA', 'key_location_by': 'tina',
         'key_location_at': datetime.utcnow() - timedelta(days=12),
+        'title_filing': {'filed_date': d(65), 'bmv_receipt_number': 'BMV-2026-00789', 'status': 'FILED'},
         'letters': [
             {'letter_number': 1, 'due_date': d(110) + timedelta(days=5), 'sent_date': d(105),
              'letter_kind': 'first_notice', 'tracking_number': '1Z999AA10000000007',
@@ -198,10 +200,12 @@ VEHICLES = [
         'heather_complete_date': d(99),
         'lka_document_confirmed': True, 'title_search_confirmed': True,
         'ups_delivery_confirmed': True, 'return_receipt_filed': True,
+        'status': 'TITLE_FILED',
         'disposition': 'JUNK', 'disposition_set_date': d(60),
         'tina_stage': 'JUNK_PENDING', 'tina_stage_at': datetime.utcnow() - timedelta(days=5),
         'inspection_done': True, 'inspection_diagnosis': 'JUNK',
         'inspected_by': 'tina', 'inspected_at': datetime.utcnow() - timedelta(days=6),
+        'title_filing': {'filed_date': d(55), 'bmv_receipt_number': 'BMV-2026-00654', 'status': 'FILED'},
         'letters': [
             {'letter_number': 1, 'due_date': d(100) + timedelta(days=5), 'sent_date': d(95),
              'letter_kind': 'first_notice', 'tracking_number': '1Z999AA10000000008',
@@ -271,6 +275,7 @@ def run():
             entry = dict(entry)
             letters = entry.pop('letters', [])
             charges = entry.pop('charges', [])
+            title_filing = entry.pop('title_filing', None)
             entry.setdefault('status', 'ACTIVE')
 
             vehicle = Vehicle(
@@ -294,6 +299,12 @@ def run():
                     added_by='seed_training_baseline',
                     added_at=datetime.utcnow(),
                     **cd,
+                ))
+            if title_filing:
+                db.session.add(TitleFiling(
+                    vehicle_id=vehicle.id,
+                    created_at=datetime.utcnow(),
+                    **title_filing,
                 ))
             print(f'created: {vehicle.stock_number} - {vehicle.year} {vehicle.make} {vehicle.model_name}')
 
