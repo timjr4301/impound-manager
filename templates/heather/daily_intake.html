@@ -142,6 +142,7 @@ function escapeHtml(s) {
   const input = document.getElementById('bmvFileInput');
   const progress = document.getElementById('bmvProgress');
   const results = document.getElementById('bmvResults');
+  let counts = { complete: 0, waiting: 0, noMatch: 0, unclassified: 0, error: 0 };
 
   if (window.pdfjsLib) {
     pdfjsLib.GlobalWorkerOptions.workerSrc =
@@ -191,18 +192,37 @@ function escapeHtml(s) {
     results.appendChild(row);
   }
 
+  function renderSummary(counts) {
+    const total = counts.complete + counts.waiting + counts.noMatch + counts.unclassified + counts.error;
+    const parts = [];
+    if (counts.complete) parts.push(`${counts.complete} matched &amp; saved`);
+    if (counts.waiting) parts.push(`${counts.waiting} still waiting on the other document`);
+    if (counts.noMatch) parts.push(`${counts.noMatch} no vehicle match`);
+    if (counts.unclassified) parts.push(`${counts.unclassified} unrecognized filename`);
+    if (counts.error) parts.push(`${counts.error} error(s)`);
+    const allGood = counts.waiting === 0 && counts.noMatch === 0 && counts.unclassified === 0 && counts.error === 0;
+    const summary = document.createElement('div');
+    summary.className = `alert ${allGood ? 'alert-success' : 'alert-warning'} mb-3 py-2`;
+    summary.innerHTML = `<i class="bi ${allGood ? 'bi-check-circle-fill' : 'bi-info-circle-fill'} me-1"></i>
+      <strong>Done — ${total} file(s) processed.</strong> ${parts.join(', ')}.`;
+    results.insertBefore(summary, results.firstChild);
+  }
+
   function renderUnclassifiedRow(filename) {
+    counts.unclassified++;
     addRow(`<strong>${escapeHtml(filename)}</strong>
       <div class="text-warning-emphasis small">⚠️ Could not classify — rename to include
       "LKA" or "Abstract" and re-upload.</div>`, 'border-warning');
   }
 
   function renderErrorRow(filename, error) {
+    counts.error++;
     addRow(`<strong>${escapeHtml(filename)}</strong>
       <div class="text-danger small">${escapeHtml(error)}</div>`, 'border-danger');
   }
 
   function renderNoMatchRow(filename, parsed) {
+    counts.noMatch++;
     const vin = parsed && parsed.vin ? ` VIN: ${escapeHtml(parsed.vin)}` : '';
     addRow(`<strong>${escapeHtml(filename)}</strong>
       <div class="text-muted small">No VIN found — check manually.${vin}</div>`);
@@ -247,6 +267,7 @@ function escapeHtml(s) {
         });
         comparison = await resp.json();
       } catch (err) {
+        counts.error++;
         renderGroupRow(g, null, `Compare failed: ${err.message}`);
         return;
       }
@@ -259,8 +280,10 @@ function escapeHtml(s) {
           });
         } catch (err) { /* comparison is still shown even if the save call fails */ }
       }
+      counts.complete++;
       renderGroupRow(g, comparison, null);
     } else {
+      counts.waiting++;
       const missing = g.lka ? 'Title Abstract' : 'LKA';
       renderGroupRow(g, null, `Only ${g.lka ? 'LKA' : 'Title Abstract'} received — waiting for ${missing}.`, true);
     }
@@ -268,6 +291,7 @@ function escapeHtml(s) {
 
   async function processBatch(files) {
     results.innerHTML = '';
+    counts = { complete: 0, waiting: 0, noMatch: 0, unclassified: 0, error: 0 };
     const groups = {};
 
     function keyFor(vehicleMatch, vin) {
@@ -322,6 +346,7 @@ function escapeHtml(s) {
     for (const key of Object.keys(groups)) {
       await finalizeGroup(groups[key]);
     }
+    renderSummary(counts);
   }
 })();
 {% endif %}
