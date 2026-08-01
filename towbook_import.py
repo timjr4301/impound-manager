@@ -176,6 +176,7 @@ def _do_import():
     errors = []
     dept_unmatched = []      # police impound rows whose Account field didn't fuzzy-match any department
     csv_stock_numbers = []   # collect every stock # seen in this CSV
+    new_vehicle_objs = []    # freshly-inserted Vehicle rows — need BMV search next
 
     for row_idx, row in enumerate(reader):
         stock = None
@@ -280,6 +281,7 @@ def _do_import():
                 db.session.add(v)
                 inserted += 1
                 vehicle_for_dept_match = v
+                new_vehicle_objs.append(v)
 
             # Police department fee lookup: Towbook's Account field carries
             # the requesting department name for POLICE impounds. Fuzzy-match
@@ -299,6 +301,18 @@ def _do_import():
     except Exception as exc:
         db.session.rollback()
         return jsonify({'error': f'Database error while saving: {exc}'}), 500
+
+    # Every fresh insert starts bmv_stage='PENDING' — BMV search is always
+    # its next step, so no extra query is needed to know what to show here.
+    new_vehicles = [{
+        'id': v.id,
+        'stock_number': v.stock_number,
+        'plate': v.plate,
+        'year': v.year,
+        'make': v.make,
+        'model': v.model,
+        'impound_type': v.impound_type,
+    } for v in new_vehicle_objs]
 
     # Flag active vehicles absent from this CSV as possible releases
     possible_release_count = 0
@@ -351,6 +365,7 @@ def _do_import():
         'skipped': skipped,
         'possible_releases_flagged': possible_release_count,
         'possible_release_cleared': possible_release_cleared,
+        'new_vehicles': new_vehicles,
         'errors': errors,
         'department_unmatched': dept_unmatched,
         'urgency': urgency_counts,

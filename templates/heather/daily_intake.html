@@ -123,11 +123,29 @@ function escapeHtml(s) {
              ${data.possible_release_cleared} Possible Release flag(s) auto-cleared — vehicle(s) back in the Towbook export
            </div>`
         : '';
+      const newVehiclesHtml = (data.new_vehicles && data.new_vehicles.length)
+        ? `<div class="card mt-2">
+             <div class="card-header py-2 small fw-semibold">
+               <i class="bi bi-clipboard-check me-1"></i>${data.new_vehicles.length} new — need BMV search
+             </div>
+             <div class="list-group list-group-flush">
+               ${data.new_vehicles.map((v) => `
+                 <a href="/vehicles/${v.id}" class="list-group-item list-group-item-action d-flex justify-content-between align-items-center py-2">
+                   <span>
+                     <strong>${escapeHtml([v.year, v.make, v.model].filter(Boolean).join(' ') || 'Unknown vehicle')}</strong>
+                     <span class="text-muted small ms-2">${escapeHtml(v.plate || v.stock_number || '')}</span>
+                     ${v.impound_type === 'POLICE' ? '<span class="badge bg-secondary ms-2">POLICE</span>' : ''}
+                   </span>
+                   <span class="text-primary small">Start BMV search <i class="bi bi-arrow-right"></i></span>
+                 </a>`).join('')}
+             </div>
+           </div>`
+        : '';
       result.innerHTML = `
         <div class="alert alert-success mb-0 py-2 small">
           <i class="bi bi-check-circle-fill me-1"></i>
           <strong>${data.inserted} new, ${data.updated} updated</strong> (${data.skipped} skipped)
-        </div>${clearedHtml}${errHtml}`;
+        </div>${clearedHtml}${errHtml}${newVehiclesHtml}`;
     } catch (err) {
       result.innerHTML = `<div class="alert alert-danger mb-0 py-2 small">Network error: ${escapeHtml(err.message)}</div>`;
     }
