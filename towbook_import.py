@@ -4,10 +4,12 @@ POST /api/import-towbook        upload CSV, upsert vehicles by stock_number
 GET  /api/import-towbook/status last import result
 """
 import csv, io, re
-from datetime import datetime, date
+from datetime import datetime, date, timedelta
 from flask import Blueprint, request, jsonify, current_app
 from flask_login import login_required, current_user
-from models import db, Vehicle, SyncLog, PoliceDepartment
+from models import (db, Vehicle, SyncLog, PoliceDepartment, CertifiedLetter,
+                     PPI_LETTER1_DAYS, POLICE_LETTER1_DAYS)
+import letter_triggers
 
 bp = Blueprint('towbook_import', __name__, url_prefix='/api/import-towbook')
 
@@ -282,6 +284,23 @@ def _do_import():
                 inserted += 1
                 vehicle_for_dept_match = v
                 new_vehicle_objs.append(v)
+
+                # Same Letter 1 creation as the manual "Add Vehicle" form
+                # (app.py: vehicles_new) — a Towbook-synced intake is still a
+                # new vehicle and must start its letter clock the same way.
+                # Without this, Towbook-synced cars never got a letter_number=1
+                # row at all and silently fell through every letter queue.
+                letter1_days = PPI_LETTER1_DAYS if inferred_type == 'PPI' else POLICE_LETTER1_DAYS
+                letter1_due = impound_date + timedelta(days=letter1_days)
+                db.session.add(CertifiedLetter(
+                    vehicle=v,  # relationship, not vehicle_id — v.id isn't assigned until flush
+                    letter_number=1,
+                    due_date=letter1_due,
+                    letter_kind='notice_of_lien' if inferred_type == 'POLICE' else 'first_notice',
+                    recipient_type='owner',
+                    created_at=datetime.utcnow(),
+                ))
+                letter_triggers.on_vehicle_created(v, letter1_due)
 
             # Police department fee lookup: Towbook's Account field carries
             # the requesting department name for POLICE impounds. Fuzzy-match

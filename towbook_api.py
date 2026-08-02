@@ -186,8 +186,9 @@ def upsert_calls(calls):
     cleared counts flagged vehicles whose reappearance in this pull
     auto-cleared their possible_release flag, mirroring the CSV path.
     """
-    from models import db, Vehicle
+    from models import db, Vehicle, CertifiedLetter, PPI_LETTER1_DAYS, POLICE_LETTER1_DAYS
     from tina_sync import auto_clear_possible_release
+    import letter_triggers
 
     inserted = updated = skipped = cleared = 0
     errors = []
@@ -242,6 +243,22 @@ def upsert_calls(calls):
                 )
                 db.session.add(vehicle)
                 inserted += 1
+
+                # Same Letter 1 creation as the CSV path (towbook_import.py)
+                # and the manual "Add Vehicle" form (app.py: vehicles_new) —
+                # a new vehicle must start its letter clock the same way
+                # regardless of which Towbook pipeline created it.
+                letter1_days = PPI_LETTER1_DAYS if vehicle.impound_type == 'PPI' else POLICE_LETTER1_DAYS
+                letter1_due = vehicle.impound_date + timedelta(days=letter1_days)
+                db.session.add(CertifiedLetter(
+                    vehicle=vehicle,  # relationship, not vehicle_id — id isn't assigned until flush
+                    letter_number=1,
+                    due_date=letter1_due,
+                    letter_kind='notice_of_lien' if vehicle.impound_type == 'POLICE' else 'first_notice',
+                    recipient_type='owner',
+                    created_at=datetime.utcnow(),
+                ))
+                letter_triggers.on_vehicle_created(vehicle, letter1_due)
 
         except Exception as exc:
             errors.append({
