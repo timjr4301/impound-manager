@@ -175,7 +175,16 @@ def create_label(reference, recipient_name, recipient_address, recipient_city,
         headers=_headers(trans_id),
         timeout=20,
     )
-    resp.raise_for_status()
+    if resp.status_code >= 400:
+        # Surface UPS's actual reason (e.g. "Missing or Invalid Postal Code")
+        # instead of the generic "400 Bad Request" raise_for_status() gives —
+        # same error-body shape already parsed in void_shipment() below.
+        try:
+            err = (resp.json().get('response', {}).get('errors') or [{}])[0]
+            message = err.get('message') or f'UPS refused (HTTP {resp.status_code})'
+        except ValueError:
+            message = f'UPS refused (HTTP {resp.status_code}): {resp.text[:300]}'
+        raise RuntimeError(f'UPS Ship API error: {message}')
     data = resp.json()
     results = data['ShipmentResponse']['ShipmentResults']
     pkg = results['PackageResults']
