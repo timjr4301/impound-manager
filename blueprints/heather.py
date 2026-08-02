@@ -698,6 +698,14 @@ def bmv_complete(vehicle_id):
     separate, later gate (file_complete_for_tina) and must not block this."""
     vehicle = db.get_or_404(Vehicle, vehicle_id)
 
+    # Return to wherever the form was actually submitted from (the vehicle's
+    # own page, or the dashboard queue) instead of always bouncing to the
+    # dashboard — staff working a vehicle's page shouldn't lose their place
+    # and have to navigate back to it after marking BMV done.
+    referrer = request.referrer or ''
+    same_origin = referrer.startswith(request.host_url)
+    return_to = referrer if same_origin else url_for('heather.dashboard')
+
     vehicle.bmv_stage = 'COMPLETE'
     vehicle.bmv_searched_date = date.today()
     vehicle.bmv_search_notes = request.form.get('notes', '').strip() or None
@@ -748,7 +756,7 @@ def bmv_complete(vehicle_id):
             f'file incomplete. Missing: {", ".join(missing)}',
             'warning'
         )
-    return redirect(url_for('heather.dashboard'))
+    return redirect(return_to)
 
 
 @bp.route('/letter-template/<int:letter_id>')
