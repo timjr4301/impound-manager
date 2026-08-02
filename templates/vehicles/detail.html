@@ -432,13 +432,25 @@
             <i class="bi bi-printer me-1"></i>Print Letter
           </a>
           {% endif %}
-          {% if l1 and not l1_sent and t1_done and vehicle.status == 'ACTIVE' and not vehicle.possible_release %}
-          {{ mark_sent_controls(l1, today, inline_labels) }}
+          {% if not l1_sent and t1_done and vehicle.status == 'ACTIVE' and not vehicle.possible_release %}
+            {% if l1 %}
+            {{ mark_sent_controls(l1, today, inline_labels) }}
+            {% else %}
+            {# Letter 1 hasn't been generated yet — Send Now goes straight to
+               the letter picker (same page the top "Generate Letters" button
+               opens) instead of making Heather hunt for that button
+               separately. Task 3's Send Now can jump right to the modal
+               because Letter 2's row always exists by the time Task 3 opens
+               (auto-created when Letter 1 is marked sent); Letter 1 has no
+               such row yet on a fresh BMV-Search-complete vehicle. #}
+            <a href="{{ url_for('vehicle_letters', vehicle_id=vehicle.id) }}"
+               class="btn btn-danger btn-sm py-0 mt-1 w-100 text-decoration-none">Send Now</a>
+            {% endif %}
           {% elif l1 and l1_sent and inline_labels and l1.id in inline_labels %}
           {# Just came back from creating a label inline — modal only, no
              visible button, auto-opened by the script below to show it. #}
           {{ mark_sent_controls(l1, today, inline_labels, show_button=false) }}
-          {% elif l1 and not l1_sent and t1_done and vehicle.possible_release %}
+          {% elif not l1_sent and t1_done and vehicle.possible_release %}
           <span class="badge bg-secondary d-block mt-1">Blocked — verify Possible Release</span>
           {% endif %}
         </div>
