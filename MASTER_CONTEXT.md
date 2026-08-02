@@ -1,15 +1,22 @@
 # [IMPOUND MANAGER — MASTER CONTEXT DOC]
-_Last updated: August 1, 2026 — training-video tooling session (separate track from the July 31 WP-0..9
-remediation project — see that project's own `Impound Manager Remediation — Tracker.html`, not duplicated
-here). Built the 10-vehicle training baseline (`seed_training_baseline.py`) + a Marvel/DC intake-practice
-kit (`marvel_impound_test_kit/`), plus a staging-only one-click Training Data Reset admin page. Dogfooding
-that content surfaced and fixed two real production gaps: Daily Intake's BMV-document batch had no finish
-summary, and a Towbook CSV import never showed which vehicles were actually new. Both shipped to
-**production** same day (cherry-picked in isolation — see "Two-branch deploy model" below). Confirmed the
-old "Claude Code push 403s" limitation is gone — pushes now work directly from this environment on both
-branches. See "NEW — August 1, 2026" below for full detail._
+_Last updated: August 2, 2026 (overnight) — WP-6–9 promoted to production after Tim's own staging UAT, plus
+two real defects found and fixed while working real vehicles on production immediately after: (1) the new
+Task 2 inline card wrongly hid the Send Now button and mislabeled Letter 1 as locked until day 5 — day 5 is
+the DUE-BY deadline, never a minimum wait; (2) confirmed and closed (for existing data) the long-open
+"Towbook-synced cars get no Letter 1 record" gap via `generate_letter1_backfill.py` (210 rows created).
+**⚠ The root cause is NOT fixed** — `towbook_import.py` still does not create Letter 1 on new daily imports,
+so this will recur every day until that's addressed. Also surfaced: **626 "Overdue Letters" now showing on
+the dashboard**, almost all old backfilled historical debris (some to 2019) that was invisible with no
+letter row — needs a cleanup pass against a current Towbook export, not urgent, not real new violations.
+See "NEW — August 2, 2026" below for full detail._
 
-_Previous entry: July 30, 2026 (evening) — daily-workflow batch, PRs #14 + #18–#21 all merged + deployed same day: possible-release auto-clear on reappearance (CSV + API paths), BMV ↗ quick-link, Today task view, police-letter blank-owner fix (structured owner fields in BMV Done), photo multi-file/ZIP upload, LKA/Title PDF auto-read on vehicle-page upload, Date Change Log report + restart-crash fix. Towbook API access: spec sent to Gabe, awaiting decision. Earlier same day: sent+30 remnant cleanup (PR #13). Parked: image backup (waiting on IT), relo-trans categorization. Open: verify fresh Towbook-synced car → 1st-letter queue handoff; owner-info backfill for pre-07/30 POLICE vehicles._
+_Previous entry: August 1, 2026 — training-video tooling session (separate track). Built the 10-vehicle
+training baseline (`seed_training_baseline.py`) + a Marvel/DC intake-practice kit (`marvel_impound_test_kit/`),
+plus a staging-only one-click Training Data Reset admin page. Dogfooding that content surfaced and fixed two
+real production gaps: Daily Intake's BMV-document batch had no finish summary, and a Towbook CSV import
+never showed which vehicles were actually new. Confirmed the old "Claude Code push 403s" limitation is gone._
+
+_Earlier: July 30, 2026 (evening) — daily-workflow batch, PRs #14 + #18–#21 all merged + deployed same day: possible-release auto-clear on reappearance (CSV + API paths), BMV ↗ quick-link, Today task view, police-letter blank-owner fix (structured owner fields in BMV Done), photo multi-file/ZIP upload, LKA/Title PDF auto-read on vehicle-page upload, Date Change Log report + restart-crash fix. Towbook API access: spec sent to Gabe, awaiting decision. Earlier same day: sent+30 remnant cleanup (PR #13). Parked: image backup (waiting on IT), relo-trans categorization. Open: owner-info backfill for pre-07/30 POLICE vehicles._
 
 > ⚠ **CURRENT COMPLIANCE RULE (corrected 2026-07-29):** the 2nd notice letter is due **30 days after Letter 1 is SENT**, NOT after delivery. This reverses the earlier delivery-anchored design (de71135, commit f3cca7d fixes it). Some build entries below still describe the old delivery-anchored behavior — that's history; the sent-anchored rule under "KEY OHIO COMPLIANCE RULES" is what's live. **Do not revert to delivery-anchoring.**
 
@@ -96,6 +103,55 @@ An audit against the codebase found most of the old BUILD QUEUE was already ship
 **Stored-data backfill (boot migration in `run_migrations`)** — PPI `letter_number=2` rows created before commit f3cca7d, or imported verbatim from Towbook's "SECOND LETTER Due Date" column by `towbook_letter_backfill.py`, could carry a stored `due_date` disagreeing with the corrected rule (live example: vehicle 5354 / stock 28559544 — Letter 1 sent 06/11, stored due 07/10 vs computed 07/11, so Heather's dashboard and the detail page/audit disagreed by a day). The backfill sets `due_date = letter1.sent_date + 30` on non-superseded PPI letter-2 rows whose Letter 1 is sent, only when it differs; idempotent; logs `[letter2_backfill] … N row(s) changed` on boot. **POLICE chains need no equivalent:** their 2nd notices (letter_number 4/6) are only created by `letter_triggers.py`, whose formula has always been trigger `sent_date + 30`; anomalous POLICE letter-2 rows (Towbook import — POLICE's real 2nd owner notice is letter_number 4) are deliberately left untouched.
 
 **Last delivery-anchored logic/wording swept out** — the vehicle-detail **Task 3 card was still computing `task3_open` off `delivery_confirmed_date + 10`** (pre-de71135 remnant) with an "Awaiting delivery confirmation" wait state; now `l1.sent_date + 30` with subtitle "(30d after Letter 1 sent)". Stale comments fixed in `app.py` (`_finalize_letter_sent`, mark-sent gate), `task_engine.py` module docstring, `models.py` (`task_2_letter_completed_at`); removed the now-unused `task_engine.letter_delivery_date` helper; corrected letter-workflow-guide test item 6 (UPS Refresh: delivery sets POD only, due date does NOT shift). Delivery tracking itself (POD records, Awaiting Delivery tabs, auto-poll) is untouched — delivery just never gates or times Letter 2. Verified locally end-to-end: backfill scope (PPI-only, superseded/POLICE untouched), all readers agree on 07/11 for the 5354 replica, detail page renders sent-anchored and ignores early delivery.
+
+### ✅ NEW — August 2, 2026 overnight (WP-6–9 promoted to production + Task 2 gate bug + Letter 1 backfill)
+
+**WP-6 through WP-9 promoted to production**, after Tim ran his own UAT pass on staging (walked through inline
+Send Now on a real F-150, inline File Title on a real Camry, Heather's narrowed nav, and a live UPS Postage
+void test). Cherry-picked the 5 WP commits (`1f90ba2` item 3/WP-6-session-1, `95d389e` WP-6-session-2,
+`c287367` WP-7, `a1df938` WP-8, `0cdfaad` WP-9) onto `main`, verified via `/version`, `reset_users.py` run.
+All four are now live: inline Send Now / File Title buttons, decluttered vehicle detail page (accordions),
+Heather's narrower menu, the UPS Postage page, POLICE one-letter rule.
+
+**Real defect found and fixed immediately after, on production (commits `ada8b33`, `83a81bb`):** the new
+Task 2 — 1st Notice Letter card mis-gated Letter 1. Day 5 (`TASK2_OPEN_DAYS`) has always been the letter's
+**DUE-BY** deadline, not a minimum wait — `task_engine.py` and `Vehicle.letter_send_block_reason` only ever
+required BMV Search to be done. But the WP-6/WP-7 rewrite of the Task 2 card hid its Send Now button and
+said "Opens day 5" until 5 days had actually passed, contradicting the real rule (letter must go out **within**
+the first 5 days) and the rest of the app. Fixed: button now shows and text reads "Send by [date]" as soon
+as BMV Search is done. Also added: Send Now works even before Letter 1 has been generated (opens the letter
+picker instead of requiring a separate trip to the top "Generate Letters" button first — matches how Task 3
+already behaves). Verified on staging first, then promoted the same way. Audited all 718 active vehicles
+afterward: only 1 (the F-150) was ever actually caught in the broken window — bug was live under an hour.
+
+**Separately found while auditing: 39 vehicles with a genuinely overdue, never-generated Letter 1** (unrelated
+to the bug above — these were already past day 5 the whole time, so they'd have worked fine even before the
+fix). Dating back to 07/06/2026. Gave Tim the full VIN list to cross-check against Towbook. First one checked
+(2007 Chevrolet Silverado, invoice #728501) turned out to have actually been mailed by Tim directly on
+ups.com on 07/15/2026 (proof: UPS label PDF) — never recorded in the app at all.
+
+**Root cause behind both of the above, confirmed: `_resolve_letter()` in app.py refuses to create
+letter_number=1 through the Generate Letters hub — "intake owns it" — and `towbook_import.py` (the daily
+CSV pipeline, i.e. almost every vehicle) never creates it either.** This is the exact gap flagged as an open,
+unverified item after the July 28–29 session ("verify fresh Towbook-synced car → 1st-letter queue handoff").
+Confirmed tonight it's real and ongoing. Ran the already-built `generate_letter1_backfill.py` in the
+**production** Render Shell: **210 vehicles had zero certified_letters rows** — all backfilled with an
+unsent Letter 1 at the correct due date (impound_date + 5, not today). This fixed the existing backlog but
+**does NOT stop new Towbook imports from having the same gap tomorrow** — `towbook_import.py` still needs
+to actually create the Letter 1 row on import. **This is the top open item for next session.**
+
+Recorded the Silverado's real Letter 1 as sent via the safe manual-entry path (`/letters/<id>/mark-sent`,
+NOT "Create UPS Label & Mark Sent" — that would have bought a real second label): sent date 07/15/2026,
+tracking `1Z81Y7X14216659365` from the real label. Confirmed Letter 2 auto-scheduled correctly off the
+07/15 sent date (08/14/2026), not off today's date.
+
+**⚠ Side effect surfaced by the backfill, not yet acted on:** the dashboard's Overdue Letters count jumped
+from near-zero to **626** — vehicles going back to 2019 that were sitting ACTIVE with no letter row at all
+(so invisible in every queue) and are now surfacing with the backfilled due date. This is almost certainly
+old status hygiene (vehicles actually released/junked/sold years ago and never closed out in the system),
+not real letters that need to go out today. Needs a cleanup pass cross-checked against a current Towbook
+export (same pattern as the release reconciliation a few weeks back) — **not urgent, don't triage at 1am,
+but don't ignore it either.**
 
 ### ✅ NEW — August 1, 2026 (training-video tooling + 2 production fixes found via dogfooding)
 
@@ -239,17 +295,29 @@ Awaiting Title → To Locate → Key Row → Inspection Pool → Needs Repairs
 - ✅ Build B: 5-letter templates + police-dept rates + vehicle class — DONE (class-based PPI storage fees, PR #1).
 - ✅ Build Q: QR scanner on /driver — DONE (PR #1).
 - ✅ Top-nav 4-section overhaul — DONE (PR #1).
+- ✅ **WP-6 through WP-9 UAT + promote to production** — DONE August 2, 2026 overnight. Tim UAT'd all four on
+  staging, promoted to production, plus a real Task 2 gating bug found and fixed same session. See the
+  "August 2, 2026 overnight" entry above for full detail.
 
 ### ⬜ Open / not started (next-session queue)
-- ⬜ **PRIORITY — WP-6 through WP-9 UAT + promote to production.** Code-complete and tested on staging
-  (see "August 1" entry above and `Impound Manager Remediation — Tracker.html`). Tim wants to test these
-  himself on staging first, then promote to production — this is the explicit next-session goal, ahead of
-  continuing the training-video work.
+- ⬜ **PRIORITY — `towbook_import.py` never creates a Letter 1 record.** Root cause behind the missing-letters
+  gap found/backfilled 08/02 (210 vehicles). The backfill fixed existing data but NOT the ongoing gap — every
+  new Towbook-synced vehicle tomorrow will have the same problem unless this is fixed at the source. This is
+  the same item as "VERIFY: fresh Towbook-synced car → 1st-letter queue" below, now confirmed real and urgent.
+- ⬜ **626 "Overdue Letters" cleanup** — surfaced by the 08/02 Letter-1 backfill; almost all pre-existing ACTIVE
+  vehicles (some since 2019) that were actually resolved years ago and never closed out, now visible because
+  they finally have a letter row. Needs a cross-check against a current Towbook export (same pattern as the
+  July 28 release reconciliation) to bulk-resolve, not one-by-one. Not urgent, but don't let it sit forever.
+- ⬜ **38 remaining vehicles from the pre-existing overdue-Letter-1 backlog** — full VIN list given to Tim
+  08/02 to cross-check against Towbook (39 found, 1 — the Silverado, invoice #728501 — already resolved:
+  it was mailed manually via ups.com 07/15 and is now recorded). For any that Towbook confirms were actually
+  mailed outside the app, use the same safe manual "Mark Sent" entry (never "Create UPS Label" for those —
+  it would buy a real duplicate label).
 - ⬜ **Design / UX pass** — make the app more user-friendly. Not yet started; needs Tim's pick of where to begin (the vehicle ticket / the dashboards / a whole-app consistency polish / the mobile+large-text screens) and what "user-friendly" means to him (declutter / bigger text / consistency / fewer clicks).
 - ⬜ **Black Book URL** — the valuation button points at the marketing site; swap in the exact B&J subscriber-portal login URL when Tim provides it.
 - ⬜ **VinAudit (Build 14)** — blocked on `VINAUDIT_API_KEY` in Render; build the auto-lookup once the key is set.
 - ⬜ **Per-class tow rates** — only storage is class-based; tow is flat $144 (editable per ticket). Awaiting Tim's light/medium/heavy tow numbers if tow should scale too.
-- ⬜ **VERIFY: fresh Towbook-synced car → 1st-letter queue** — Towbook sync creates NO letter record (only the manual Add-Vehicle form and `generate_letter1_backfill.py` do). Confirm new daily-upload cars actually surface in Heather's letter queue so they don't fall through like the July-outage batch. This is the one handoff not yet watched end-to-end; decide if the daily Towbook upload should auto-create letter-1 rows.
+- ⬜ ~~VERIFY: fresh Towbook-synced car → 1st-letter queue~~ — CONFIRMED REAL 08/02 (see PRIORITY item at the top of this list — same issue, now verified and needing an actual code fix in `towbook_import.py`, not just verification).
 - ⬜ **Image backup + monthly purge** — retention design decided (nightly off-site backup; monthly manual purge that KEEPS legal-evidence images = UPS PODs + damage photos; purge refuses to delete anything not already backed up). **BLOCKED on Tim's IT dept picking a storage destination** (on-prem NAS / M365 / Google / S3 / Backblaze — build is destination-agnostic). This is also the long-term fix for the base64-blobs-in-Postgres memory driver.
 - ⬜ **Relo-trans cars** — transport cars staged in the lot are NOT impounds but sit in inventory generating letter/storage tasks. Tim researching how to categorize them (likely a "Relo / Transport" tag that keeps them in inventory but out of the impound letter/title pipeline). 2 currently in the audit list left untouched.
 - ⬜ Disposition follow-ups: auction-event edit page; per-load Ohio Steel batch grouping; push/SMS on repair alerts; a "repairs in progress" sub-state between approve and auction-ready.
