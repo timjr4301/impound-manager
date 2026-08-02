@@ -55,6 +55,108 @@
   </div>
 </div>
 
+{# ── 1st Letter Sent cross-check ── #}
+<div class="card mb-4">
+  <div class="card-header d-flex align-items-center justify-content-between" role="button"
+       data-bs-toggle="collapse" data-bs-target="#letter1-zone">
+    <span class="fw-semibold"><i class="bi bi-envelope-check me-2"></i>1st Letter Sent Cross-Check</span>
+    {% if letter1_data %}
+    <span class="small text-muted text-truncate ms-2">
+      {{ letter1_data.filename }} · {{ letter1_data.total_rows }} rows
+    </span>
+    {% endif %}
+  </div>
+  <div class="collapse {% if not letter1_data %}show{% endif %}" id="letter1-zone">
+    <div class="card-body">
+      <form method="POST" action="{{ url_for('audit.letter1_check') }}"
+            enctype="multipart/form-data" id="letter1-form">
+        <label for="letter1-input" id="letter1-dropzone"
+               class="d-block text-center p-4 rounded border border-2 border-dashed"
+               style="cursor:pointer; border-style:dashed !important;">
+          <i class="bi bi-file-earmark-arrow-up fs-2 d-block mb-2 text-muted"></i>
+          <span class="fw-semibold">Upload a Towbook export with a "1st Letter Sent" column</span>
+          <div class="small text-muted">Compares it against what IM itself thinks is sent. Drag &amp; drop or click to choose a file.</div>
+          <div class="small mt-1" id="letter1-filename"></div>
+        </label>
+        <input type="file" name="file" id="letter1-input" accept=".csv" class="d-none">
+      </form>
+
+      {% if letter1_data %}
+      <div class="d-flex align-items-center gap-2 mt-3 flex-wrap">
+        <span class="small text-muted">
+          Uploaded {{ letter1_data.uploaded_at }} · {{ letter1_data.total_rows }} rows checked ·
+          {{ letter1_data.agree_not_sent_count + letter1_data.agree_sent_count }} agree with IM.
+        </span>
+        <form method="POST" action="{{ url_for('audit.letter1_clear') }}" class="ms-auto">
+          <button type="submit" class="btn btn-outline-secondary btn-sm">
+            <i class="bi bi-x-lg me-1"></i>Clear
+          </button>
+        </form>
+      </div>
+
+      {% if letter1_data.mismatch_filled_but_not_sent %}
+      <div class="mt-3">
+        <div class="fw-semibold text-danger">
+          Towbook shows a date, IM shows NOT sent — {{ letter1_data.mismatch_filled_but_not_sent|length }}
+          <span class="fw-normal text-muted small">(worth a real look — may have been sent outside the app)</span>
+        </div>
+        <div class="table-responsive">
+          <table class="table table-sm table-hover align-middle mb-0">
+            <thead class="table-light">
+              <tr><th>Stock #</th><th>Vehicle</th><th>Towbook "1st Letter Sent"</th><th></th></tr>
+            </thead>
+            <tbody>
+              {% for r in letter1_data.mismatch_filled_but_not_sent %}
+              <tr>
+                <td>{{ r.stock_number }}</td>
+                <td>{{ r.description }}</td>
+                <td>{{ r.towbook_value }}</td>
+                <td><a href="{{ r.detail_url }}" class="btn btn-outline-primary btn-sm">Open</a></td>
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </div>
+      {% endif %}
+
+      {% if letter1_data.mismatch_blank_but_sent %}
+      <div class="mt-3">
+        <div class="fw-semibold text-warning">
+          Towbook blank, IM shows SENT — {{ letter1_data.mismatch_blank_but_sent|length }}
+          <span class="fw-normal text-muted small">(Towbook's field is just behind — not a problem)</span>
+        </div>
+        <div class="table-responsive">
+          <table class="table table-sm table-hover align-middle mb-0">
+            <thead class="table-light">
+              <tr><th>Stock #</th><th>Vehicle</th><th>IM sent date</th><th></th></tr>
+            </thead>
+            <tbody>
+              {% for r in letter1_data.mismatch_blank_but_sent %}
+              <tr>
+                <td>{{ r.stock_number }}</td>
+                <td>{{ r.description }}</td>
+                <td>{{ r.im_sent_date }}</td>
+                <td><a href="{{ r.detail_url }}" class="btn btn-outline-secondary btn-sm">Open</a></td>
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </div>
+      {% endif %}
+
+      {% if letter1_data.not_in_im %}
+      <div class="mt-3 small text-muted">
+        {{ letter1_data.not_in_im|length }} row(s) in the CSV didn't match any active IM vehicle
+        (released/purged, or a stock #/VIN typo).
+      </div>
+      {% endif %}
+      {% endif %}
+    </div>
+  </div>
+</div>
+
 {# ══════════════════ 1. RELEASED IN TOWBOOK, STILL ACTIVE (RED) ══════════════════ #}
 <div class="card mb-3 border-danger">
   <div class="card-header bg-danger-subtle d-flex align-items-center justify-content-between">
@@ -235,11 +337,11 @@
 {% block scripts %}
 <script>
 // Drag-and-drop CSV zone → set the file input and auto-submit.
-(function () {
-  const input = document.getElementById('csv-input');
-  const zone = document.getElementById('csv-dropzone');
-  const form = document.getElementById('csv-form');
-  const nameEl = document.getElementById('csv-filename');
+function wireDropzone(inputId, zoneId, formId, nameId) {
+  const input = document.getElementById(inputId);
+  const zone = document.getElementById(zoneId);
+  const form = document.getElementById(formId);
+  const nameEl = document.getElementById(nameId);
   if (!input || !zone || !form) return;
 
   function submitFor(file) {
@@ -266,7 +368,9 @@
       submitFor(files[0]);
     }
   });
-})();
+}
+wireDropzone('csv-input', 'csv-dropzone', 'csv-form', 'csv-filename');
+wireDropzone('letter1-input', 'letter1-dropzone', 'letter1-form', 'letter1-filename');
 
 // Section 1 bulk-release: select-all (bulk-eligible only), sticky bar, POST.
 (function () {

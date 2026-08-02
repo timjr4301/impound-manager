@@ -37,6 +37,7 @@ LETTER2_SENT_GAP_DAYS = 30  # Letter 2 due 30d after Letter 1 was SENT (not deli
 MISSING_DOC_GRACE_DAYS = 3      # BMV search / LKA: day 1-3 grace; day 4+ flagged
 
 SESSION_KEY = 'audit_towbook_csv'
+LETTER1_SESSION_KEY = 'audit_letter1_csv'
 
 AUDIT_ROLES = ('tim', 'brady', 'jim')   # wally is role 'tim', so included
 
@@ -75,6 +76,35 @@ def _clear_csv_data():
     session.pop(SESSION_KEY, None)
     try:
         os.remove(_csv_store_path())
+    except OSError:
+        pass
+
+
+def _letter1_csv_store_path():
+    return os.path.join(tempfile.gettempdir(),
+                        f'im_audit_letter1_{current_user.id}.json')
+
+
+def _load_letter1_data():
+    if not session.get(LETTER1_SESSION_KEY):
+        return None
+    try:
+        with open(_letter1_csv_store_path(), encoding='utf-8') as f:
+            return json.load(f)
+    except (OSError, ValueError):
+        return None
+
+
+def _save_letter1_data(data):
+    with open(_letter1_csv_store_path(), 'w', encoding='utf-8') as f:
+        json.dump(data, f)
+    session[LETTER1_SESSION_KEY] = True
+
+
+def _clear_letter1_data():
+    session.pop(LETTER1_SESSION_KEY, None)
+    try:
+        os.remove(_letter1_csv_store_path())
     except OSError:
         pass
 
@@ -194,6 +224,7 @@ def index():
     )
 
     csv_data = _load_csv_data()
+    letter1_data = _load_letter1_data()
 
     return render_template(
         'audit/index.html',
@@ -202,6 +233,7 @@ def index():
         missing_bmv=missing_bmv,
         missing_lka=missing_lka,
         csv_data=csv_data,
+        letter1_data=letter1_data,
         last_refreshed=datetime.now(),
     )
 
@@ -307,6 +339,134 @@ def towbook_check():
 def towbook_clear():
     _clear_csv_data()
     flash('Cleared the uploaded Towbook cross-reference.', 'info')
+    return redirect(url_for('audit.index'))
+
+
+@bp.route('/letter1-check', methods=['POST'])
+@_audit_required
+def letter1_check():
+    """Cross-check a Towbook 'current inventory with 1st Letter Sent column'
+    export against what IM itself thinks — does each vehicle have a Letter 1
+    actually marked sent? Reports agreements plus both mismatch directions
+    rather than assuming either side is correct. Accepts either export
+    layout: this report's plain header-row-1 format, or the standard 2-row-
+    metadata Impounds format (auto-detected)."""
+    uploaded = request.files.get('file')
+    if not uploaded or not uploaded.filename:
+        flash('No file selected. Choose a Towbook export CSV with a "1st Letter Sent" column.', 'danger')
+        return redirect(url_for('audit.index'))
+
+    raw = uploaded.stream.read()
+    try:
+        content = raw.decode('utf-8-sig')
+    except UnicodeDecodeError:
+        content = raw.decode('latin-1')
+
+    lines = [l for l in content.splitlines() if l.strip()]
+    if not lines:
+        flash('Uploaded file is empty.', 'danger')
+        return redirect(url_for('audit.index'))
+
+    # Auto-detect layout: does row 1 already look like the header (has a
+    # "Stock" column), or are there 2 metadata rows first (standard Impounds
+    # export) before the real header on row 3?
+    def _looks_like_header(line):
+        return 'stock' in _norm(line)
+
+    if _looks_like_header(lines[0]):
+        csv_body = '\n'.join(lines)
+    elif len(lines) >= 3 and _looks_like_header(lines[2]):
+        csv_body = '\n'.join(lines[2:])
+    else:
+        flash("Could not find a 'Stock #' column — is this a Towbook export?", 'danger')
+        return redirect(url_for('audit.index'))
+
+    reader = csv.DictReader(io.StringIO(csv_body))
+    headers = reader.fieldnames or []
+    norm_map = {_norm(h): h for h in headers}
+
+    if _norm('1st Letter Sent') not in norm_map and _norm('1st Letter') not in norm_map:
+        flash('This file has no "1st Letter Sent" column — upload the '
+              '"current inventory with first letter sent column" export.', 'danger')
+        return redirect(url_for('audit.index'))
+
+    active_vehicles = Vehicle.query.filter(Vehicle.status == 'ACTIVE').all()
+    by_stock = {v.stock_number.strip().upper(): v
+                for v in active_vehicles if v.stock_number}
+    by_vin = {v.vin.strip().upper(): v
+              for v in active_vehicles if v.vin}
+
+    total_rows = 0
+    agree_not_sent = []
+    agree_sent = []
+    mismatch_blank_but_sent = []   # Towbook blank, IM says sent
+    mismatch_filled_but_not_sent = []  # Towbook filled, IM says not sent
+    not_in_im = []
+
+    for row in reader:
+        stock = (_get(row, norm_map, 'Stock #', 'Stock') or '').strip()
+        vin = (_get(row, norm_map, 'VIN') or '').strip()
+        if not stock and not vin:
+            continue
+        total_rows += 1
+
+        towbook_raw = (_get(row, norm_map, '1st Letter Sent', '1st Letter') or '').strip()
+        towbook_says_sent = bool(towbook_raw)
+
+        v = by_stock.get(stock.upper()) if stock else None
+        if not v and vin:
+            v = by_vin.get(vin.upper())
+        if not v:
+            not_in_im.append({'stock': stock or None, 'vin': vin or None})
+            continue
+
+        im_says_sent = bool(v.letter1 and v.letter1.sent_date)
+        row_out = {
+            'id': v.id,
+            'stock_number': v.stock_number,
+            'vin': v.vin,
+            'description': v.display_name,
+            'towbook_value': towbook_raw or None,
+            'im_sent_date': v.letter1.sent_date.strftime('%m/%d/%Y') if im_says_sent else None,
+            'detail_url': url_for('vehicles_detail', vehicle_id=v.id),
+        }
+
+        if towbook_says_sent and im_says_sent:
+            agree_sent.append(row_out)
+        elif not towbook_says_sent and not im_says_sent:
+            agree_not_sent.append(row_out)
+        elif not towbook_says_sent and im_says_sent:
+            mismatch_blank_but_sent.append(row_out)
+        else:
+            mismatch_filled_but_not_sent.append(row_out)
+
+    _save_letter1_data({
+        'filename': uploaded.filename,
+        'uploaded_at': datetime.now().strftime('%m/%d/%Y %I:%M %p'),
+        'total_rows': total_rows,
+        'agree_not_sent_count': len(agree_not_sent),
+        'agree_sent_count': len(agree_sent),
+        'mismatch_blank_but_sent': mismatch_blank_but_sent,
+        'mismatch_filled_but_not_sent': mismatch_filled_but_not_sent,
+        'not_in_im': not_in_im,
+    })
+
+    flash(
+        f'{total_rows} rows checked. '
+        f'{len(agree_not_sent) + len(agree_sent)} agree with IM. '
+        f'{len(mismatch_blank_but_sent)} Towbook-blank-but-IM-sent, '
+        f'{len(mismatch_filled_but_not_sent)} Towbook-filled-but-IM-not-sent, '
+        f'{len(not_in_im)} not matched to any active vehicle.',
+        'info',
+    )
+    return redirect(url_for('audit.index'))
+
+
+@bp.route('/letter1-clear', methods=['POST'])
+@_audit_required
+def letter1_clear():
+    _clear_letter1_data()
+    flash('Cleared the 1st Letter Sent cross-check.', 'info')
     return redirect(url_for('audit.index'))
 
 
