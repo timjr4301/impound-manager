@@ -127,6 +127,20 @@ def _get(row, norm_map, *candidates):
 # billing, etc.), which is that broader item's job.
 _TRANSPORT_CALL_REASON_RE = re.compile(r'\b(transport|relocat)', re.IGNORECASE)
 
+# Known accounts that pay B&J for pure storage — not a real impound, so never
+# need a letter. Deliberately a specific named list, NOT a broad keyword like
+# "storage" or "broker": "EXTRA SPACE STORAGE" and "PRESTIGE STORAGE
+# MANAGEMENT" are real private-property owners with real impounded vehicles
+# needing real letters — a keyword match would wrongly skip those. Add new
+# accounts here only once Tim confirms them, same as this one (Goose / PVG
+# Brokerage Inc. — pays to store shipping containers, confirmed 08/02/2026).
+_NON_IMPOUND_ACCOUNT_SUBSTRINGS = ('pvg brokerage',)
+
+
+def _is_non_impound_account(account_value):
+    a = (account_value or '').lower()
+    return any(s in a for s in _NON_IMPOUND_ACCOUNT_SUBSTRINGS)
+
 
 _last_import: dict = {}
 
@@ -305,9 +319,11 @@ def _do_import():
                 # Without this, Towbook-synced cars never got a letter_number=1
                 # row at all and silently fell through every letter queue.
                 # EXCEPT transport/relocation calls (see _TRANSPORT_CALL_REASON_RE
-                # above) — B&J is just holding the car for a broker, not actually
-                # impounding it, so no notice letter is ever owed.
-                if not is_transport_call:
+                # above) and known pure-storage accounts (see
+                # _NON_IMPOUND_ACCOUNT_SUBSTRINGS) — B&J is just holding the
+                # item for someone else, not actually impounding it, so no
+                # notice letter is ever owed.
+                if not is_transport_call and not _is_non_impound_account(account_value):
                     letter1_days = PPI_LETTER1_DAYS if inferred_type == 'PPI' else POLICE_LETTER1_DAYS
                     letter1_due = impound_date + timedelta(days=letter1_days)
                     db.session.add(CertifiedLetter(
