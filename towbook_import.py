@@ -117,6 +117,17 @@ def _get(row, norm_map, *candidates):
     return ''
 
 
+# Transport/relocation calls (Call Reason = "TRANSPORT" or "RELOCATE") are B&J
+# holding a vehicle for a broker until another transporter picks it up — not a
+# real impound, so it never needs an owner/lienholder notice letter. Confirmed
+# with Tim 08/02/2026 against a real example (Stock 28787363, Account "Salvato
+# Auctions"). Same population as the still-open "Relo-trans cars" backlog item
+# (MASTER_CONTEXT) — this only stops bogus Letter 1s; it doesn't yet exempt
+# these vehicles from the rest of the impound pipeline (BMV queue, storage
+# billing, etc.), which is that broader item's job.
+_TRANSPORT_CALL_REASON_RE = re.compile(r'\b(transport|relocat)', re.IGNORECASE)
+
+
 _last_import: dict = {}
 
 
@@ -209,6 +220,9 @@ def _do_import():
             have_keys_raw = _get(row, norm_map, 'Have Keys').lower()
             have_keys = have_keys_raw in ('yes', 'true', '1', 'y')
 
+            call_reason = _get(row, norm_map, 'Call Reason')
+            is_transport_call = bool(_TRANSPORT_CALL_REASON_RE.search(call_reason))
+
             # Daily Storage Total from Towbook = accumulated charge (rate × days).
             # Store in balance_due only when no explicit Balance Due value is present.
             balance_due = (
@@ -290,17 +304,21 @@ def _do_import():
                 # new vehicle and must start its letter clock the same way.
                 # Without this, Towbook-synced cars never got a letter_number=1
                 # row at all and silently fell through every letter queue.
-                letter1_days = PPI_LETTER1_DAYS if inferred_type == 'PPI' else POLICE_LETTER1_DAYS
-                letter1_due = impound_date + timedelta(days=letter1_days)
-                db.session.add(CertifiedLetter(
-                    vehicle=v,  # relationship, not vehicle_id — v.id isn't assigned until flush
-                    letter_number=1,
-                    due_date=letter1_due,
-                    letter_kind='notice_of_lien' if inferred_type == 'POLICE' else 'first_notice',
-                    recipient_type='owner',
-                    created_at=datetime.utcnow(),
-                ))
-                letter_triggers.on_vehicle_created(v, letter1_due)
+                # EXCEPT transport/relocation calls (see _TRANSPORT_CALL_REASON_RE
+                # above) — B&J is just holding the car for a broker, not actually
+                # impounding it, so no notice letter is ever owed.
+                if not is_transport_call:
+                    letter1_days = PPI_LETTER1_DAYS if inferred_type == 'PPI' else POLICE_LETTER1_DAYS
+                    letter1_due = impound_date + timedelta(days=letter1_days)
+                    db.session.add(CertifiedLetter(
+                        vehicle=v,  # relationship, not vehicle_id — v.id isn't assigned until flush
+                        letter_number=1,
+                        due_date=letter1_due,
+                        letter_kind='notice_of_lien' if inferred_type == 'POLICE' else 'first_notice',
+                        recipient_type='owner',
+                        created_at=datetime.utcnow(),
+                    ))
+                    letter_triggers.on_vehicle_created(v, letter1_due)
 
             # Police department fee lookup: Towbook's Account field carries
             # the requesting department name for POLICE impounds. Fuzzy-match

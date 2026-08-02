@@ -22,6 +22,7 @@ No code changes needed.
 """
 
 import os
+import re
 from datetime import date, datetime, timedelta
 
 TOWBOOK_API_BASE = os.environ.get('TOWBOOK_API_BASE', 'https://app.towbook.com/api')
@@ -247,7 +248,18 @@ def upsert_calls(calls):
                 # Same Letter 1 creation as the CSV path (towbook_import.py)
                 # and the manual "Add Vehicle" form (app.py: vehicles_new) —
                 # a new vehicle must start its letter clock the same way
-                # regardless of which Towbook pipeline created it.
+                # regardless of which Towbook pipeline created it. EXCEPT
+                # transport/relocation calls — B&J is just holding the car for
+                # a broker, not actually impounding it, so no letter is owed
+                # (same guard as towbook_import.py's _TRANSPORT_CALL_REASON_RE;
+                # this path only captures one combined "reason" field, so it's
+                # checked here rather than a dedicated Call Reason lookup —
+                # revisit once a real API response confirms the actual field
+                # names, per this file's other speculative-field caveats).
+                is_transport_call = bool(re.search(
+                    r'\b(transport|relocat)', fields.get('impound_reason') or '', re.IGNORECASE))
+                if is_transport_call:
+                    continue
                 letter1_days = PPI_LETTER1_DAYS if vehicle.impound_type == 'PPI' else POLICE_LETTER1_DAYS
                 letter1_due = vehicle.impound_date + timedelta(days=letter1_days)
                 db.session.add(CertifiedLetter(
