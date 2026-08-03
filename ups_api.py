@@ -139,7 +139,13 @@ def create_label(reference, recipient_name, recipient_address, recipient_city,
                     },
                 },
                 'Service': {'Code': '03', 'Description': 'UPS Ground'},
-                'Package': {
+                # UPS's Ship API schema documents Shipment.Package as an ARRAY
+                # (Shipment.Package.[]) even for a single package — sending a
+                # bare object here is what caused "Missing or invalid Package
+                # PackagingType Code" (confirmed 08/02/2026 against a real 400
+                # on a live letter; UPS's parser couldn't find a valid package
+                # entry to read PackagingType.Code out of).
+                'Package': [{
                     'PackagingType': {'Code': '02', 'Description': 'Customer Supplied Package'},
                     'Dimensions': {
                         'UnitOfMeasurement': {'Code': 'IN'},
@@ -155,7 +161,7 @@ def create_label(reference, recipient_name, recipient_address, recipient_city,
                         # signature on the label means no signed POD to fetch later.
                         'DeliveryConfirmation': {'DCISType': '2'},
                     },
-                },
+                }],
                 'PaymentInformation': {
                     'ShipmentCharge': {
                         'Type': '01',
