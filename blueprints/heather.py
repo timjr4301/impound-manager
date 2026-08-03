@@ -586,6 +586,50 @@ def confirm_possible_release(vehicle_id):
     return redirect(request.referrer or url_for('heather.dashboard'))
 
 
+@bp.route('/letter-hold/<int:vehicle_id>/set', methods=['POST'])
+@_heather_required
+def letter_hold_set(vehicle_id):
+    """Manually pause the letter pipeline for this vehicle (boats, etc. —
+    added 08/02/2026, Tim doesn't want to mail anything on boats right now).
+    Does not claim compliance was met — just stops it from being treated as
+    urgent/overdue anywhere until the hold is released."""
+    vehicle = db.get_or_404(Vehicle, vehicle_id)
+    reason = request.form.get('reason', '').strip() or 'boat'
+    vehicle.letter_hold = True
+    vehicle.letter_hold_reason = reason
+    vehicle.letter_hold_by = current_user.display_name or current_user.username
+    vehicle.letter_hold_at = datetime.utcnow()
+    db.session.add(VehicleNote(
+        vehicle_id=vehicle.id,
+        body=f'Letter pipeline put on hold by {vehicle.letter_hold_by}. Reason: {reason}',
+        author=vehicle.letter_hold_by,
+        created_at=datetime.utcnow(),
+    ))
+    from task_engine import recalculate_vehicle
+    recalculate_vehicle(vehicle)
+    db.session.commit()
+    flash(f'{vehicle.display_name} — letter pipeline on hold.', 'warning')
+    return redirect(request.referrer or url_for('vehicles_detail', vehicle_id=vehicle.id))
+
+
+@bp.route('/letter-hold/<int:vehicle_id>/release', methods=['POST'])
+@_heather_required
+def letter_hold_release(vehicle_id):
+    vehicle = db.get_or_404(Vehicle, vehicle_id)
+    vehicle.letter_hold = False
+    db.session.add(VehicleNote(
+        vehicle_id=vehicle.id,
+        body=f'Letter hold released by {current_user.display_name or current_user.username}.',
+        author=current_user.display_name or current_user.username,
+        created_at=datetime.utcnow(),
+    ))
+    from task_engine import recalculate_vehicle
+    recalculate_vehicle(vehicle)
+    db.session.commit()
+    flash(f'{vehicle.display_name} — letter hold released, pipeline resumed.', 'info')
+    return redirect(request.referrer or url_for('vehicles_detail', vehicle_id=vehicle.id))
+
+
 @bp.route('/possible-release/dismiss-all', methods=['POST'])
 @_verify_release_required
 def dismiss_all_possible_releases():

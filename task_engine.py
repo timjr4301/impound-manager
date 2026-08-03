@@ -63,6 +63,20 @@ def compute_task(v, today: date) -> dict:
             action='Flagged missing from latest Towbook export. Confirm still on lot (or mark released) before any letter goes out.',
         )
 
+    # Manual letter-pipeline hold (boats, etc.) — deliberately GREEN/not-urgent,
+    # unlike possible_release above which is still flagged RED pending
+    # verification. This doesn't claim compliance was met, it just stops the
+    # vehicle from nagging as overdue while someone decides what to do with it.
+    if v.letter_hold:
+        return dict(
+            task_num=0,
+            task_label='On Hold — ' + (v.letter_hold_reason or 'letters paused'),
+            task_due=None,
+            urgency='GREEN',
+            locked=True,
+            action='Letter pipeline manually paused' + (f' by {v.letter_hold_by}' if v.letter_hold_by else '') + '. Release the hold to resume.',
+        )
+
     try:
         # Skip superseded rows (impound-type correction, Returned to Sender
         # restart) — a returned-and-superseded sent Letter 1 must NOT count as

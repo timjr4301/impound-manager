@@ -68,6 +68,34 @@
     </button>
   </form>
   {% endif %}
+  {% if vehicle.status == 'ACTIVE' and not vehicle.letter_hold and current_user.is_heather %}
+  <button type="button" class="btn btn-outline-warning btn-sm {% if not show_flag %}ms-auto{% endif %} me-2"
+          data-bs-toggle="modal" data-bs-target="#letterHoldModal">
+    <i class="bi bi-pause-circle"></i> Hold Letters
+  </button>
+  <div class="modal fade" id="letterHoldModal" tabindex="-1">
+    <div class="modal-dialog modal-dialog-centered">
+      <div class="modal-content">
+        <form method="POST" action="{{ url_for('heather.letter_hold_set', vehicle_id=vehicle.id) }}">
+          <div class="modal-header">
+            <h5 class="modal-title"><i class="bi bi-pause-circle me-1"></i>Hold Letter Pipeline</h5>
+            <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+          </div>
+          <div class="modal-body">
+            <p class="small text-muted">Pauses this vehicle everywhere it'd otherwise show as overdue — doesn't
+              claim any letter requirement was satisfied, just stops it from nagging until you release the hold.</p>
+            <label class="form-label small mb-0 fw-semibold">Reason</label>
+            <input type="text" name="reason" class="form-control form-control-sm" value="boat" placeholder="e.g. boat">
+          </div>
+          <div class="modal-footer">
+            <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">Cancel</button>
+            <button type="submit" class="btn btn-warning btn-sm">Hold</button>
+          </div>
+        </form>
+      </div>
+    </div>
+  </div>
+  {% endif %}
   {% if show_letters %}
   <a href="{{ url_for('vehicle_letters', vehicle_id=vehicle.id) }}"
      class="btn btn-outline-primary btn-sm {% if not show_flag %}ms-auto{% endif %} me-2">
@@ -241,6 +269,25 @@
   {% if current_user.can_see_all %}
   <form method="POST" action="{{ url_for('vehicles_unsnooze', vehicle_id=vehicle.id) }}" class="flex-shrink-0">
     <button type="submit" class="btn btn-outline-light btn-sm">Un-snooze Now</button>
+  </form>
+  {% endif %}
+</div>
+{% endif %}
+
+{# ══ Letter Hold Banner ══ #}
+{% if vehicle.letter_hold %}
+<div class="alert alert-warning d-flex align-items-center gap-3 mb-4">
+  <i class="bi bi-pause-circle-fill fs-3"></i>
+  <div class="flex-grow-1">
+    <strong class="d-block">LETTER PIPELINE ON HOLD — {{ vehicle.letter_hold_reason or 'no reason given' }}</strong>
+    <span class="small">
+      Held by {{ vehicle.letter_hold_by or '—' }} on {{ vehicle.letter_hold_at.strftime('%m/%d/%Y') if vehicle.letter_hold_at else '—' }}.
+      Not being treated as overdue anywhere while this is on — doesn't mean any letter requirement was satisfied.
+    </span>
+  </div>
+  {% if current_user.is_heather %}
+  <form method="POST" action="{{ url_for('heather.letter_hold_release', vehicle_id=vehicle.id) }}" class="flex-shrink-0">
+    <button type="submit" class="btn btn-outline-dark btn-sm">Release Hold</button>
   </form>
   {% endif %}
 </div>

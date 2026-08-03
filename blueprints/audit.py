@@ -160,11 +160,16 @@ def _released_columns_present():
 
 
 def _active_not_ghost():
-    """Base population for every section: active, non-ghost vehicles."""
+    """Base population for every section: active, non-ghost vehicles. Also
+    excludes letter_hold vehicles (boats, etc. — Tim manually paused the
+    letter pipeline for them 08/02/2026) from every section here, same as
+    possible_release — the whole point of a hold is to stop a vehicle from
+    nagging across every queue, not just one."""
     return (
         Vehicle.query
         .filter(Vehicle.status == 'ACTIVE')
         .filter(Vehicle.possible_release.isnot(True))
+        .filter(Vehicle.letter_hold.isnot(True))
     )
 
 

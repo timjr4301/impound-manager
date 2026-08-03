@@ -5,6 +5,9 @@
 <div class="d-flex align-items-center mb-3 gap-2 flex-wrap">
   <h2 class="h4 mb-0 fw-bold"><i class="bi bi-envelope-open-fill me-2"></i>Envelopes</h2>
   <small class="text-muted">Scanned return-envelope images, matched to vehicles or awaiting manual review</small>
+  <a href="{{ url_for('heather.envelope_scan') }}" class="btn btn-primary btn-sm ms-auto">
+    <i class="bi bi-camera me-1"></i>Scan Returned Mail
+  </a>
 </div>
 
 <ul class="nav nav-tabs mb-3" role="tablist">
@@ -79,6 +82,11 @@
   {# ══════════════════ UNMATCHED ══════════════════ #}
   <div class="tab-pane fade" id="tab-unmatched">
     {% if unmatched %}
+    <div class="d-flex justify-content-end mb-2">
+      <button class="btn btn-outline-danger btn-sm" id="btn-clear-all-unmatched">
+        <i class="bi bi-x-circle me-1"></i>Clear All Unmatched — start fresh
+      </button>
+    </div>
     <div class="table-responsive">
       <table class="table table-sm align-middle">
         <thead class="table-light">
@@ -327,6 +335,23 @@ document.addEventListener('DOMContentLoaded', () => {
       }
     });
   });
+
+  const clearAllBtn = document.getElementById('btn-clear-all-unmatched');
+  if (clearAllBtn) {
+    clearAllBtn.addEventListener('click', async () => {
+      if (!confirm('Clear every scan currently in Unmatched? Nothing is deleted — they just stop showing here, same as discarding one at a time.')) return;
+      clearAllBtn.disabled = true;
+      try {
+        const resp = await fetch('/envelopes/unmatched/discard-all', { method: 'POST' });
+        const data = await resp.json();
+        if (!resp.ok) throw new Error(data.error || 'Request failed');
+        location.reload();
+      } catch (err) {
+        clearAllBtn.disabled = false;
+        alert('Failed: ' + err.message);
+      }
+    });
+  }
 });
 
 function decrementBadge(id) {

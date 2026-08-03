@@ -505,6 +505,19 @@ class Vehicle(db.Model):
     towbook_seen     = db.Column(db.Boolean, default=False)   # appeared in at least one Towbook CSV; only these are eligible for possible_release
     base44_id = db.Column(db.String(100))                     # ID after push to Base44 Tina Tracker
 
+    # Manual "pause the letter pipeline" override — added 08/02/2026 for boats
+    # (unclear/unsettled notice requirements, Tim wants them held rather than
+    # mailed right now). Deliberately manual per-vehicle, not auto-detected —
+    # "boat" shows up as wildly inconsistent text across Vehicle/Make/Model
+    # (Pontoon, Sea Ray, Bombardier Jetski, etc.), too unreliable to trust a
+    # keyword match for something this consequential. Does NOT claim
+    # compliance was met — it just stops the vehicle from being treated as
+    # urgent/overdue while someone decides what to actually do with it.
+    letter_hold = db.Column(db.Boolean, default=False)
+    letter_hold_reason = db.Column(db.String(200))
+    letter_hold_by = db.Column(db.String(100))
+    letter_hold_at = db.Column(db.DateTime)
+
     # Letter clock restart — impound_date is locked forever (never edited after
     # intake) and the 60-day title-eligibility clock always reads impound_date.
     # restart_date only re-anchors the LETTER deadline, e.g. Heather corrects a

@@ -257,6 +257,11 @@ def run_migrations(app):
                     ('repair_approved',         'BOOLEAN'),
                     ('repair_decided_by',       'VARCHAR(50)'),
                     ('repair_decided_at',       'TIMESTAMP'),
+                    # Manual "pause the letter pipeline" override (boats, etc.)
+                    ('letter_hold',             'BOOLEAN'),
+                    ('letter_hold_reason',      'VARCHAR(200)'),
+                    ('letter_hold_by',          'VARCHAR(100)'),
+                    ('letter_hold_at',          'TIMESTAMP'),
                 ]
                 for col_name, col_type in new_cols:
                     if col_name not in cols:

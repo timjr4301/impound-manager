@@ -150,3 +150,21 @@ def discard(scan_id):
     scan.discarded = True
     db.session.commit()
     return jsonify({'ok': True})
+
+
+@bp.route('/unmatched/discard-all', methods=['POST'])
+@_envelopes_required
+def discard_all_unmatched():
+    """Bulk 'start fresh' action for the Unmatched queue — sets discarded=True
+    on every current unmatched scan, same as discarding them one at a time.
+    Non-destructive: rows stay in the database (nothing is deleted), they just
+    stop showing in Unmatched, so this is reversible by hand if needed."""
+    scans = EnvelopeScan.query.filter(
+        EnvelopeScan.vehicle_id.is_(None),
+        EnvelopeScan.discarded.isnot(True),
+    ).all()
+    count = len(scans)
+    for scan in scans:
+        scan.discarded = True
+    db.session.commit()
+    return jsonify({'ok': True, 'count': count})
