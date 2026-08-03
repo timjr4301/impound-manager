@@ -754,12 +754,31 @@ def bmv_complete(vehicle_id):
     vehicle.bmv_stage = 'COMPLETE'
     vehicle.bmv_searched_date = date.today()
     vehicle.bmv_search_notes = request.form.get('notes', '').strip() or None
-    # Structured owner fields — these are what the letters actually print;
-    # the notes box is free text and never reaches a letter.
-    for f in ('owner_name', 'owner_address', 'owner_city', 'owner_state', 'owner_zip'):
+    # Structured owner/lienholder/2nd-party fields — these are what the
+    # letters actually print and what the Generate Letters page checks to
+    # decide which parties need a letter. The lienholder fields used to be
+    # collected only via free-text Notes above, which never reached a
+    # letter — confirmed 08/03/2026 (the Notes placeholder told staff to
+    # type "Lienholder: X" there, but nothing ever read it back out), so a
+    # lienholder found during BMV search could silently never get their
+    # required notice. Only set a field when a value is actually provided,
+    # same as the owner fields above, so leaving something blank here never
+    # erases a value entered earlier via the Edit page.
+    for f in ('owner_name', 'owner_address', 'owner_city', 'owner_state', 'owner_zip',
+              'lienholder_name', 'lienholder_address', 'lienholder_city',
+              'lienholder_state', 'lienholder_zip',
+              'owner_2_name', 'owner_2_address',
+              'lienholder_2_name', 'lienholder_2_address'):
         val = request.form.get(f, '').strip()
         if val:
             setattr(vehicle, f, val)
+    nada_str = request.form.get('nada_value', '').strip()
+    if nada_str:
+        try:
+            vehicle.nada_value = float(nada_str)
+            vehicle.nada_value_is_default = False
+        except ValueError:
+            pass
     vehicle.heather_complete = True
     vehicle.heather_complete_date = date.today()
     vehicle.updated_at = datetime.utcnow()
