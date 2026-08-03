@@ -6,10 +6,19 @@ guards (transport/relocation calls, Goose/PVG Brokerage container storage), a wo
 cross-checks Towbook's own letter-sent field against what IM thinks (652 real rows checked), Tina given full
 Heather-coverage permissions, a manual letter-pipeline hold for grandfathered junk (boats, old trailers) that
 stops it cluttering every queue, PO Box → USPS letter sending (UPS can't deliver there), 2nd-address delivery
-tracking for the "notify every address we found" policy, and several smaller UX fixes. Full detail in
-"NEW — August 2, 2026 (late evening session)" below. **Open for next session:** the impound-slip-vs-BMV-owner
-comparison feature (spec'd, not built), full USPS API/AutoDataDirect certified-mail integration (spec'd, not
-built), and the 159-vehicle Towbook/IM letter-status mismatch list Tim is working through by hand.
+tracking for the "notify every address we found" policy, and several smaller UX fixes — **plus a real billing
+bug fix** (POLICE, and some PPI, letters were printing "TOTAL BALANCE OWED: $0.00" — `total_owed` read raw
+override columns instead of the `effective_tow_rate`/`effective_storage_rate` fallback properties) and a
+2-attempt UPS Ship API 400 fix (real bug: field name is `Packaging` not `PackagingType` — **unverified as of
+end of session, Tim had not yet retried**). Staging force-pushed to match production (was 32 commits behind).
+Full detail in "NEW — August 2, 2026 (late evening session)" below. **Open for next session — Tim's stated
+priority: verify the whole multi-party letter system end to end** — confirm the system correctly identifies
+every party on a call who needs a letter (owner, 2nd address, lienholder, and the not-yet-built impound-slip
+owner for POLICE) and that there's a clean, clear way to see at a glance which parties on a given vehicle have
+been sent letters and which haven't (builds on tonight's 2nd-recipient tracking work). Also open: confirm the
+UPS fix actually worked, the impound-slip-vs-BMV-owner comparison feature (spec'd, not built), full USPS
+API/AutoDataDirect certified-mail integration (spec'd, not built), and the 159-vehicle Towbook/IM
+letter-status mismatch list Tim is working through by hand.
 
 _Previous entry: August 1, 2026 — training-video tooling session (separate track). Built the 10-vehicle
 training baseline (`seed_training_baseline.py`) + a Marvel/DC intake-practice kit (`marvel_impound_test_kit/`),
@@ -211,6 +220,35 @@ calls, Goose/PVG, the boat/trailer hold) — each time using a real screenshot/d
 doing this; it's what caught the Goose/PVG case (would have been missed by a Call-Reason-only guard) and
 avoided over-broadening the storage-account exclusion into a compliance risk.
 
+**Real billing bug found and fixed same night, on a live printed letter (2008 Chrysler 300, POLICE, owner
+Richard Prentiss)** — `Vehicle.total_owed`/`total_storage_owed` read the raw `tow_fee`/`daily_storage_rate`
+columns directly instead of the `effective_tow_rate`/`effective_storage_rate` properties that already
+correctly implement "per-vehicle override wins, else fall back to the class default (PPI) or the requesting
+department's rate (POLICE)." Since POLICE never sets those raw override columns at all (it's always been
+department-rate-driven), **every POLICE Notice of Lien letter printed "TOTAL BALANCE OWED: $0.00,"** and any
+PPI vehicle relying on the default rate (no manual override entered) had the same silent gap. Fixed to use
+the `effective_*` properties — same source of truth the Financial panel already used. Also found and fixed:
+the Notice of Lien (POLICE) letter template had **no vehicle valuation line at all** — `vehicle.nada_value`
+was already shown on the First/Second Notice template but never on this one; added as a 5th column on the
+existing vehicle-info table.
+
+**UPS Ship API 400 — two attempts, real lesson in the process.** After the error-surfacing fix above revealed
+the real UPS error ("Missing or invalid Package PackagingType Code"), the *first* fix (wrap `Package` in a
+list) was wrong — Tim retried, identical error. Second attempt went straight to UPS's own official spec repo
+(`github.com/UPS-API/api-documentation`, `Shipping.yaml`) instead of guessing again: the real bug is the field
+name — it's `Packaging`, not `PackagingType`, always has been — and the array-wrap from attempt 1 was itself
+wrong for a single package (UPS's own examples show the array form is only for multi-piece/LTL shipments).
+UPS's error text named "PackagingType," which matched our (wrong) field name and gave false confidence during
+the first attempt — the error text turned out to be generic/templated, not derived from the actual payload
+keys sent. **Tim had not yet retried this fix as of end of session — next session, check whether it actually
+worked.** See [[feedback-impound-manager-strict-rules]] "Tenth occurrence" for the process lesson.
+
+**Staging synced to match production** — was 32 commits behind (further back than tonight, included the
+WP-6-9 promotion and training-tooling work too). Force-pushed `origin/main` onto `origin/staging` after
+confirming staging had no exclusive/unpromoted work of its own (its 13 "exclusive" commits were the
+pre-cherry-pick originals of the same WP-6-9/training work already on main under different hashes — nothing
+lost in substance). Confirmed via `/version` on both hosts.
+
 ### ✅ NEW — August 2, 2026 overnight (WP-6–9 promoted to production + Task 2 gate bug + Letter 1 backfill)
 
 **WP-6 through WP-9 promoted to production**, after Tim ran his own UAT pass on staging (walked through inline
@@ -411,6 +449,21 @@ Awaiting Title → To Locate → Key Row → Inspection Pool → Needs Repairs
   entry above for full detail.
 
 ### ⬜ Open / not started (next-session queue)
+- ⬜ **PRIORITY (Tim's stated goal for next session) — verify the whole multi-party letter system end to end.**
+  Confirm the system correctly identifies every party on a call who needs a letter — owner, 2nd address
+  (title vs. LKA), lienholder, and eventually the impound-slip owner for POLICE — and that there's a clean,
+  clear way to see at a glance which parties on a given vehicle have been sent letters vs. still pending.
+  Tonight built the underlying data (2nd-recipient delivery/RTS tracking, per-recipient status blocks on the
+  Certified Letter Timeline) but it has NOT been exercised on a real multi-party vehicle yet. Start here: pick
+  a real vehicle with an actual 2nd address or lienholder, walk the full send→track→confirm flow, and see if
+  it actually reads clearly or needs another UI pass (a round-level "2 of 3 sent" summary badge was designed
+  but not built — see the "2nd-address delivery/return tracking" section of the late-evening entry above).
+- ⬜ **Verify the UPS Ship API 400 fix actually worked** — 2nd attempt (field renamed `PackagingType` →
+  `Packaging`, array-wrap from the 1st attempt reverted) is live but **Tim had not retried by end of session**.
+  Do this before anything else UPS-related — if it's still broken, that's new information, not the same bug.
+- ⬜ **Verify the `total_owed` billing fix** — confirm a real POLICE letter now shows a real dollar amount
+  (was $0.00 for a real Chrysler 300/Richard Prentiss letter, root-caused and fixed same night, not yet
+  re-verified on a live letter print).
 - ⬜ **159-vehicle Towbook/IM letter-status mismatch list** — IN PROGRESS, Tim working through by hand with
   real Towbook evidence per vehicle. Not urgent (evidence suggests most aren't real missing letters — see the
   late-evening entry above), but not done either.
@@ -428,9 +481,6 @@ Awaiting Title → To Locate → Key Row → Inspection Pool → Needs Repairs
   already has an "Import from ADD123" button, so B&J likely has an existing account relationship) before
   building a fresh integration with a different vendor (Lob.com, SimpleCertifiedMail, USPS's own Web Tools
   API). Comparable in size to the original UPS integration — real project, not a quick add.
-- ⬜ **UPS Ship API 400 error — root cause still unknown.** The error-surfacing fix (shows UPS's real reason
-  instead of a generic "400 Bad Request") is live, but Tim hasn't retried the 2008 Pontiac G5 that originally
-  hit this and reported back what it actually says. Do that first before guessing at the real cause.
 - ⬜ **Placeholder-name safeguard** — reject obvious placeholder text ("Impound Slip," "Individual," "Same,"
   etc.) from ever landing in `owner_name`, so it can't print on a real letter/title packet. Tim said hold off —
   still mid-investigation with Tina on where these placeholders actually come from.
