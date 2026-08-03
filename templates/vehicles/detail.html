@@ -535,14 +535,16 @@
 
       {# Task 2 #}
       {% set l1_clock_days = vehicle.days_since_letter_clock_start %}
-      <div class="card flex-fill border {% if l1_sent %}border-success bg-success bg-opacity-10{% elif l1_clock_days >= 5 %}border-danger bg-danger bg-opacity-10{% elif l1_clock_days >= 3 %}border-warning bg-warning bg-opacity-10{% else %}border-secondary bg-light{% endif %}" style="min-width:140px;max-width:220px;">
+      <div class="card flex-fill border {% if l1_sent %}border-success bg-success bg-opacity-10{% elif vehicle.letter_hold %}border-secondary bg-light{% elif l1_clock_days >= 5 %}border-danger bg-danger bg-opacity-10{% elif l1_clock_days >= 3 %}border-warning bg-warning bg-opacity-10{% else %}border-secondary bg-light{% endif %}" style="min-width:140px;max-width:220px;">
         <div class="card-body py-2 px-3">
-          <div class="small fw-semibold {% if l1_sent %}text-success{% elif l1_clock_days >= 5 %}text-danger{% endif %}">
+          <div class="small fw-semibold {% if l1_sent %}text-success{% elif not vehicle.letter_hold and l1_clock_days >= 5 %}text-danger{% endif %}">
             {% if l1_sent %}<i class="bi bi-check-circle-fill me-1"></i>{% else %}<i class="bi bi-circle me-1"></i>{% endif %}
             Task 2 — 1st Notice Letter
           </div>
           {% if l1_sent %}
           <div class="text-success" style="font-size:.75rem;">Sent {{ l1.sent_date|mdY }}</div>
+          {% elif vehicle.letter_hold %}
+          <div class="text-muted" style="font-size:.75rem;">On Hold — {{ vehicle.letter_hold_reason or 'letters paused' }}</div>
           {% elif l1_clock_days >= 5 %}
           <div class="text-danger fw-semibold" style="font-size:.75rem;">OVERDUE — due {{ (vehicle.letter_clock_start + timedelta(days=5)) if vehicle.letter_clock_start else '—' }}</div>
           {% elif not t1_done %}
