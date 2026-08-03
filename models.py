@@ -1026,6 +1026,16 @@ class CertifiedLetter(db.Model):
     due_date = db.Column(db.Date, nullable=False)
     sent_date = db.Column(db.Date)
     tracking_number = db.Column(db.String(50))
+    # 'usps' when sent via the PO Box path (UPS doesn't deliver to PO boxes —
+    # added 08/02/2026); NULL/'ups' means the normal UPS Ship API / manual-UPS
+    # path, same as before this column existed.
+    mail_method = db.Column(db.String(10))
+    # SOP requirement for a PO Box recipient (per bmv_document_scanner.py's
+    # po_box flag): "must pull confirmation from tow lien AND report of
+    # delivery, or BMV will reject the packet." Staff check this off when
+    # marking sent via USPS so there's an actual record, not just a warning
+    # nobody has to acknowledge.
+    po_box_sop_confirmed = db.Column(db.Boolean, default=False)
     # 2nd label's tracking number — only set when this letter's vehicle has a
     # 2nd owner/lienholder on file and Print Label creates a separate UPS
     # shipment addressed to that second party alongside the primary one.
@@ -1158,10 +1168,14 @@ class CertifiedLetter(db.Model):
 
     @property
     def is_overdue(self):
+        if self.vehicle and self.vehicle.letter_hold:
+            return False
         return self.sent_date is None and self.due_date < date.today()
 
     @property
     def is_due_today(self):
+        if self.vehicle and self.vehicle.letter_hold:
+            return False
         return self.sent_date is None and self.due_date == date.today()
 
     @property

@@ -342,6 +342,11 @@ def run_migrations(app):
                     conn.execute(text('ALTER TABLE certified_letters ADD COLUMN return_to_sender_2 BOOLEAN'))
                 if 'returned_date_2' not in cols:
                     conn.execute(text('ALTER TABLE certified_letters ADD COLUMN returned_date_2 DATE'))
+                # PO Box → USPS letter sending (UPS doesn't deliver to PO boxes).
+                if 'mail_method' not in cols:
+                    conn.execute(text('ALTER TABLE certified_letters ADD COLUMN mail_method VARCHAR(10)'))
+                if 'po_box_sop_confirmed' not in cols:
+                    conn.execute(text('ALTER TABLE certified_letters ADD COLUMN po_box_sop_confirmed BOOLEAN'))
                 # Backfill letter_kind on pre-existing letter_number 1/2 rows
                 # (created before the 5-letter system existed) so their print
                 # content routes correctly. Safe to re-run — only touches
@@ -1990,7 +1995,8 @@ def create_app():
     # ── Letters ────────────────────────────────────────────────────────────────
 
     def _finalize_letter_sent(letter, sent_date, tracking_number=None,
-                               reference_number_2=None, notes=None, ups_status=None):
+                               reference_number_2=None, notes=None, ups_status=None,
+                               mail_method=None, po_box_sop_confirmed=None):
         """Shared by the manual mark-sent form and the in-app UPS label route:
         stamps the letter sent, spawns PPI's Letter 2, and fires letter_triggers."""
         letter.sent_date = sent_date
@@ -2002,6 +2008,10 @@ def create_app():
             letter.ups_status = ups_status
         if notes is not None:
             letter.notes = notes or letter.notes
+        if mail_method is not None:
+            letter.mail_method = mail_method or None
+        if po_box_sop_confirmed is not None:
+            letter.po_box_sop_confirmed = po_box_sop_confirmed
 
         vehicle = letter.vehicle
 
@@ -2064,6 +2074,15 @@ def create_app():
             if block:
                 flash(block, 'danger')
                 return redirect(url_for('vehicles_detail', vehicle_id=letter.vehicle_id))
+            mail_method = request.form.get('mail_method', '').strip() or None
+            po_box_sop_confirmed = request.form.get('po_box_sop_confirmed') == '1'
+            if mail_method == 'usps' and letter.vehicle.po_box_flag and not po_box_sop_confirmed:
+                flash(
+                    'Confirm the tow lien + delivery report SOP checkbox before marking a '
+                    'PO Box letter sent — BMV will reject the packet without it.',
+                    'danger',
+                )
+                return redirect(url_for('letters_mark_sent', letter_id=letter.id))
             sent_str = request.form.get('sent_date', '').strip()
             sent_date = date.fromisoformat(sent_str) if sent_str else date.today()
             message = _finalize_letter_sent(
@@ -2071,6 +2090,8 @@ def create_app():
                 tracking_number=request.form.get('tracking_number', '').strip(),
                 reference_number_2=request.form.get('reference_number_2', '').strip(),
                 notes=request.form.get('notes', '').strip(),
+                mail_method=mail_method,
+                po_box_sop_confirmed=po_box_sop_confirmed,
             )
             flash(message, 'success')
             # WP-6: the inline Task Pipeline modal submits here too — send it

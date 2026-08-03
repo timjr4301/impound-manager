@@ -26,6 +26,17 @@
     </div>
     {% endif %}
 
+    {% if letter.vehicle.po_box_flag %}
+    <div class="alert alert-danger d-flex align-items-start gap-2">
+      <i class="bi bi-mailbox fs-5"></i>
+      <div>
+        <strong>PO Box address — UPS cannot deliver here.</strong><br>
+        Send this one through the post office instead — use the USPS section below, not a UPS label.
+        Per SOP: pull confirmation from tow lien AND report of delivery, or BMV will reject the packet.
+      </div>
+    </div>
+    {% endif %}
+
     {# Letter summary card #}
     <div class="card shadow-sm mb-4 {% if letter.is_overdue %}border-danger{% endif %}">
       <div class="card-body">
@@ -104,7 +115,7 @@
       </div>
     </div>
     {% endif %}
-    {% elif ups_configured and not letter.tracking_number %}
+    {% elif ups_configured and not letter.tracking_number and not letter.vehicle.po_box_flag %}
     <form method="POST" action="{{ url_for('letters_create_ups_label', letter_id=letter.id) }}" class="mb-4">
       <button type="submit" class="btn btn-outline-primary w-100" {% if send_block %}disabled{% endif %}>
         <i class="bi bi-upc-scan"></i> Create UPS Label &amp; Mark Sent
@@ -121,12 +132,29 @@
             <input type="date" class="form-control" id="sent_date" name="sent_date"
                    value="{{ today.isoformat() }}" required>
           </div>
+          {% if letter.vehicle.po_box_flag %}
+          <input type="hidden" name="mail_method" value="usps">
+          <div class="mb-3">
+            <label for="tracking_number" class="form-label fw-semibold">USPS Certified Mail Tracking Number</label>
+            <input type="text" class="form-control font-monospace" id="tracking_number" name="tracking_number"
+                   value="{{ letter.tracking_number or '' }}" placeholder="9407 1000 0000 0000 0000 00">
+            <div class="form-text">From the Certified Mail receipt at the post office.</div>
+          </div>
+          <div class="mb-3 form-check">
+            <input type="checkbox" class="form-check-input" id="po_box_sop_confirmed" name="po_box_sop_confirmed" value="1"
+                   {% if letter.po_box_sop_confirmed %}checked{% endif %} required>
+            <label class="form-check-label small" for="po_box_sop_confirmed">
+              Confirmed — pulled tow lien AND report of delivery for this PO Box packet
+            </label>
+          </div>
+          {% else %}
           <div class="mb-3">
             <label for="tracking_number" class="form-label fw-semibold">UPS Tracking Number</label>
             <input type="text" class="form-control font-monospace" id="tracking_number" name="tracking_number"
                    value="{{ letter.tracking_number or '' }}" placeholder="1Z1234560123456789">
             <div class="form-text">From the UPS shipping label (optional but recommended) — or use "Create UPS Label" above to fill this in automatically.</div>
           </div>
+          {% endif %}
           <div class="mb-3">
             <label for="reference_number_2" class="form-label fw-semibold">Reference #2 <span class="text-muted fw-normal">(optional)</span></label>
             <input type="text" class="form-control font-monospace" id="reference_number_2" name="reference_number_2"
