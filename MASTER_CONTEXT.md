@@ -1,14 +1,15 @@
 # [IMPOUND MANAGER — MASTER CONTEXT DOC]
-_Last updated: August 2, 2026 (overnight) — WP-6–9 promoted to production after Tim's own staging UAT, plus
-two real defects found and fixed while working real vehicles on production immediately after: (1) the new
-Task 2 inline card wrongly hid the Send Now button and mislabeled Letter 1 as locked until day 5 — day 5 is
-the DUE-BY deadline, never a minimum wait; (2) confirmed and closed (for existing data) the long-open
-"Towbook-synced cars get no Letter 1 record" gap via `generate_letter1_backfill.py` (210 rows created).
-**⚠ The root cause is NOT fixed** — `towbook_import.py` still does not create Letter 1 on new daily imports,
-so this will recur every day until that's addressed. Also surfaced: **626 "Overdue Letters" now showing on
-the dashboard**, almost all old backfilled historical debris (some to 2019) that was invisible with no
-letter row — needs a cleanup pass against a current Towbook export, not urgent, not real new violations.
-See "NEW — August 2, 2026" below for full detail._
+_Last updated: August 2, 2026 (late evening session) — **the towbook_import.py root cause IS NOW FIXED.**
+New Towbook-synced vehicles get a real Letter 1 record automatically on import — the gap that caused the
+whole 08/02 overnight backfill can't recur. Also shipped the same night: two more "not a real impound"
+guards (transport/relocation calls, Goose/PVG Brokerage container storage), a working CSV-upload tool that
+cross-checks Towbook's own letter-sent field against what IM thinks (652 real rows checked), Tina given full
+Heather-coverage permissions, a manual letter-pipeline hold for grandfathered junk (boats, old trailers) that
+stops it cluttering every queue, PO Box → USPS letter sending (UPS can't deliver there), 2nd-address delivery
+tracking for the "notify every address we found" policy, and several smaller UX fixes. Full detail in
+"NEW — August 2, 2026 (late evening session)" below. **Open for next session:** the impound-slip-vs-BMV-owner
+comparison feature (spec'd, not built), full USPS API/AutoDataDirect certified-mail integration (spec'd, not
+built), and the 159-vehicle Towbook/IM letter-status mismatch list Tim is working through by hand.
 
 _Previous entry: August 1, 2026 — training-video tooling session (separate track). Built the 10-vehicle
 training baseline (`seed_training_baseline.py`) + a Marvel/DC intake-practice kit (`marvel_impound_test_kit/`),
@@ -103,6 +104,112 @@ An audit against the codebase found most of the old BUILD QUEUE was already ship
 **Stored-data backfill (boot migration in `run_migrations`)** — PPI `letter_number=2` rows created before commit f3cca7d, or imported verbatim from Towbook's "SECOND LETTER Due Date" column by `towbook_letter_backfill.py`, could carry a stored `due_date` disagreeing with the corrected rule (live example: vehicle 5354 / stock 28559544 — Letter 1 sent 06/11, stored due 07/10 vs computed 07/11, so Heather's dashboard and the detail page/audit disagreed by a day). The backfill sets `due_date = letter1.sent_date + 30` on non-superseded PPI letter-2 rows whose Letter 1 is sent, only when it differs; idempotent; logs `[letter2_backfill] … N row(s) changed` on boot. **POLICE chains need no equivalent:** their 2nd notices (letter_number 4/6) are only created by `letter_triggers.py`, whose formula has always been trigger `sent_date + 30`; anomalous POLICE letter-2 rows (Towbook import — POLICE's real 2nd owner notice is letter_number 4) are deliberately left untouched.
 
 **Last delivery-anchored logic/wording swept out** — the vehicle-detail **Task 3 card was still computing `task3_open` off `delivery_confirmed_date + 10`** (pre-de71135 remnant) with an "Awaiting delivery confirmation" wait state; now `l1.sent_date + 30` with subtitle "(30d after Letter 1 sent)". Stale comments fixed in `app.py` (`_finalize_letter_sent`, mark-sent gate), `task_engine.py` module docstring, `models.py` (`task_2_letter_completed_at`); removed the now-unused `task_engine.letter_delivery_date` helper; corrected letter-workflow-guide test item 6 (UPS Refresh: delivery sets POD only, due date does NOT shift). Delivery tracking itself (POD records, Awaiting Delivery tabs, auto-poll) is untouched — delivery just never gates or times Letter 2. Verified locally end-to-end: backfill scope (PPI-only, superseded/POLICE untouched), all readers agree on 07/11 for the 5354 replica, detail page renders sent-anchored and ignores early delivery.
+
+### ✅ NEW — August 2, 2026 (late evening session — root cause fixed + 10 commits)
+
+**The root cause is fixed.** `towbook_import.py` (the daily CSV pipeline — almost every vehicle) and
+`towbook_api.py` (the dormant Towbook-API path, same fix mirrored so it can't reintroduce the gap the day
+Towbook grants API access) now create a real `letter_number=1` `CertifiedLetter` row on every new-vehicle
+insert, exactly the same way the manual "Add Vehicle" form (`app.py: vehicles_new`) already did — due date
+`impound_date + PPI/POLICE_LETTER1_DAYS`, correct `letter_kind`/`recipient_type`, `letter_triggers.on_vehicle_created`
+called for lienholder parity. This is the actual fix for the item flagged "NOT fixed" in the 08/02 overnight
+entry below — new Towbook-synced cars can no longer silently skip the letter queue.
+
+**Two "not a real impound" guards added the same night**, both confirmed against real examples before being
+coded (not guessed): (1) **Transport/relocation calls** — Call Reason `TRANSPORT`/`RELOCATE` (e.g. Stock
+28787363/28985258, Account "Salvato Auctions") — B&J is paid to hold the vehicle for a broker until another
+transporter picks it up, not actually impounding it. (2) **Goose / PVG Brokerage Inc.** — pays B&J to store
+shipping containers, same category. Deliberately a **named-account list**, not a keyword match on "storage"
+or "broker" — real private-property accounts like "EXTRA SPACE STORAGE" and "PRESTIGE STORAGE MANAGEMENT"
+have real impounded vehicles needing real letters; a keyword match would have wrongly skipped those.
+
+**1st Letter Sent Cross-Check (`/audit`)** — new upload card, same trusted drag-and-drop pattern as the
+existing Towbook Release Cross-Reference. Answers: does Towbook's own "1st Letter Sent" column agree with
+what IM itself thinks is sent? First attempt was a Render Shell paste-a-CSV script
+(`compare_letter1_status.py`) — abandoned, large pastes weren't registering reliably in the browser
+terminal (`cat > file` came back empty). The real, working version lives in `blueprints/audit.py`
+(`letter1_check`/`letter1_clear` routes), auto-detects either Towbook export layout.
+Run against a real 652-row export: **463 agree, 15 Towbook-blank-but-IM-sent (Towbook's just behind, normal),
+159 Towbook-filled-but-IM-not-sent, 15 unmatched.** ⚠ Strong evidence the 159 aren't real missing letters —
+sample rows showed "1st Letter Sent" timestamps *hours* after impound, too fast to be a real mailing
+confirmation; more likely a task-due timestamp, not a send confirmation. Tim is working through the 159 by
+hand with real Towbook evidence per vehicle (Files tab — View_Print Label.pdf / Proof of Delivery.docx),
+confirmed some are real (e.g. Goose/PVG containers, a Salvato transport Camry) — **not done, in progress.**
+
+**Companion breakdown script** — `overdue_letters_breakdown.py` (read-only, groups the overdue-letters
+backlog by account/type/age, flags broker-sounding account names) — built, never actually run; superseded in
+practice by the CSV cross-check above.
+
+**Tina given full Heather-coverage permissions** — confirmed with Tim: Daily Intake (`_DAILY_INTAKE_ROLES`
+in `blueprints/heather.py`) and Undo Release (`User.can_unrelease` in `models.py`) both explicitly excluded
+`tina` by original design, not oversight — opened up now so Tina can actually cover Heather's whole job when
+Heather is out. Everything else (dashboard, edit vehicles, generate/send letters, verify possible-release)
+already included Tina.
+
+**Manual letter-pipeline hold ("boats, grandfathered junk")** — new `Vehicle.letter_hold` +
+`letter_hold_reason/by/at`. A "Hold Letters" button (vehicle header) pauses a vehicle everywhere it'd
+otherwise show as overdue/urgent — `task_engine.compute_task` early-return (mirrors the existing
+`possible_release` pattern but GREEN not RED), excluded from `/audit`'s `_active_not_ghost()` base population.
+**Deliberately manual, not auto-detected** — "boat" shows up as wildly inconsistent text across
+Vehicle/Make/Model (Pontoon, Sea Ray, Bombardier Jetski, THOMPSON SEA MT...), too unreliable to keyword-match
+for something this consequential. Does NOT claim any letter requirement was satisfied — just stops the
+nagging. Confirmed real examples: 2007 Bentley Pontoon (2418 days in storage), a 2000 Stoughton 53ft trailer.
+**Two real bugs found testing this live, both fixed same session:** (1) `CertifiedLetter.is_overdue`/
+`is_due_today` didn't know about the hold, so the Certified Letter Timeline still showed red/overdue under an
+active hold — fixed at the model level so it cascades everywhere those properties are read. (2) The Task 2
+card computes its own red/yellow/overdue styling **inline** from `days_since_letter_clock_start`, completely
+independent of `is_overdue` — missed by fix #1, patched separately. **Watch for more spots like this if the
+hold ever looks like it's not fully suppressing something** — the pattern is "search for anywhere overdue
+styling is computed inline instead of through the model property."
+
+**PO Box → USPS letter sending** — UPS cannot deliver to PO boxes; `Vehicle.po_box_flag` already existed
+(set by the LKA scanner) but was **completely invisible in the UI** before tonight — the "critical" SOP
+warning it generates ("must pull tow lien + delivery report or BMV rejects the packet") was only ever
+returned as JSON, never rendered anywhere. Now: a clear banner on the vehicle page itself, and both Mark Sent
+paths (standalone page + inline Task Pipeline modal) switch to a USPS-specific flow when `po_box_flag` is
+set — hides "Create UPS Label" (would fail/be wrong for a PO box), relabels the tracking field for Certified
+Mail, and requires a new `po_box_sop_confirmed` checkbox before submission so the SOP requirement is an
+actual record, not just a warning nobody has to acknowledge. New `CertifiedLetter.mail_method` ('usps'/null)
+drives a "Sent via USPS" badge instead of the normal UPS-tracked display. **What this does NOT do:** actually
+create USPS postage or auto-track delivery — Certified Mail still gets bought at the counter (or via a free
+USPS Click-N-Ship account) and tracked by hand on usps.com. Tim wants real one-click electronic certified
+mail like AutoDataDirect apparently offers — **worth checking with ADD directly (the app already has an
+"Import from ADD123" button, so B&J has some existing relationship) before building a fresh integration with
+a different vendor.** Real USPS API auto-tracking (parity with the UPS auto-poll) is a separate, comparably-
+sized project to the original UPS integration — not started.
+
+**2nd-address delivery/return tracking** — Jim's policy: when a PPI owner's title address and LKA address
+genuinely differ, notify both (real example: 2017 Nissan Rogue, VIN 5N1AT2MT6HC865220, owner Edward Karaba —
+title address 4 years stale in Dublin, LKA address 2 months old in Columbus). The "2nd owner" mechanism
+already existed (built for joint title owners) and turned out to work identically for "same owner, 2nd
+address" with zero data-model change needed — but had **no delivery/RTS tracking at all** for the 2nd
+recipient, only a POD image pull. Traced `title_eligible_date` (the PPI 60-day clock) first to confirm it
+only ever reads the primary recipient — confirmed safe to extend. New `delivery_confirmed_date_2`/
+`return_to_sender_2`/`returned_date_2` (purely informational, never read by the compliance clock), a
+`letters_confirm_delivery` recipient=2 branch, a new lightweight `letters_mark_returned_2` route (no outcome
+choice, no round restart — unlike the primary's `letters_returned_to_sender`, which is much deeper: it
+directly drives `title_eligible_date` and already explicitly punts on lienholder returns). Auto-poll
+(`ups_poll.py`) extended to check the 2nd tracking number's delivery/RTS status too, not just pull its POD.
+
+**Smaller fixes, same session:**
+- **BMV Done redirect** — `heather.bmv_complete` always bounced to the dashboard regardless of where the
+  form was submitted from; now returns to `request.referrer` (same-origin only) so marking BMV done from a
+  vehicle's own page stays on that page instead of losing your place.
+- **UPS Ship API error surfacing** — `create_label()` called `raise_for_status()` before ever reading the
+  response body, so every failure showed as an opaque "400 Client Error: Bad Request" with no indication of
+  what UPS actually objected to. Now parses the real error body (same shape `void_shipment()` already parsed
+  correctly). **Not yet verified against a real failure** — Tim hasn't retried the 2008 Pontiac G5 that
+  originally hit this and reported back what it actually says.
+- **Envelopes tab** — added a "Scan Returned Mail" button (previously no path from the review page to the
+  actual scanner) and a non-destructive "Clear All Unmatched — start fresh" bulk action (same `discarded`
+  flag as discarding one at a time, just in bulk).
+- **Today's Tasks Overdue tab** — was sorted oldest-due-date-first, burying recently-overdue (probably real)
+  items under 400+-day-old stale backlog; now newest-first.
+
+**Process note:** three real examples were confirmed live with Tim before any guard got coded (transport
+calls, Goose/PVG, the boat/trailer hold) — each time using a real screenshot/document, not a guess. Keep
+doing this; it's what caught the Goose/PVG case (would have been missed by a Call-Reason-only guard) and
+avoided over-broadening the storage-account exclusion into a compliance risk.
 
 ### ✅ NEW — August 2, 2026 overnight (WP-6–9 promoted to production + Task 2 gate bug + Letter 1 backfill)
 
@@ -298,16 +405,38 @@ Awaiting Title → To Locate → Key Row → Inspection Pool → Needs Repairs
 - ✅ **WP-6 through WP-9 UAT + promote to production** — DONE August 2, 2026 overnight. Tim UAT'd all four on
   staging, promoted to production, plus a real Task 2 gating bug found and fixed same session. See the
   "August 2, 2026 overnight" entry above for full detail.
+- ✅ **PRIORITY — `towbook_import.py` never creates a Letter 1 record** — DONE August 2, 2026 late evening.
+  Root cause actually fixed (not just backfilled) in both `towbook_import.py` and `towbook_api.py`, plus two
+  "not a real impound" guards (transport/relocation, Goose/PVG Brokerage). See the "late evening session"
+  entry above for full detail.
 
 ### ⬜ Open / not started (next-session queue)
-- ⬜ **PRIORITY — `towbook_import.py` never creates a Letter 1 record.** Root cause behind the missing-letters
-  gap found/backfilled 08/02 (210 vehicles). The backfill fixed existing data but NOT the ongoing gap — every
-  new Towbook-synced vehicle tomorrow will have the same problem unless this is fixed at the source. This is
-  the same item as "VERIFY: fresh Towbook-synced car → 1st-letter queue" below, now confirmed real and urgent.
-- ⬜ **626 "Overdue Letters" cleanup** — surfaced by the 08/02 Letter-1 backfill; almost all pre-existing ACTIVE
-  vehicles (some since 2019) that were actually resolved years ago and never closed out, now visible because
-  they finally have a letter row. Needs a cross-check against a current Towbook export (same pattern as the
-  July 28 release reconciliation) to bulk-resolve, not one-by-one. Not urgent, but don't let it sit forever.
+- ⬜ **159-vehicle Towbook/IM letter-status mismatch list** — IN PROGRESS, Tim working through by hand with
+  real Towbook evidence per vehicle. Not urgent (evidence suggests most aren't real missing letters — see the
+  late-evening entry above), but not done either.
+- ⬜ **Impound-slip-vs-BMV-owner comparison** — Jim's policy: for POLICE impounds, check the physical impound
+  slip's own Owner field against what BMV search finds; if they're a different person, that person also needs
+  a letter. Spec'd in detail (upload the slip photo — already sitting in Towbook, needs saving+uploading here
+  — auto-read with the same LKA/Title AI reader, compare, auto-populate the existing "2nd owner" slot if they
+  differ, which already triggers a 2nd letter automatically). **Not built.** Open question from Tim, unresolved:
+  does this replace Tina's existing manual Towbook workaround (she manually enters "driver" as an individual
+  + "owner" separately in Towbook itself to make Towbook's own letter auto-populate work, then Tim has to
+  remove the driver entry after so it doesn't pollute "BMV packages") or would that keep happening regardless?
+- ⬜ **Full USPS API / electronic certified-mail integration** — tonight's PO Box fix is manual-tracking-number
+  only (buy Certified Mail at the counter or via free Click-N-Ship, check usps.com by hand). Tim wants real
+  one-click certified mail like AutoDataDirect apparently offers — **check with ADD directly first** (the app
+  already has an "Import from ADD123" button, so B&J likely has an existing account relationship) before
+  building a fresh integration with a different vendor (Lob.com, SimpleCertifiedMail, USPS's own Web Tools
+  API). Comparable in size to the original UPS integration — real project, not a quick add.
+- ⬜ **UPS Ship API 400 error — root cause still unknown.** The error-surfacing fix (shows UPS's real reason
+  instead of a generic "400 Bad Request") is live, but Tim hasn't retried the 2008 Pontiac G5 that originally
+  hit this and reported back what it actually says. Do that first before guessing at the real cause.
+- ⬜ **Placeholder-name safeguard** — reject obvious placeholder text ("Impound Slip," "Individual," "Same,"
+  etc.) from ever landing in `owner_name`, so it can't print on a real letter/title packet. Tim said hold off —
+  still mid-investigation with Tina on where these placeholders actually come from.
+- ⬜ **626 "Overdue Letters" cleanup, remainder** — the Towbook Release Cross-Reference (`/audit` Section 1)
+  will auto-clear genuinely-released vehicles once Tim uploads a release-history export; the 159-mismatch work
+  above is a separate, more manual piece of the same overall backlog.
 - ⬜ **38 remaining vehicles from the pre-existing overdue-Letter-1 backlog** — full VIN list given to Tim
   08/02 to cross-check against Towbook (39 found, 1 — the Silverado, invoice #728501 — already resolved:
   it was mailed manually via ups.com 07/15 and is now recorded). For any that Towbook confirms were actually
@@ -317,7 +446,6 @@ Awaiting Title → To Locate → Key Row → Inspection Pool → Needs Repairs
 - ⬜ **Black Book URL** — the valuation button points at the marketing site; swap in the exact B&J subscriber-portal login URL when Tim provides it.
 - ⬜ **VinAudit (Build 14)** — blocked on `VINAUDIT_API_KEY` in Render; build the auto-lookup once the key is set.
 - ⬜ **Per-class tow rates** — only storage is class-based; tow is flat $144 (editable per ticket). Awaiting Tim's light/medium/heavy tow numbers if tow should scale too.
-- ⬜ ~~VERIFY: fresh Towbook-synced car → 1st-letter queue~~ — CONFIRMED REAL 08/02 (see PRIORITY item at the top of this list — same issue, now verified and needing an actual code fix in `towbook_import.py`, not just verification).
 - ⬜ **Image backup + monthly purge** — retention design decided (nightly off-site backup; monthly manual purge that KEEPS legal-evidence images = UPS PODs + damage photos; purge refuses to delete anything not already backed up). **BLOCKED on Tim's IT dept picking a storage destination** (on-prem NAS / M365 / Google / S3 / Backblaze — build is destination-agnostic). This is also the long-term fix for the base64-blobs-in-Postgres memory driver.
 - ⬜ **Relo-trans cars** — transport cars staged in the lot are NOT impounds but sit in inventory generating letter/storage tasks. Tim researching how to categorize them (likely a "Relo / Transport" tag that keeps them in inventory but out of the impound letter/title pipeline). 2 currently in the audit list left untouched.
 - ⬜ Disposition follow-ups: auction-event edit page; per-load Ohio Steel batch grouping; push/SMS on repair alerts; a "repairs in progress" sub-state between approve and auction-ready.
