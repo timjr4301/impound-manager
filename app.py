@@ -327,6 +327,16 @@ def run_migrations(app):
                     conn.execute(text('ALTER TABLE certified_letters ADD COLUMN label_voided_at TIMESTAMP'))
                 if 'label_voided_at_2' not in cols:
                     conn.execute(text('ALTER TABLE certified_letters ADD COLUMN label_voided_at_2 TIMESTAMP'))
+                # 2nd recipient's own delivery/return status (Jim's "notify
+                # every address we found" policy) — informational only, never
+                # read by title_eligible_date; see models.py CertifiedLetter
+                # comment for why.
+                if 'delivery_confirmed_date_2' not in cols:
+                    conn.execute(text('ALTER TABLE certified_letters ADD COLUMN delivery_confirmed_date_2 DATE'))
+                if 'return_to_sender_2' not in cols:
+                    conn.execute(text('ALTER TABLE certified_letters ADD COLUMN return_to_sender_2 BOOLEAN'))
+                if 'returned_date_2' not in cols:
+                    conn.execute(text('ALTER TABLE certified_letters ADD COLUMN returned_date_2 DATE'))
                 # Backfill letter_kind on pre-existing letter_number 1/2 rows
                 # (created before the 5-letter system existed) so their print
                 # content routes correctly. Safe to re-run — only touches
@@ -2220,13 +2230,43 @@ def create_app():
     def letters_confirm_delivery(letter_id):
         letter = db.get_or_404(CertifiedLetter, letter_id)
         confirmed_str = request.form.get('delivery_date', '').strip()
-        letter.delivery_confirmed_date = (
-            date.fromisoformat(confirmed_str) if confirmed_str else date.today()
-        )
-        if letter.tracking_number and not letter.pod_image_data:
-            _try_fetch_pod(letter, letter.tracking_number, 'primary', trans_id=f'pod-confirm-{letter.id}')
+        confirmed_on = date.fromisoformat(confirmed_str) if confirmed_str else date.today()
+
+        # recipient='2' confirms the 2nd address's own mailing (Jim's "notify
+        # every address we found" policy) — purely informational, doesn't
+        # touch title_eligible_date, which stays anchored to the primary only.
+        if request.form.get('recipient') == '2':
+            letter.delivery_confirmed_date_2 = confirmed_on
+            if letter.tracking_number_2 and not letter.pod_image_data_2:
+                _try_fetch_pod(letter, letter.tracking_number_2, '2nd', trans_id=f'pod-confirm-{letter.id}-2nd')
+            flash('2nd recipient delivery confirmation recorded.', 'success')
+        else:
+            letter.delivery_confirmed_date = confirmed_on
+            if letter.tracking_number and not letter.pod_image_data:
+                _try_fetch_pod(letter, letter.tracking_number, 'primary', trans_id=f'pod-confirm-{letter.id}')
+            flash('Delivery confirmation recorded.', 'success')
         db.session.commit()
-        flash('Delivery confirmation recorded.', 'success')
+        return redirect(url_for('vehicles_detail', vehicle_id=letter.vehicle_id))
+
+    @app.route('/letters/<int:letter_id>/mark-returned-2', methods=['POST'])
+    @login_required
+    def letters_mark_returned_2(letter_id):
+        """Record the 2nd recipient's mailing coming back Returned to Sender.
+        Deliberately lighter-weight than the primary's Returned to Sender flow
+        (letters_returned_to_sender) — no outcome choice, no round restart, no
+        envelope image. The 2nd recipient is an extra address for the SAME
+        letter round, not its own compliance clock, so this is just a record
+        for staff to see and decide what (if anything) to do about by hand."""
+        letter = db.get_or_404(CertifiedLetter, letter_id)
+        if not current_user.is_heather:
+            flash('Permission denied.', 'danger')
+            return redirect(url_for('vehicles_detail', vehicle_id=letter.vehicle_id))
+        returned_str = request.form.get('returned_date', '').strip()
+        letter.return_to_sender_2 = True
+        letter.returned_date_2 = date.fromisoformat(returned_str) if returned_str else date.today()
+        letter.updated_at = datetime.utcnow()
+        db.session.commit()
+        flash('2nd recipient marked Returned to Sender.', 'warning')
         return redirect(url_for('vehicles_detail', vehicle_id=letter.vehicle_id))
 
     @app.route('/letters/<int:letter_id>/returned-to-sender', methods=['POST'])

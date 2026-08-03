@@ -187,13 +187,14 @@ def _heather_view(f):
     return login_required(decorated)
 
 
-_DAILY_INTAKE_ROLES = ('tim', 'heather', 'lori', 'brady', 'jim')
+_DAILY_INTAKE_ROLES = ('tim', 'heather', 'tina', 'lori', 'brady', 'jim')
 
 
 def _daily_intake_required(f):
-    """Daily Intake is scoped to exactly tim, heather, lori, brady — not the
-    broader is_heather/can_see_heather_dashboard sets used elsewhere, since
-    tina/jim/lawrence/dispatcher are explicitly excluded from this page."""
+    """Daily Intake is scoped to tim, heather, tina, lori, brady, jim — not
+    the broader is_heather/can_see_heather_dashboard sets used elsewhere.
+    Tina added 08/02/2026 (confirmed with Tim) so she can fully cover
+    Heather's job when Heather is out; lawrence/dispatcher stay excluded."""
     from functools import wraps
     @wraps(f)
     def decorated(*args, **kwargs):

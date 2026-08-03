@@ -316,6 +316,54 @@
 </div>
 {% endmacro %}
 
+{# ── 2nd recipient status (owner's 2nd address, or joint 2nd owner) — added
+   08/02/2026 for Jim's "notify every address we found" policy. Purely
+   informational: delivery_confirmed_date_2/return_to_sender_2 never feed
+   title_eligible_date, which stays anchored to the primary recipient only.
+   Only renders once a 2nd label actually exists (created alongside the
+   primary by the same Mark Sent action whenever owner_2_name is set). ── #}
+{% macro second_recipient_status(l, today) %}
+{% if l and l.tracking_number_2 %}
+<div class="border rounded p-2 mt-2 {% if l.delivery_confirmed_date_2 %}border-success bg-success bg-opacity-10{% elif l.return_to_sender_2 %}border-danger bg-danger bg-opacity-10{% else %}border-secondary{% endif %}">
+  <div class="d-flex align-items-center gap-2 mb-1">
+    {% if l.delivery_confirmed_date_2 %}
+      <span class="badge bg-success"><i class="bi bi-check-lg"></i> Delivered</span>
+    {% elif l.return_to_sender_2 %}
+      <span class="badge bg-danger"><i class="bi bi-exclamation-triangle"></i> Returned</span>
+    {% else %}
+      <span class="badge bg-light text-dark border">In Transit</span>
+    {% endif %}
+    <strong class="small">2nd Recipient</strong>
+    {% if l.vehicle.owner_2_address %}<span class="small text-muted">— {{ l.vehicle.owner_2_address }}</span>{% endif %}
+  </div>
+  <dl class="row small ms-1 mb-1">
+    <dt class="col-sm-4 text-muted">Tracking #</dt>
+    <dd class="col-sm-8 font-monospace">{{ l.tracking_number_2 }}</dd>
+    {% if l.delivery_confirmed_date_2 %}
+    <dt class="col-sm-4 text-muted">Delivered</dt>
+    <dd class="col-sm-8 text-success">{{ l.delivery_confirmed_date_2|mdY }}</dd>
+    {% elif l.return_to_sender_2 %}
+    <dt class="col-sm-4 text-muted">Returned</dt>
+    <dd class="col-sm-8 text-danger">{{ l.returned_date_2|mdY if l.returned_date_2 else '' }}</dd>
+    {% endif %}
+  </dl>
+  {% if not l.delivery_confirmed_date_2 and not l.return_to_sender_2 and l.vehicle.status == 'ACTIVE' %}
+  <div class="d-flex flex-wrap gap-2">
+    <form method="POST" action="{{ url_for('letters_confirm_delivery', letter_id=l.id) }}" class="d-inline-flex gap-2 align-items-center">
+      <input type="hidden" name="recipient" value="2">
+      <input type="date" name="delivery_date" class="form-control form-control-sm" style="width:150px" value="{{ today.isoformat() }}">
+      <button type="submit" class="btn btn-sm btn-outline-success"><i class="bi bi-check2"></i> Confirm Delivery</button>
+    </form>
+    <form method="POST" action="{{ url_for('letters_mark_returned_2', letter_id=l.id) }}" class="d-inline-flex gap-2 align-items-center">
+      <input type="date" name="returned_date" class="form-control form-control-sm" style="width:150px" value="{{ today.isoformat() }}">
+      <button type="submit" class="btn btn-sm btn-outline-danger"><i class="bi bi-arrow-return-left"></i> Mark Returned</button>
+    </form>
+  </div>
+  {% endif %}
+</div>
+{% endif %}
+{% endmacro %}
+
 {# ══ WP-6 Session 2: inline "File for Title" for Task 4 — same route/fields
    as the standalone /vehicles/<id>/file-title page (BMV Receipt # + Notes),
    redirects back here instead of the dashboard. ══ #}
@@ -1472,6 +1520,7 @@ function showGeneralDocImage(btn) {
           {{ rts_controls(l1, today) }}
           {% endif %}
           {{ pod_section(l1) }}
+          {{ second_recipient_status(l1, today) }}
           {% else %}
           <p class="text-muted small ms-1">Letter not yet created.</p>
           {% endif %}
@@ -1550,6 +1599,7 @@ function showGeneralDocImage(btn) {
           {{ rts_controls(l2, today) }}
           {% endif %}
           {{ pod_section(l2) }}
+          {{ second_recipient_status(l2, today) }}
           {% else %}
           <p class="text-muted small ms-1">Will be created when Letter 1 is marked sent.</p>
           {% endif %}

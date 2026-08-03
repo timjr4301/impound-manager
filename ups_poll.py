@@ -71,14 +71,27 @@ def refresh_letter_tracking(letter):
         if try_fetch_pod(letter, letter.tracking_number, 'primary', trans_id=f'pod-auto-{letter.id}'):
             result['pods_pulled'] += 1
 
-    if letter.tracking_number_2 and not letter.pod_image_data_2:
+    if letter.tracking_number_2:
         try:
             pkg2 = ups_api.lookup_by_tracking_number(letter.tracking_number_2, trans_id=f'refresh2-{letter.id}')
         except Exception:
             pkg2 = None
-        if pkg2 and pkg2['is_delivered']:
-            if try_fetch_pod(letter, letter.tracking_number_2, '2nd', trans_id=f'pod-auto-{letter.id}-2nd'):
-                result['pods_pulled'] += 1
+        if pkg2:
+            # Same delivery/RTS bookkeeping as the primary above, but into the
+            # _2 fields — informational only, never read by title_eligible_date.
+            was_delivered_2 = letter.delivery_confirmed_date_2 is not None
+            was_rts_2 = letter.return_to_sender_2
+            if pkg2['is_rts']:
+                letter.return_to_sender_2 = True
+                if not was_rts_2:
+                    result['newly_returned'] = True
+            elif pkg2['is_delivered'] and pkg2['delivered_date']:
+                letter.delivery_confirmed_date_2 = datetime.strptime(pkg2['delivered_date'], '%Y%m%d').date()
+                if not was_delivered_2:
+                    result['newly_delivered'] = True
+            if letter.delivery_confirmed_date_2 and not letter.pod_image_data_2:
+                if try_fetch_pod(letter, letter.tracking_number_2, '2nd', trans_id=f'pod-auto-{letter.id}-2nd'):
+                    result['pods_pulled'] += 1
     return result
 
 

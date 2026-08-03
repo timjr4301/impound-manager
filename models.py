@@ -132,8 +132,10 @@ class User(UserMixin, db.Model):
 
     @property
     def can_unrelease(self):
-        """Who may undo a mistaken release — same set as mark-released (wally uses role tim)."""
-        return self.role in ('tim', 'heather', 'brady', 'jim')
+        """Who may undo a mistaken release — same set as mark-released (wally
+        uses role tim). Tina added 08/02/2026 (confirmed with Tim) so she can
+        fully cover Heather's job when Heather is out."""
+        return self.role in ('tim', 'heather', 'tina', 'brady', 'jim')
 
     @property
     def can_verify_possible_release(self):
@@ -1028,6 +1030,19 @@ class CertifiedLetter(db.Model):
     returned_date = db.Column(db.Date)
     returned_envelope_image_data = db.Column(db.Text)
     returned_envelope_image_type = db.Column(db.String(20))
+    # 2nd recipient's own delivery/return status (added 08/02/2026 — Jim's
+    # "notify every address we found" policy: when the owner's title address
+    # and LKA address differ, both get a mailing under the same letter round).
+    # Deliberately informational only — NEVER read by title_eligible_date /
+    # delivery_or_undeliverable_date, which stay anchored to the PRIMARY
+    # recipient only (see models.py CertifiedLetter.delivery_or_undeliverable_date).
+    # No round-restart here either: unlike the primary's Returned to Sender
+    # flow, marking the 2nd recipient returned doesn't supersede anything or
+    # reopen the letter — it's just a record that this particular mailing
+    # came back, so staff can decide by hand whether that changes anything.
+    delivery_confirmed_date_2 = db.Column(db.Date)
+    return_to_sender_2 = db.Column(db.Boolean, default=False)
+    returned_date_2 = db.Column(db.Date)
     # Label void tracking — set when the UPS Void API accepted the void (label
     # was never scanned, so it will never bill). One per label, same primary/
     # 2nd-party split as tracking_number/tracking_number_2.
