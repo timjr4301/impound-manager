@@ -123,6 +123,12 @@ function escapeHtml(s) {
              ${data.possible_release_cleared} Possible Release flag(s) auto-cleared — vehicle(s) back in the Towbook export
            </div>`
         : '';
+      const transportHtml = data.transport_holds_applied
+        ? `<div class="alert alert-warning mb-0 py-2 small mt-2">
+             <i class="bi bi-pause-circle me-1"></i>
+             ${data.transport_holds_applied} vehicle(s) auto-held — Towbook shows transport/relocation or a known non-impound account, not a real impound. Review under Snoozed/On Hold if that looks wrong.
+           </div>`
+        : '';
       const newVehiclesHtml = (data.new_vehicles && data.new_vehicles.length)
         ? `<div class="card mt-2">
              <div class="card-header py-2 small fw-semibold">
@@ -145,7 +151,7 @@ function escapeHtml(s) {
         <div class="alert alert-success mb-0 py-2 small">
           <i class="bi bi-check-circle-fill me-1"></i>
           <strong>${data.inserted} new, ${data.updated} updated</strong> (${data.skipped} skipped)
-        </div>${clearedHtml}${errHtml}${newVehiclesHtml}`;
+        </div>${clearedHtml}${transportHtml}${errHtml}${newVehiclesHtml}`;
     } catch (err) {
       result.innerHTML = `<div class="alert alert-danger mb-0 py-2 small">Network error: ${escapeHtml(err.message)}</div>`;
     }

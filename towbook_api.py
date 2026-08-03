@@ -178,7 +178,8 @@ def fetch_calls(since_date=None):
 def upsert_calls(calls):
     """
     Upsert a list of raw Towbook call dicts into the vehicles table.
-    Returns (inserted, updated, skipped, cleared, errors, stock_numbers_seen).
+    Returns (inserted, updated, skipped, cleared, transport_holds_applied,
+    errors, stock_numbers_seen).
 
     stock_numbers_seen is every stock number present in this pull (whether
     inserted, updated, or already RELEASED) — the caller cross-references it
@@ -186,12 +187,17 @@ def upsert_calls(calls):
     path already does, to catch a vehicle Towbook no longer lists at all.
     cleared counts flagged vehicles whose reappearance in this pull
     auto-cleared their possible_release flag, mirroring the CSV path.
+    transport_holds_applied counts existing vehicles auto-held because their
+    Call Reason/Account reads as transport/relocation or a known non-impound
+    account, mirroring the CSV path's retroactive check.
     """
-    from models import db, Vehicle, CertifiedLetter, PPI_LETTER1_DAYS, POLICE_LETTER1_DAYS
+    from models import db, Vehicle, CertifiedLetter, VehicleNote, PPI_LETTER1_DAYS, POLICE_LETTER1_DAYS
     from tina_sync import auto_clear_possible_release
+    from towbook_import import _is_non_impound_account
     import letter_triggers
 
     inserted = updated = skipped = cleared = 0
+    transport_holds_applied = 0
     errors = []
     stock_numbers_seen = []
 
@@ -215,6 +221,15 @@ def upsert_calls(calls):
                 call.get('ReleaseDate') or call.get('releasedDate')
             )
 
+            # This path only captures one combined "reason" field (no
+            # dedicated Call Reason), so it's checked here rather than a
+            # proper lookup — revisit once a real API response confirms the
+            # actual field names, per this file's other speculative-field
+            # caveats.
+            is_transport_call = bool(re.search(
+                r'\b(transport|relocat)', fields.get('impound_reason') or '', re.IGNORECASE))
+            is_non_impound_account = _is_non_impound_account(fields.get('account'))
+
             existing = Vehicle.query.filter_by(stock_number=stock).first()
             if existing:
                 for k, v in fields.items():
@@ -229,6 +244,29 @@ def upsert_calls(calls):
                     cleared += 1
                 existing.towbook_seen = True  # seen in this API pull — eligible for future possible_release checks
                 existing.updated_at = datetime.utcnow()
+
+                # Mirrors the CSV path (towbook_import.py) — a vehicle
+                # imported before this guard existed can be sitting in the
+                # live letter queue for a transport/relocation job or known
+                # non-impound account. Re-checked on every sync, never
+                # touches a vehicle already on hold for any reason.
+                if (existing.status == 'ACTIVE' and not existing.letter_hold
+                        and (is_transport_call or is_non_impound_account)):
+                    reason = ('Transport/relocation call' if is_transport_call
+                              else 'Known non-impound storage account')
+                    existing.letter_hold = True
+                    existing.letter_hold_reason = f'{reason} (auto-detected on Towbook sync)'
+                    existing.letter_hold_by = 'System (Towbook sync)'
+                    existing.letter_hold_at = datetime.utcnow()
+                    db.session.add(VehicleNote(
+                        vehicle_id=existing.id,
+                        body=(f'Letter pipeline auto-held: {reason.lower()}, not a real impound. '
+                              'Release the hold if this is wrong.'),
+                        author='System (Towbook sync)',
+                        created_at=datetime.utcnow(),
+                    ))
+                    transport_holds_applied += 1
+
                 updated += 1
             else:
                 if not fields.get('impound_date'):
@@ -250,18 +288,10 @@ def upsert_calls(calls):
                 # a new vehicle must start its letter clock the same way
                 # regardless of which Towbook pipeline created it. EXCEPT
                 # transport/relocation calls and known pure-storage accounts
-                # (towbook_import._is_non_impound_account — shared list, don't
-                # duplicate it here) — B&J is just holding the item for
-                # someone else, not actually impounding it, so no letter is
-                # owed. This path only captures one combined "reason" field
-                # (no dedicated Call Reason), so it's checked here rather than
-                # a proper lookup — revisit once a real API response confirms
-                # the actual field names, per this file's other speculative-
-                # field caveats.
-                from towbook_import import _is_non_impound_account
-                is_transport_call = bool(re.search(
-                    r'\b(transport|relocat)', fields.get('impound_reason') or '', re.IGNORECASE))
-                if is_transport_call or _is_non_impound_account(fields.get('account')):
+                # (is_transport_call/is_non_impound_account, computed above) —
+                # B&J is just holding the item for someone else, not actually
+                # impounding it, so no letter is owed.
+                if is_transport_call or is_non_impound_account:
                     continue
                 letter1_days = PPI_LETTER1_DAYS if vehicle.impound_type == 'PPI' else POLICE_LETTER1_DAYS
                 letter1_due = vehicle.impound_date + timedelta(days=letter1_days)
@@ -282,7 +312,7 @@ def upsert_calls(calls):
             })
 
     db.session.commit()
-    return inserted, updated, skipped, cleared, errors, stock_numbers_seen
+    return inserted, updated, skipped, cleared, transport_holds_applied, errors, stock_numbers_seen
 
 
 def run_auto_sync():
@@ -293,7 +323,7 @@ def run_auto_sync():
     since = date.today() - timedelta(days=SYNC_LOOKBACK_DAYS)
     calls = fetch_calls(since_date=since)
 
-    inserted, updated, skipped, cleared, errors, stock_numbers_seen = upsert_calls(calls)
+    inserted, updated, skipped, cleared, transport_holds_applied, errors, stock_numbers_seen = upsert_calls(calls)
 
     # Cross-reference against active records — same check the manual CSV
     # import already runs, previously missing from this API path entirely.
@@ -319,6 +349,7 @@ def run_auto_sync():
         'errors': errors,
         'possible_releases_flagged': possible_release_count,
         'possible_release_cleared': cleared,
+        'transport_holds_applied': transport_holds_applied,
         'urgency': urgency_counts,
         'synced_at': datetime.utcnow().isoformat(),
     }

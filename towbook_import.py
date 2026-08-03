@@ -8,7 +8,7 @@ from datetime import datetime, date, timedelta
 from flask import Blueprint, request, jsonify, current_app
 from flask_login import login_required, current_user
 from models import (db, Vehicle, SyncLog, PoliceDepartment, CertifiedLetter,
-                     PPI_LETTER1_DAYS, POLICE_LETTER1_DAYS)
+                     VehicleNote, PPI_LETTER1_DAYS, POLICE_LETTER1_DAYS)
 import letter_triggers
 
 bp = Blueprint('towbook_import', __name__, url_prefix='/api/import-towbook')
@@ -200,6 +200,7 @@ def _do_import():
 
     inserted = updated = skipped = 0
     possible_release_cleared = 0
+    transport_holds_applied = 0
     errors = []
     dept_unmatched = []      # police impound rows whose Account field didn't fuzzy-match any department
     csv_stock_numbers = []   # collect every stock # seen in this CSV
@@ -266,6 +267,9 @@ def _do_import():
                 **tasks,
             }
 
+            account_value = fields.get('account')
+            is_non_impound_account = _is_non_impound_account(account_value)
+
             existing = Vehicle.query.filter_by(stock_number=stock).first()
             if existing:
                 for k, v in fields.items():
@@ -281,6 +285,40 @@ def _do_import():
                     possible_release_cleared += 1
                 existing.towbook_seen = True  # seen in this CSV — eligible for future possible_release checks
                 existing.updated_at = datetime.utcnow()
+
+                # A vehicle imported BEFORE the transport/non-impound guard
+                # existed (or before Towbook's Call Reason changed to one of
+                # these) never got the insert-time skip below, so it can be
+                # sitting in the live letter queue for something that isn't
+                # a real impound — confirmed 08/03/2026 against a real
+                # example (2017 Nissan Rogue, stock 29216673, Call Reason
+                # TRANSPORT, Account "Paramount (ReloTrans)") that had
+                # already reached "Letter 1 due today" before anyone caught
+                # it. Every daily sync re-checks existing active vehicles
+                # too, not just new inserts, and auto-holds the letter
+                # pipeline the same non-destructive way the manual "Hold
+                # Letters" button does (GREEN, doesn't delete/cancel any
+                # existing letter row, just stops the nagging). Never
+                # touches a vehicle already on hold for any reason, so this
+                # can't clobber a manual hold or refire/spam a note every
+                # sync.
+                if (existing.status == 'ACTIVE' and not existing.letter_hold
+                        and (is_transport_call or is_non_impound_account)):
+                    reason = ('Transport/relocation call' if is_transport_call
+                              else 'Known non-impound storage account')
+                    existing.letter_hold = True
+                    existing.letter_hold_reason = f'{reason} (auto-detected on Towbook sync)'
+                    existing.letter_hold_by = 'System (Towbook sync)'
+                    existing.letter_hold_at = datetime.utcnow()
+                    db.session.add(VehicleNote(
+                        vehicle_id=existing.id,
+                        body=(f'Letter pipeline auto-held: {reason.lower()}, not a real impound. '
+                              'Release the hold if this is wrong.'),
+                        author='System (Towbook sync)',
+                        created_at=datetime.utcnow(),
+                    ))
+                    transport_holds_applied += 1
+
                 updated += 1
                 vehicle_for_dept_match = existing
             else:
@@ -297,7 +335,6 @@ def _do_import():
                 # never part of `fields`, so the update branch above never
                 # touches it and can't silently revert a manual PPI<->POLICE
                 # correction on a later daily import (V-8).
-                account_value = fields.get('account')
                 inferred_dept = _match_police_department(account_value) if account_value else None
                 inferred_type = 'POLICE' if inferred_dept else 'PPI'
                 v = Vehicle(
@@ -323,7 +360,7 @@ def _do_import():
                 # _NON_IMPOUND_ACCOUNT_SUBSTRINGS) — B&J is just holding the
                 # item for someone else, not actually impounding it, so no
                 # notice letter is ever owed.
-                if not is_transport_call and not _is_non_impound_account(account_value):
+                if not is_transport_call and not is_non_impound_account:
                     letter1_days = PPI_LETTER1_DAYS if inferred_type == 'PPI' else POLICE_LETTER1_DAYS
                     letter1_due = impound_date + timedelta(days=letter1_days)
                     db.session.add(CertifiedLetter(
@@ -418,6 +455,7 @@ def _do_import():
         'skipped': skipped,
         'possible_releases_flagged': possible_release_count,
         'possible_release_cleared': possible_release_cleared,
+        'transport_holds_applied': transport_holds_applied,
         'new_vehicles': new_vehicles,
         'errors': errors,
         'department_unmatched': dept_unmatched,
