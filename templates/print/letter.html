@@ -129,12 +129,13 @@
 <div class="addressee">{{ owner_block() }}</div>
 
 <table class="grid">
-  <tr><th>Vehicle</th><th>VIN</th><th>Color</th><th>License Plate</th></tr>
+  <tr><th>Vehicle</th><th>VIN</th><th>Color</th><th>License Plate</th><th>Value of Motor Vehicle</th></tr>
   <tr>
     <td>{{ [vehicle.year, vehicle.make, vehicle.model_name] | select | join(' ') or '—' }}</td>
     <td>{{ vehicle.vin or '—' }}</td>
     <td>{{ vehicle.color or '—' }}</td>
     <td>{{ vehicle.plate or '—' }}</td>
+    <td>{% if vehicle.nada_value is none %}N/A{% else %}${{ '%.2f'|format(vehicle.nada_value) }}{% endif %}</td>
   </tr>
 </table>
 

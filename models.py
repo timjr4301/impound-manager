@@ -992,17 +992,27 @@ class Vehicle(db.Model):
 
     @property
     def total_owed(self):
+        # Bug fixed 08/02/2026: was reading the raw tow_fee/daily_storage_rate
+        # columns directly, which are per-vehicle OVERRIDE fields left blank
+        # most of the time (PPI relies on the class-based default rate; POLICE
+        # never sets them at all — it reads the requesting department's rate).
+        # That meant total_owed silently came out $0 for essentially every
+        # POLICE vehicle and any PPI vehicle without a manually-entered
+        # override, even though the letter and Financial panel are supposed
+        # to show real accrued fees. effective_tow_rate/effective_storage_rate
+        # already implement the correct override-wins-else-default/department-
+        # rate logic — use those instead, same as the Financial panel does.
         from titlebot.storage import calculate_storage
         _, storage_total, _ = calculate_storage(
-            self.impound_date, date.today(), self.daily_storage_rate or 0
+            self.impound_date, date.today(), self.effective_storage_rate or 0
         )
-        return (self.tow_fee or 0) + storage_total + self.additional_charges_total
+        return (self.effective_tow_rate or 0) + storage_total + self.additional_charges_total
 
     @property
     def total_storage_owed(self):
         from titlebot.storage import calculate_storage
         _, storage_total, _ = calculate_storage(
-            self.impound_date, date.today(), self.daily_storage_rate or 0
+            self.impound_date, date.today(), self.effective_storage_rate or 0
         )
         return storage_total
 
