@@ -3096,8 +3096,11 @@ def create_app():
         if not current_user.can_edit_vehicles:
             flash('Permission denied.', 'danger')
             return redirect(url_for('vehicles_detail', vehicle_id=vehicle_id))
-        if not vehicle.vin:
-            flash('VIN is required for NADA lookup.', 'danger')
+        # A VIN is required for the VinAudit comp-based lookup, but the AI
+        # estimate fallback only needs year/make/model — so only block here
+        # when there's genuinely nothing to work with either way.
+        if not vehicle.vin and not (vehicle.year or vehicle.make or vehicle.model_name):
+            flash('Need at least a VIN or year/make/model for a value lookup.', 'danger')
             return redirect(url_for('vehicles_detail', vehicle_id=vehicle_id))
         from titlebot.nada import lookup_wholesale_value
         mileage = vehicle.mileage or 80000
@@ -3105,6 +3108,9 @@ def create_app():
             vin=vehicle.vin,
             mileage=mileage,
             api_key=os.environ.get('ANTHROPIC_API_KEY'),
+            year=vehicle.year,
+            make=vehicle.make,
+            model=vehicle.model_name,
         )
         vehicle.nada_value = result['value']
         vehicle.nada_value_is_default = result['used_default']
