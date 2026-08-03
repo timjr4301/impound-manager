@@ -139,14 +139,17 @@ def create_label(reference, recipient_name, recipient_address, recipient_city,
                     },
                 },
                 'Service': {'Code': '03', 'Description': 'UPS Ground'},
-                # UPS's Ship API schema documents Shipment.Package as an ARRAY
-                # (Shipment.Package.[]) even for a single package — sending a
-                # bare object here is what caused "Missing or invalid Package
-                # PackagingType Code" (confirmed 08/02/2026 against a real 400
-                # on a live letter; UPS's parser couldn't find a valid package
-                # entry to read PackagingType.Code out of).
-                'Package': [{
-                    'PackagingType': {'Code': '02', 'Description': 'Customer Supplied Package'},
+                # Fixed 08/02/2026 (2nd attempt — 1st attempt wrongly wrapped
+                # this in a list, which UPS's OWN api-documentation repo
+                # (github.com/UPS-API/api-documentation, Shipping.yaml) shows
+                # is only correct for multi-piece/LTL shipments; a single
+                # package is a plain object). The REAL bug: this field is
+                # called "Packaging", not "PackagingType" — confirmed against
+                # that same official spec. UPS's "Missing or invalid Package
+                # PackagingType Code" error text is generic/templated; it does
+                # NOT mean our field name was right, despite matching it.
+                'Package': {
+                    'Packaging': {'Code': '02', 'Description': 'Customer Supplied Package'},
                     'Dimensions': {
                         'UnitOfMeasurement': {'Code': 'IN'},
                         'Length': '9', 'Width': '6', 'Height': '1',
@@ -161,7 +164,7 @@ def create_label(reference, recipient_name, recipient_address, recipient_city,
                         # signature on the label means no signed POD to fetch later.
                         'DeliveryConfirmation': {'DCISType': '2'},
                     },
-                }],
+                },
                 'PaymentInformation': {
                     'ShipmentCharge': {
                         'Type': '01',
