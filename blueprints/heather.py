@@ -457,7 +457,7 @@ def today_view():
         add('tracking', f'Tracking — {_letter_label(l)}',
             l.sent_date + timedelta(days=7), l.vehicle, 'secondary')
 
-    overdue = sorted((t for t in tasks if t['due'] < today), key=lambda t: t['due'])
+    overdue = sorted((t for t in tasks if t['due'] < today), key=lambda t: t['due'], reverse=True)
     due_today = sorted((t for t in tasks if t['due'] == today), key=lambda t: t['label'])
     upcoming = sorted((t for t in tasks if today < t['due'] <= horizon), key=lambda t: t['due'])
 
