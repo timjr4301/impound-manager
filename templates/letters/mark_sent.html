@@ -37,6 +37,17 @@
     </div>
     {% endif %}
 
+    {% if letter.vehicle.nada_value is none %}
+    <div class="alert alert-warning d-flex align-items-start gap-2" id="no-value-warning">
+      <i class="bi bi-exclamation-triangle-fill fs-5"></i>
+      <div>
+        <strong>No vehicle value on file.</strong><br>
+        This letter will print "N/A" where the vehicle's value should show. Scroll down to the Financial
+        panel and use "Look Up" (or type in a value) before sending, if you can.
+      </div>
+    </div>
+    {% endif %}
+
     {# Letter summary card #}
     <div class="card shadow-sm mb-4 {% if letter.is_overdue %}border-danger{% endif %}">
       <div class="card-body">
@@ -116,7 +127,8 @@
     </div>
     {% endif %}
     {% elif ups_configured and not letter.tracking_number and not letter.vehicle.po_box_flag %}
-    <form method="POST" action="{{ url_for('letters_create_ups_label', letter_id=letter.id) }}" class="mb-4">
+    <form method="POST" action="{{ url_for('letters_create_ups_label', letter_id=letter.id) }}" class="mb-4"
+          {% if letter.vehicle.nada_value is none %}onsubmit="return confirm('No vehicle value on file — this letter will print N/A for value. Send anyway?');"{% endif %}>
       <button type="submit" class="btn btn-outline-primary w-100" {% if send_block %}disabled{% endif %}>
         <i class="bi bi-upc-scan"></i> Create UPS Label &amp; Mark Sent
       </button>
@@ -124,7 +136,8 @@
     </form>
     {% endif %}
 
-    <form method="POST" action="{{ url_for('letters_mark_sent', letter_id=letter.id) }}">
+    <form method="POST" action="{{ url_for('letters_mark_sent', letter_id=letter.id) }}"
+          {% if letter.vehicle.nada_value is none %}onsubmit="return confirm('No vehicle value on file — this letter will print N/A for value. Send anyway?');"{% endif %}>
       <div class="card shadow-sm">
         <div class="card-body">
           <div class="mb-3">

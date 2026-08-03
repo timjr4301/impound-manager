@@ -324,6 +324,12 @@
         <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
       </div>
       <div class="modal-body">
+        {% if l.vehicle.nada_value is none and not (inline_labels and l.id in inline_labels) %}
+        <div class="alert alert-warning py-2 small mb-2">
+          <i class="bi bi-exclamation-triangle-fill me-1"></i><strong>No vehicle value on file</strong> —
+          this letter will print "N/A" for value. Set it in the Financial panel below first if you can.
+        </div>
+        {% endif %}
         {% if inline_labels and l.id in inline_labels %}
           {% set label_b64, label_2_b64 = inline_labels[l.id] %}
           <div class="alert alert-success py-2 small mb-2">
@@ -351,7 +357,8 @@
           <i class="bi bi-mailbox me-1"></i><strong>PO Box — UPS can't deliver here.</strong>
           Send via USPS below. Per SOP: pull tow lien + report of delivery, or BMV rejects the packet.
         </div>
-        <form method="POST" action="{{ url_for('letters_mark_sent', letter_id=l.id) }}">
+        <form method="POST" action="{{ url_for('letters_mark_sent', letter_id=l.id) }}"
+              {% if l.vehicle.nada_value is none %}onsubmit="return confirm('No vehicle value on file — this letter will print N/A for value. Send anyway?');"{% endif %}>
           <input type="hidden" name="from_vehicle_card" value="1">
           <input type="hidden" name="mail_method" value="usps">
           <div class="mb-2">
@@ -369,14 +376,16 @@
           <button type="submit" class="btn btn-outline-secondary btn-sm w-100">Mark Sent via USPS</button>
         </form>
         {% else %}
-        <form method="POST" action="{{ url_for('letters_create_ups_label', letter_id=l.id) }}" class="mb-3">
+        <form method="POST" action="{{ url_for('letters_create_ups_label', letter_id=l.id) }}" class="mb-3"
+              {% if l.vehicle.nada_value is none %}onsubmit="return confirm('No vehicle value on file — this letter will print N/A for value. Send anyway?');"{% endif %}>
           <input type="hidden" name="from_vehicle_card" value="1">
           <button type="submit" class="btn btn-primary btn-sm w-100">
             <i class="bi bi-upc-scan me-1"></i>Create UPS Label &amp; Mark Sent
           </button>
         </form>
         <div class="text-center text-muted small mb-2">— or enter a tracking number by hand —</div>
-        <form method="POST" action="{{ url_for('letters_mark_sent', letter_id=l.id) }}">
+        <form method="POST" action="{{ url_for('letters_mark_sent', letter_id=l.id) }}"
+              {% if l.vehicle.nada_value is none %}onsubmit="return confirm('No vehicle value on file — this letter will print N/A for value. Send anyway?');"{% endif %}>
           <input type="hidden" name="from_vehicle_card" value="1">
           <div class="mb-2">
             <label class="form-label small mb-0">Date Sent</label>
