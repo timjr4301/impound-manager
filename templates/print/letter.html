@@ -99,7 +99,7 @@
     🖨 Print Letter
   </button>
   {% if letter.label_image_data %}
-  <button onclick="printUpsLabel({{ letter.label_image_data|tojson }})" style="margin-right:12px;">
+  <button onclick='printUpsLabel({{ letter.label_image_data|tojson }})' style="margin-right:12px;">
     📦 View UPS Label
   </button>
   {% else %}

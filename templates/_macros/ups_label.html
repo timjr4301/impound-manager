@@ -1,14 +1,14 @@
 {% macro ups_label_section(letter) %}
 {% if letter.label_image_data %}
 <div class="mt-2">
-  <button type="button" class="btn btn-sm btn-outline-secondary" onclick="printUpsLabel({{ letter.label_image_data|tojson }})">
+  <button type="button" class="btn btn-sm btn-outline-secondary" onclick='printUpsLabel({{ letter.label_image_data|tojson }})'>
     <i class="bi bi-printer"></i> View/Print UPS Label
   </button>
 </div>
 {% endif %}
 {% if letter.label_image_data_2 %}
 <div class="mt-2">
-  <button type="button" class="btn btn-sm btn-outline-secondary" onclick="printUpsLabel({{ letter.label_image_data_2|tojson }})">
+  <button type="button" class="btn btn-sm btn-outline-secondary" onclick='printUpsLabel({{ letter.label_image_data_2|tojson }})'>
     <i class="bi bi-printer"></i> View/Print 2nd Party UPS Label
   </button>
 </div>
