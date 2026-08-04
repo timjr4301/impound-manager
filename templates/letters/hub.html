@@ -120,6 +120,11 @@
           {% if opt.letter and opt.letter.sent_date %}
             Sent {{ opt.letter.sent_date|mdY }}
             {% if opt.letter.tracking_number %}&bull; {{ opt.letter.tracking_number }}{% endif %}
+            {% if opt.letter.delivery_confirmed_date %}
+            &bull; <span class="text-success">Delivered {{ opt.letter.delivery_confirmed_date|mdY }}</span>
+            {% elif opt.letter.return_to_sender %}
+            &bull; <span class="text-danger">Returned{% if opt.letter.returned_date %} {{ opt.letter.returned_date|mdY }}{% endif %}</span>
+            {% endif %}
           {% elif opt.letter %}
             Letter {{ opt.letter.letter_number }} &bull; due {{ opt.letter.due_date|mdY }} &bull; not yet sent
           {% elif opt.reason %}
