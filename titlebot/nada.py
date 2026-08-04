@@ -19,8 +19,16 @@ _CLAUDE_VALUE_SYSTEM_PROMPT = """You are estimating the wholesale/trade-in
 value of a used vehicle for a towing company in Columbus, Ohio that is
 about to sell or junk an unclaimed impounded vehicle. This is a rough
 estimate to compare against towing/storage charges for title-transfer
-paperwork — not an appraisal, and the vehicle's exact condition is usually
-unknown (it sat impounded, condition may be rough).
+paperwork — not an appraisal.
+
+Important calibration: impounded vehicles skew rough. Most weren't
+reclaimed precisely because they weren't worth the towing/storage bill to
+get back — mechanical problems, high mileage, cosmetic damage, or neglect
+are the norm, not the exception. A real minority are in genuinely decent
+shape (a repo, a family dispute, a DUI), but default to the LOW end of the
+typical wholesale/trade-in range for that year/make/model, not the middle
+or a "clean trade-in" figure — you're pricing a car that's more likely
+rough than average, unless told otherwise.
 
 Respond ONLY with valid JSON, no markdown, no backticks, no preamble:
 
@@ -30,10 +38,8 @@ Respond ONLY with valid JSON, no markdown, no backticks, no preamble:
   "reasoning": "<one short sentence citing typical market range you're drawing on>"
 }
 
-Assume average-to-rough condition (it's an impounded vehicle, unknown
-maintenance history) unless told otherwise. If the vehicle is too
-obscure/old to estimate confidently, still give your best number and mark
-confidence "low" rather than refusing."""
+If the vehicle is too obscure/old to estimate confidently, still give your
+best number and mark confidence "low" rather than refusing."""
 
 
 def _claude_estimate(year, make, model, mileage, vin, api_key):

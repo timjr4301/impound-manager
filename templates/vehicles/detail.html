@@ -1215,9 +1215,8 @@ function showGeneralDocImage(btn) {
         {% endif %}
         {% if vehicle.vin %}
         <form method="POST" action="{{ url_for('nada_lookup', vehicle_id=vehicle.id) }}" class="mt-2">
-          <button type="submit" class="btn btn-sm btn-outline-secondary w-100"
-                  onclick="return confirm('This will open Edmunds (takes 1-2 minutes) and set the NADA value automatically. Continue?')">
-            <i class="bi bi-search"></i> Look Up NADA Value (Edmunds)
+          <button type="submit" class="btn btn-sm btn-outline-secondary w-100">
+            <i class="bi bi-search"></i> Look Up Vehicle Value (AI estimate)
           </button>
         </form>
 
