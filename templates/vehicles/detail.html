@@ -1,6 +1,7 @@
 {% extends 'base.html' %}
 {% from '_macros/snooze.html' import snooze_button, snooze_modal %}
 {% from '_macros/pod.html' import pod_section, pod_modal %}
+{% from '_macros/ups_label.html' import ups_label_section, ups_label_script %}
 {% block title %}{{ vehicle.display_name }} — Impound Manager{% endblock %}
 
 {% block content %}
@@ -1508,6 +1509,7 @@ function showGeneralDocImage(btn) {
       </div>
       <div class="card-body">
         {{ pod_modal() }}
+        {{ ups_label_script() }}
 
         {# ── Returned to Sender: button + per-letter modal. Records the date the
            envelope came back (+ optional photo as refund/compliance evidence),
@@ -1648,6 +1650,7 @@ function showGeneralDocImage(btn) {
           {{ rts_controls(l1, today) }}
           {% endif %}
           {{ pod_section(l1) }}
+          {{ ups_label_section(l1) }}
           {{ second_recipient_status(l1, today) }}
           {% else %}
           <p class="text-muted small ms-1">Letter not yet created.</p>
@@ -1729,6 +1732,7 @@ function showGeneralDocImage(btn) {
           {{ rts_controls(l2, today) }}
           {% endif %}
           {{ pod_section(l2) }}
+          {{ ups_label_section(l2) }}
           {{ second_recipient_status(l2, today) }}
           {% else %}
           <p class="text-muted small ms-1">Will be created when Letter 1 is marked sent.</p>
@@ -1805,6 +1809,7 @@ function showGeneralDocImage(btn) {
           {% endif %}
           {% endif %}
           {{ pod_section(xl) }}
+          {{ ups_label_section(xl) }}
         </div>
         {% endfor %}
 

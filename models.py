@@ -1100,6 +1100,15 @@ class CertifiedLetter(db.Model):
     pod_image_data_2 = db.Column(db.Text)
     pod_image_type_2 = db.Column(db.String(20))
 
+    # The actual UPS Ship API shipping label image (always GIF, per
+    # ups_api.create_label's hardcoded LabelImageFormat) — UPS hands this
+    # back exactly once, at label creation, with no way to re-fetch it
+    # later by tracking number. Before this, it was shown once on the
+    # post-creation redirect and then gone forever; same primary/2nd-party
+    # split as tracking_number/tracking_number_2 and the POD columns above.
+    label_image_data = db.Column(db.Text)
+    label_image_data_2 = db.Column(db.Text)
+
     # 5-letter system fields — see the letter_number numbering note on
     # Vehicle above. recipient_type/letter_kind drive which print content
     # renders; letter_number alone still drives due-date/task_engine logic

@@ -90,6 +90,7 @@
   {{ [vehicle.lienholder_city, vehicle.lienholder_state, vehicle.lienholder_zip] | select | join(' ') }}
 {%- endmacro %}
 
+{% from '_macros/ups_label.html' import ups_label_script %}
 {# This bar is hidden by @media print — it never appears on the mailed letter.
    Rendered for both /letters/<id>/print and heather.letter_template, whose
    roles differ, so the Letters-hub link is gated the same way the hub is. #}
@@ -97,14 +98,24 @@
   <button onclick="window.print()" style="padding:6px 18px; cursor:pointer; margin-right:12px;">
     🖨 Print Letter
   </button>
+  {% if letter.label_image_data %}
+  <button onclick="printUpsLabel({{ letter.label_image_data|tojson }})" style="margin-right:12px;">
+    📦 View UPS Label
+  </button>
+  {% else %}
+  {# No real UPS Ship API label exists for this letter yet (never sent via
+     Create UPS Label, or sent before this was tracked) — fall back to the
+     manual printable Certified Mail cover sheet instead of a dead end. #}
   <a href="{{ url_for('heather.ups_label', vehicle_id=vehicle.id) }}" target="_blank"
-     style="margin-right:12px;">📦 UPS Label</a>
+     style="margin-right:12px;">📦 Manual Certified Mail Label</a>
+  {% endif %}
   <a href="{{ url_for('letters_mark_sent', letter_id=letter.id) }}" style="margin-right:12px;">✅ Mark as Sent</a>
   {% if current_user.can_generate_letters %}
   <a href="{{ url_for('vehicle_letters', vehicle_id=vehicle.id) }}" style="margin-right:12px;">← Back to Letters</a>
   {% endif %}
   <a href="{{ url_for('vehicles_detail', vehicle_id=vehicle.id) }}">← Back to Vehicle</a>
 </div>
+{{ ups_label_script() }}
 
 
 {# ══════════════════════════════════════════════════════════════════════════

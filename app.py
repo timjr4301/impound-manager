@@ -316,6 +316,10 @@ def run_migrations(app):
                     conn.execute(text('ALTER TABLE certified_letters ADD COLUMN pod_image_data_2 TEXT'))
                 if 'pod_image_type_2' not in cols:
                     conn.execute(text('ALTER TABLE certified_letters ADD COLUMN pod_image_type_2 VARCHAR(20)'))
+                if 'label_image_data' not in cols:
+                    conn.execute(text('ALTER TABLE certified_letters ADD COLUMN label_image_data TEXT'))
+                if 'label_image_data_2' not in cols:
+                    conn.execute(text('ALTER TABLE certified_letters ADD COLUMN label_image_data_2 TEXT'))
                 if 'superseded' not in cols:
                     conn.execute(text('ALTER TABLE certified_letters ADD COLUMN superseded BOOLEAN DEFAULT FALSE'))
                     conn.execute(text('UPDATE certified_letters SET superseded = FALSE WHERE superseded IS NULL'))
@@ -2193,6 +2197,11 @@ def create_app():
             flash(f'UPS API error: {exc}', 'danger')
             return redirect(url_for('letters_mark_sent', letter_id=letter.id))
 
+        # UPS hands back the label image exactly once, right here — no API to
+        # re-fetch it later by tracking number — so persist it now or it's
+        # gone for good. Same pattern already used for signed POD images.
+        letter.label_image_data = label_b64
+
         tracking_number_2, label_2_b64 = None, None
         if name_2:
             if not address_2:
@@ -2209,6 +2218,7 @@ def create_app():
                         reference, name_2, address_2, city_2, state_2, zip_2,
                         trans_id=f'letter-{letter.id}-2nd',
                     )
+                    letter.label_image_data_2 = label_2_b64
                 except Exception as exc:
                     flash(
                         f'Primary label created, but the 2nd {letter.recipient_type} '
