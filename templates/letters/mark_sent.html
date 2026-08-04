@@ -1,5 +1,5 @@
 {% extends 'base.html' %}
-{% block title %}Mark Letter Sent — Impound Manager{% endblock %}
+{% block title %}Send Letter — Impound Manager{% endblock %}
 
 {% block content %}
 {% set send_block = letter.vehicle.letter_send_block_reason(letter) %}
@@ -10,7 +10,7 @@
         <i class="bi bi-arrow-left"></i>
       </a>
       <div>
-        <h2 class="h4 mb-0 fw-bold">Mark Letter as Sent</h2>
+        <h2 class="h4 mb-0 fw-bold">Send Letter</h2>
         <small class="text-muted">{{ letter.vehicle.display_name }}</small>
       </div>
     </div>
@@ -130,7 +130,7 @@
     <form method="POST" action="{{ url_for('letters_create_ups_label', letter_id=letter.id) }}" class="mb-4"
           {% if letter.vehicle.nada_value is none %}onsubmit="return confirm('No vehicle value on file — this letter will print N/A for value. Send anyway?');"{% endif %}>
       <button type="submit" class="btn btn-outline-primary w-100" {% if send_block %}disabled{% endif %}>
-        <i class="bi bi-upc-scan"></i> Create UPS Label &amp; Mark Sent
+        <i class="bi bi-upc-scan"></i> Create UPS Label &amp; Send Letter
       </button>
       <div class="form-text">Creates a real UPS shipping label via your account, auto-fills the tracking number below, and marks this letter sent — no need to create the label on ups.com by hand.</div>
     </form>
@@ -182,7 +182,7 @@
 
           <div class="d-flex gap-2">
             <button type="submit" class="btn btn-primary px-4" {% if send_block %}disabled{% endif %}>
-              <i class="bi bi-send-fill"></i> Mark as Sent
+              <i class="bi bi-send-fill"></i> Send Letter (Manual Entry)
             </button>
             <a href="{{ url_for('dashboard') }}" class="btn btn-outline-secondary">Cancel</a>
           </div>

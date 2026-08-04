@@ -109,7 +109,7 @@
   <a href="{{ url_for('heather.ups_label', vehicle_id=vehicle.id) }}" target="_blank"
      style="margin-right:12px;">📦 Manual Certified Mail Label</a>
   {% endif %}
-  <a href="{{ url_for('letters_mark_sent', letter_id=letter.id) }}" style="margin-right:12px;">✅ Mark as Sent</a>
+  <a href="{{ url_for('letters_mark_sent', letter_id=letter.id) }}" style="margin-right:12px;">✅ Send Letter</a>
   {% if current_user.can_generate_letters %}
   <a href="{{ url_for('vehicle_letters', vehicle_id=vehicle.id) }}" style="margin-right:12px;">← Back to Letters</a>
   {% endif %}

@@ -418,7 +418,7 @@
         <td class="small text-muted">{{ l.vehicle.owner_name or '—' }}</td>
         <td class="text-end">
           <a href="{{ url_for('heather.letter_template', letter_id=l.id) }}" class="btn btn-sm btn-outline-secondary py-0" target="_blank"><i class="bi bi-file-text"></i></a>
-          {% if can_act %}<a href="{{ url_for('letters_mark_sent', letter_id=l.id) }}" class="btn btn-sm btn-danger py-0">Mark Sent</a>{% endif %}
+          {% if can_act %}<a href="{{ url_for('letters_mark_sent', letter_id=l.id) }}" class="btn btn-sm btn-danger py-0">Send Letter</a>{% endif %}
         </td>
       </tr>
       {% endfor %}
@@ -448,7 +448,7 @@
         <td class="small text-muted">{{ l.vehicle.owner_name or '—' }}</td>
         <td class="text-end">
           <a href="{{ url_for('heather.letter_template', letter_id=l.id) }}" class="btn btn-sm btn-outline-secondary py-0" target="_blank"><i class="bi bi-file-text"></i></a>
-          {% if can_act %}<a href="{{ url_for('letters_mark_sent', letter_id=l.id) }}" class="btn btn-sm btn-warning py-0">Mark Sent</a>{% endif %}
+          {% if can_act %}<a href="{{ url_for('letters_mark_sent', letter_id=l.id) }}" class="btn btn-sm btn-warning py-0">Send Letter</a>{% endif %}
         </td>
       </tr>
       {% endfor %}
@@ -460,7 +460,7 @@
         <td class="small text-muted">{{ l.vehicle.owner_name or '—' }}</td>
         <td class="text-end">
           <a href="{{ url_for('heather.letter_template', letter_id=l.id) }}" class="btn btn-sm btn-outline-secondary py-0" target="_blank"><i class="bi bi-file-text"></i></a>
-          {% if can_act %}<a href="{{ url_for('letters_mark_sent', letter_id=l.id) }}" class="btn btn-sm btn-outline-primary py-0">Mark Sent</a>{% endif %}
+          {% if can_act %}<a href="{{ url_for('letters_mark_sent', letter_id=l.id) }}" class="btn btn-sm btn-outline-primary py-0">Send Letter</a>{% endif %}
         </td>
       </tr>
       {% endfor %}

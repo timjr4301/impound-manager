@@ -206,7 +206,7 @@
           </td>
           <td class="text-end pe-3">
             <a href="{{ url_for('letters_mark_sent', letter_id=letter.id) }}" class="btn btn-danger btn-sm action-btn">
-              <i class="bi bi-send-fill"></i> Mark Sent
+              <i class="bi bi-send-fill"></i> Send Letter
             </a>
           </td>
         </tr>
@@ -253,7 +253,7 @@
           <td>{{ letter.vehicle.impound_date|mdY }}</td>
           <td class="text-end pe-3">
             <a href="{{ url_for('letters_mark_sent', letter_id=letter.id) }}" class="btn btn-warning btn-sm action-btn">
-              <i class="bi bi-send-fill"></i> Mark Sent
+              <i class="bi bi-send-fill"></i> Send Letter
             </a>
           </td>
         </tr>

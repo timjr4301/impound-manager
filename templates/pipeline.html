@@ -114,7 +114,7 @@
           <td class="text-end pe-3">
             <a href="{{ url_for('letters_mark_sent', letter_id=letter.id) }}"
                class="btn btn-sm {% if letter.due_date <= today %}btn-danger{% else %}btn-outline-primary{% endif %}">
-              <i class="bi bi-send"></i> Mark Sent
+              <i class="bi bi-send"></i> Send Letter
             </a>
           </td>
         </tr>

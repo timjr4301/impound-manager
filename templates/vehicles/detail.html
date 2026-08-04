@@ -281,7 +281,7 @@
   <i class="bi bi-mailbox fs-3"></i>
   <div class="flex-grow-1">
     <strong class="d-block">PO BOX ADDRESS — UPS CANNOT DELIVER HERE</strong>
-    <span class="small">Send any letter to this owner through USPS instead — the Mark Sent modal below
+    <span class="small">Send any letter to this owner through USPS instead — the Send Letter modal below
       switches to the USPS path automatically. Per SOP: pull confirmation from tow lien AND report of
       delivery, or BMV will reject the packet.</span>
   </div>
@@ -321,7 +321,7 @@
   <div class="modal-dialog modal-dialog-centered">
     <div class="modal-content">
       <div class="modal-header">
-        <h5 class="modal-title"><i class="bi bi-send me-1"></i>{{ l.label }} — Mark Sent</h5>
+        <h5 class="modal-title"><i class="bi bi-send me-1"></i>{{ l.label }} — Send Letter</h5>
         <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
       </div>
       <div class="modal-body">
@@ -374,14 +374,14 @@
             <input type="checkbox" class="form-check-input" id="poBoxSop{{ l.id }}" name="po_box_sop_confirmed" value="1" required>
             <label class="form-check-label small" for="poBoxSop{{ l.id }}">Confirmed tow lien + delivery report pulled</label>
           </div>
-          <button type="submit" class="btn btn-outline-secondary btn-sm w-100">Mark Sent via USPS</button>
+          <button type="submit" class="btn btn-outline-secondary btn-sm w-100">Send Letter via USPS</button>
         </form>
         {% else %}
         <form method="POST" action="{{ url_for('letters_create_ups_label', letter_id=l.id) }}" class="mb-3"
               {% if l.vehicle.nada_value is none %}onsubmit="return confirm('No vehicle value on file — this letter will print N/A for value. Send anyway?');"{% endif %}>
           <input type="hidden" name="from_vehicle_card" value="1">
           <button type="submit" class="btn btn-primary btn-sm w-100">
-            <i class="bi bi-upc-scan me-1"></i>Create UPS Label &amp; Mark Sent
+            <i class="bi bi-upc-scan me-1"></i>Create UPS Label &amp; Send Letter
           </button>
         </form>
         <div class="text-center text-muted small mb-2">— or enter a tracking number by hand —</div>
@@ -396,7 +396,7 @@
             <label class="form-label small mb-0">UPS Tracking Number <span class="text-muted">(optional)</span></label>
             <input type="text" name="tracking_number" class="form-control form-control-sm">
           </div>
-          <button type="submit" class="btn btn-outline-secondary btn-sm w-100">Mark Sent (manual entry)</button>
+          <button type="submit" class="btn btn-outline-secondary btn-sm w-100">Send Letter (Manual Entry)</button>
         </form>
         {% endif %}
       </div>
@@ -1632,7 +1632,7 @@ function showGeneralDocImage(btn) {
           {% elif not l1.sent_date and vehicle.status == 'ACTIVE' %}
           <a href="{{ url_for('letters_mark_sent', letter_id=l1.id) }}"
              class="btn btn-sm {% if l1.is_overdue %}btn-danger{% elif l1.is_due_today %}btn-warning{% else %}btn-outline-primary{% endif %}">
-            <i class="bi bi-send"></i> Mark as Sent
+            <i class="bi bi-send"></i> Send Letter
           </a>
           {% elif l1.sent_date and not l1.delivery_confirmed_date and vehicle.status == 'ACTIVE' %}
           <form method="POST" action="{{ url_for('letters_confirm_delivery', letter_id=l1.id) }}" class="d-inline-flex gap-2 align-items-center">
@@ -1714,7 +1714,7 @@ function showGeneralDocImage(btn) {
           {% elif not l2.sent_date and vehicle.status == 'ACTIVE' %}
           <a href="{{ url_for('letters_mark_sent', letter_id=l2.id) }}"
              class="btn btn-sm {% if l2.is_overdue %}btn-danger{% elif l2.is_due_today %}btn-warning{% else %}btn-outline-primary{% endif %}">
-            <i class="bi bi-send"></i> Mark as Sent
+            <i class="bi bi-send"></i> Send Letter
           </a>
           {% elif l2.sent_date and not l2.delivery_confirmed_date and vehicle.status == 'ACTIVE' %}
           <form method="POST" action="{{ url_for('letters_confirm_delivery', letter_id=l2.id) }}" class="d-inline-flex gap-2 align-items-center">
@@ -1792,7 +1792,7 @@ function showGeneralDocImage(btn) {
           {% elif not xl.sent_date and vehicle.status == 'ACTIVE' %}
           <a href="{{ url_for('letters_mark_sent', letter_id=xl.id) }}"
              class="btn btn-sm {% if xl.is_overdue %}btn-danger{% elif xl.is_due_today %}btn-warning{% else %}btn-outline-primary{% endif %}">
-            <i class="bi bi-send"></i> Mark as Sent
+            <i class="bi bi-send"></i> Send Letter
           </a>
           {% elif xl.sent_date and not xl.delivery_confirmed_date and vehicle.status == 'ACTIVE' %}
           <form method="POST" action="{{ url_for('letters_confirm_delivery', letter_id=xl.id) }}" class="d-inline-flex gap-2 align-items-center">
