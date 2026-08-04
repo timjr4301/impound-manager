@@ -37,9 +37,15 @@
 <div class="alert {% if vehicle.impound_type == 'POLICE' %}alert-primary{% else %}alert-secondary{% endif %} py-2 small">
   {% if vehicle.impound_type == 'POLICE' %}
   <strong>Police impound.</strong> This vehicle was towed at the order of law enforcement, so it
-  gets the <strong>Notice of Lien</strong> (owner and lienholder on one letter, R.C. 4513.60 /
-  4513.61 / 4513.66 and R.C. 4505.104(A), 60-day claim window). Rates come from the requesting
-  police department.
+  gets the <strong>Notice of Lien</strong> (R.C. 4513.60 / 4513.61 / 4513.66 and R.C. 4505.104(A),
+  60-day claim window)
+  {% if vehicle.lienholder_name %}
+  — <strong>separately sent to the owner and to the lienholder</strong>, same content, addressed
+  to each party.
+  {% else %}
+  , sent to the owner (no lienholder on file).
+  {% endif %}
+  Rates come from the requesting police department.
   {% else %}
   <strong>Private property impound.</strong> No law-enforcement order, so this vehicle gets
   {% if vehicle.lienholder_name %}

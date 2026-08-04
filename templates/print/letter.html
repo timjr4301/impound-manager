@@ -137,7 +137,7 @@
   <div>REF# {{ vehicle.call_number or '—' }}&nbsp;&nbsp;Invoice # {{ vehicle.invoice_number or '—' }}</div>
 </div>
 
-<div class="addressee">{{ owner_block() }}</div>
+<div class="addressee">{% if is_lienholder %}{{ lienholder_block() }}{% else %}{{ owner_block() }}{% endif %}</div>
 
 <table class="grid">
   <tr><th>Vehicle</th><th>VIN</th><th>Color</th><th>License Plate</th><th>Value of Motor Vehicle</th></tr>

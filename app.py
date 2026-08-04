@@ -2813,18 +2813,29 @@ def create_app():
             'first_lienholder':   (5, 'first_notice',  'lienholder'),
             'second_lienholder':  (6, 'second_notice', 'lienholder'),
         },
-        # COMPLIANCE-TRUTH.md item 3, confirmed 2026-07-31: POLICE gets ONE
-        # letter (the Notice of Lien). The 3/4/5/6 owner/lienholder chain
-        # this hub used to also offer for POLICE never affected title
-        # eligibility or the Task Pipeline — removed here so the hub can't
-        # generate letters that duplicate/confuse the one that matters.
+        # COMPLIANCE-TRUTH.md item 3 (2026-07-31) made POLICE one combined
+        # letter addressed to the owner only, on the reasoning that the
+        # owner/lienholder chain this hub used to also offer never affected
+        # title eligibility or the Task Pipeline. Revised 2026-08-04: Tim
+        # confirmed a real case (2022 Dodge Charger, lienholder Ally
+        # Financial) needs the lienholder to get their own separately
+        # tracked, separately sent certified letter too — same content
+        # (notice_of_lien), just addressed to the lienholder instead of the
+        # owner (see is_lienholder in print/letter.html). Reuses PPI's
+        # lienholder letter_number (5) — safe, since a vehicle is never both
+        # PPI and POLICE. Still only ONE round for POLICE (no letter_number
+        # 6/second-notice equivalent) — the Notice of Lien's own 60-day
+        # claim window is the whole compliance clock, unlike PPI's two-step
+        # escalation, so there's nothing for a "2nd notice" to escalate to.
         'POLICE': {
             'police':             (1, 'notice_of_lien', 'owner'),
+            'police_lienholder':  (5, 'notice_of_lien', 'lienholder'),
         },
     }
 
     LETTER_SLUG_TITLES = {
-        'police':            'Police Notice of Lien',
+        'police':            'Notice of Lien (Owner)',
+        'police_lienholder': 'Notice of Lien (Lienholder)',
         'first_owner':       'First Notice (Owner)',
         'second_owner':      'Second Notice (Owner)',
         'first_lienholder':  'First Notice (Lienholder)',
@@ -2899,9 +2910,11 @@ def create_app():
 
         # Which slugs to offer. Second notices always show (per spec) — they
         # render disabled with a reason when the pipeline hasn't unlocked them.
-        # POLICE: item 3, one letter only — nothing else to offer.
+        # POLICE: owner always; lienholder only when one's on file (silently
+        # skipped below via "No lienholder on file." — same pattern PPI's
+        # first_lienholder already relies on).
         if vehicle.impound_type == 'POLICE':
-            slugs = ['police']
+            slugs = ['police', 'police_lienholder']
         else:
             slugs = ['first_owner', 'first_lienholder',
                      'second_owner', 'second_lienholder']
