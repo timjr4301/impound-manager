@@ -2186,12 +2186,13 @@ def create_app():
             return redirect(url_for('vehicles_detail', vehicle_id=vehicle.id))
 
         reference = (vehicle.invoice_number or vehicle.stock_number or f'VEH{vehicle.id}')[:35]
+        reference_2 = request.form.get('reference_number_2', '').strip() or None
 
         import ups_api
         try:
             tracking_number, label_b64 = ups_api.create_label(
                 reference, name, address, city, state, zip_code,
-                trans_id=f'letter-{letter.id}',
+                trans_id=f'letter-{letter.id}', reference2=reference_2,
             )
         except Exception as exc:
             flash(f'UPS API error: {exc}', 'danger')
@@ -2216,7 +2217,7 @@ def create_app():
                 try:
                     tracking_number_2, label_2_b64 = ups_api.create_label(
                         reference, name_2, address_2, city_2, state_2, zip_2,
-                        trans_id=f'letter-{letter.id}-2nd',
+                        trans_id=f'letter-{letter.id}-2nd', reference2=reference_2,
                     )
                     letter.label_image_data_2 = label_2_b64
                 except Exception as exc:
@@ -2228,6 +2229,7 @@ def create_app():
 
         message = _finalize_letter_sent(
             letter, date.today(), tracking_number=tracking_number, ups_status='Label Created',
+            reference_number_2=reference_2,
         )
         if tracking_number_2:
             letter.tracking_number_2 = tracking_number_2

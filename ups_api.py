@@ -87,8 +87,15 @@ def _headers(trans_id):
 # ── Label creation ───────────────────────────────────────────────────────────
 
 def create_label(reference, recipient_name, recipient_address, recipient_city,
-                  recipient_state, recipient_zip, trans_id):
+                  recipient_state, recipient_zip, trans_id, reference2=None):
     """Call UPS Ship API, return (tracking_number, label_b64_gif).
+
+    reference2 (optional) is a second package reference number — e.g. "AFO"
+    for an accident-for-owner case. Confirmed against UPS's own spec
+    (Package_ReferenceNumber in github.com/UPS-API/api-documentation,
+    Shipping.yaml): ReferenceNumber is an array (up to 5 entries), and for
+    non-Mail-Innovation shipments only the first 2 are visible on the label
+    — exactly what we need for reference + AFO.
 
     On staging, fabricates the response instead — see the STAGING SAFETY note
     at the top of this file for why a real call here is never acceptable."""
@@ -103,6 +110,10 @@ def create_label(reference, recipient_name, recipient_address, recipient_city,
     shipper_city = 'Columbus'
     shipper_state = 'OH'
     shipper_zip = '43219'
+
+    reference_numbers = [{'Value': (reference or '')[:35]}]
+    if reference2:
+        reference_numbers.append({'Value': reference2[:35]})
 
     payload = {
         'ShipmentRequest': {
@@ -158,7 +169,7 @@ def create_label(reference, recipient_name, recipient_address, recipient_city,
                         'UnitOfMeasurement': {'Code': 'LBS'},
                         'Weight': '0.1',
                     },
-                    'ReferenceNumber': {'Value': (reference or '')[:35]},
+                    'ReferenceNumber': reference_numbers,
                     'PackageServiceOptions': {
                         # DCISType 2 = Signature Required. Hard requirement: no
                         # signature on the label means no signed POD to fetch later.

@@ -37,7 +37,7 @@
     </div>
     {% endif %}
 
-    {% if letter.vehicle.nada_value is none %}
+    {% if letter.vehicle.nada_value is none and letter.vehicle.impound_type != 'POLICE' %}
     <div class="alert alert-warning d-flex align-items-start gap-2" id="no-value-warning">
       <i class="bi bi-exclamation-triangle-fill fs-5"></i>
       <div>
@@ -128,7 +128,12 @@
     {% endif %}
     {% elif ups_configured and not letter.tracking_number and not letter.vehicle.po_box_flag %}
     <form method="POST" action="{{ url_for('letters_create_ups_label', letter_id=letter.id) }}" class="mb-4"
-          {% if letter.vehicle.nada_value is none %}onsubmit="return confirm('No vehicle value on file — this letter will print N/A for value. Send anyway?');"{% endif %}>
+          {% if letter.vehicle.nada_value is none and letter.vehicle.impound_type != 'POLICE' %}onsubmit="return confirm('No vehicle value on file — this letter will print N/A for value. Send anyway?');"{% endif %}>
+      <div class="mb-2">
+        <label for="reference_number_2" class="form-label small mb-0">Reference #2 <span class="text-muted fw-normal">(optional — e.g. AFO)</span></label>
+        <input type="text" class="form-control form-control-sm" id="reference_number_2" name="reference_number_2" placeholder="AFO">
+        <div class="form-text">Prints as a 2nd reference number on the real UPS label. If this envelope ever comes back, the scanner will auto-flag the vehicle.</div>
+      </div>
       <button type="submit" class="btn btn-outline-primary w-100" {% if send_block %}disabled{% endif %}>
         <i class="bi bi-upc-scan"></i> Create UPS Label &amp; Send Letter
       </button>
@@ -137,7 +142,7 @@
     {% endif %}
 
     <form method="POST" action="{{ url_for('letters_mark_sent', letter_id=letter.id) }}"
-          {% if letter.vehicle.nada_value is none %}onsubmit="return confirm('No vehicle value on file — this letter will print N/A for value. Send anyway?');"{% endif %}>
+          {% if letter.vehicle.nada_value is none and letter.vehicle.impound_type != 'POLICE' %}onsubmit="return confirm('No vehicle value on file — this letter will print N/A for value. Send anyway?');"{% endif %}>
       <div class="card shadow-sm">
         <div class="card-body">
           <div class="mb-3">
