@@ -49,3 +49,14 @@ Flask-SocketIO==5.3.6
 python-socketio==5.11.2
 python-engineio==4.9.1
 simple-websocket==1.0.0
+
+# Scheduled jobs (5am Towbook sync, 6am urgency recalc, UPS delivery poll
+# every 3 hrs) — app.py's `try: from apscheduler...` has the exact same
+# silent-failure shape as Flask-SocketIO above: this package was missing
+# from this file, so every scheduled job has likely never once run
+# automatically in production (found 2026-08-05 — the UPS auto-poll's own
+# log hadn't recorded a real run since 07/22, only manual button clicks).
+# Pinned to the 3.x line deliberately — 4.x is an async rewrite with a
+# different API/import path that would NOT work with this code's
+# `BackgroundScheduler`/`scheduler.add_job(..., 'cron', ...)` usage.
+APScheduler==3.10.4

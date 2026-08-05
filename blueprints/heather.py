@@ -1302,9 +1302,20 @@ def letters():
         .all()
     )
 
-    # Last bulk UPS tracking sweep (UPS Phase 2 manual poll)
+    # Last bulk UPS tracking sweep (manual button OR the scheduled auto-poll —
+    # both write the same UpsPollLog). Found 2026-08-05: the scheduler had
+    # been silently disabled for weeks (missing APScheduler dependency, fixed
+    # same day) with zero visible symptom other than this timestamp going
+    # stale — so surface staleness loudly here instead of relying on someone
+    # noticing a quiet banner. The auto-poll runs every 3 hrs, 8am-8pm ET;
+    # anything past 6 hrs old during that window means at least one run was
+    # missed.
     from models import UpsPollLog
     last_ups_poll = UpsPollLog.query.order_by(UpsPollLog.run_at.desc()).first()
+    ups_poll_stale = (
+        last_ups_poll is not None
+        and (datetime.utcnow() - last_ups_poll.run_at).total_seconds() > 6 * 3600
+    )
 
     return render_template('heather/letters.html',
         today=today,
@@ -1316,6 +1327,7 @@ def letters():
         can_act=current_user.is_heather,
         lot_sort=lot_sort,
         last_ups_poll=last_ups_poll,
+        ups_poll_stale=ups_poll_stale,
         label_letters=label_letters,
         orphaned_labels=orphaned_labels,
         stale_labels=stale_labels,

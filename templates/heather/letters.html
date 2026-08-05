@@ -41,6 +41,17 @@
 </div>
 
 {# ── Last UPS tracking sweep ── #}
+{% if ups_poll_stale %}
+<div class="alert alert-warning d-flex align-items-start gap-2 py-2 mb-2">
+  <i class="bi bi-exclamation-triangle-fill"></i>
+  <div>
+    <strong>Automatic UPS tracking looks stale</strong> — the last refresh was
+    {{ last_ups_poll.run_at|datetime_et }}, more than 6 hours ago. The auto-poll should run every 3
+    hours (8am-8pm ET); if it keeps not showing up here, the scheduled job may be down again — worth
+    flagging.
+  </div>
+</div>
+{% endif %}
 <div class="d-flex align-items-center gap-2 mb-3 small text-muted">
   <i class="bi bi-truck"></i>
   {% if last_ups_poll %}
