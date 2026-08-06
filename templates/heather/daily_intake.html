@@ -56,7 +56,7 @@
         <div id="bmvDropZone" class="intake-dropzone">
           <i class="bi bi-cloud-arrow-up d-block mb-2"></i>
           <p class="mb-1 fw-semibold">Drop LKA + Title Abstract PDFs here</p>
-          <p class="text-muted small mb-0">or click to browse — filenames must contain "LKA" or "Abstract"/"Title"</p>
+          <p class="text-muted small mb-0">or click to browse — works with the BMV portal's own filenames ("LastKnownAddress...") or anything containing "LKA"/"Abstract"/"Title"</p>
           <input type="file" id="bmvFileInput" accept="application/pdf" multiple style="display:none;">
         </div>
         <div id="bmvProgress" class="small text-muted mt-2"></div>
@@ -186,8 +186,16 @@ function escapeHtml(s) {
   });
 
   function classifyFilename(name) {
+    // Real files downloaded straight from the Ohio BMV portal are never
+    // actually named with the literal abbreviation "LKA" - the portal's own
+    // default filename is "LastKnownAddress (N).pdf" (no space, no
+    // abbreviation), which "lka".includes() never matched. Found 2026-08-06
+    // from a real staff report ("the LKA wasn't working") - every genuine
+    // LKA download was silently landing in the unclassified pile, telling
+    // staff to rename the file (backwards fix) instead of the classifier
+    // just recognizing the real name the portal actually produces.
     const lower = name.toLowerCase();
-    if (lower.includes('lka')) return 'LKA';
+    if (lower.includes('lka') || lower.includes('lastknown') || lower.includes('last known')) return 'LKA';
     if (lower.includes('abstract') || lower.includes('title')) return 'TITLE_ABSTRACT';
     return null;
   }
@@ -235,8 +243,8 @@ function escapeHtml(s) {
   function renderUnclassifiedRow(filename) {
     counts.unclassified++;
     addRow(`<strong>${escapeHtml(filename)}</strong>
-      <div class="text-warning-emphasis small">⚠️ Could not classify — rename to include
-      "LKA" or "Abstract" and re-upload.</div>`, 'border-warning');
+      <div class="text-warning-emphasis small">⚠️ Could not classify — filename needs to indicate
+      LKA or Title Abstract (e.g. "LastKnownAddress", "LKA", "Abstract", "Title").</div>`, 'border-warning');
   }
 
   function renderErrorRow(filename, error) {
