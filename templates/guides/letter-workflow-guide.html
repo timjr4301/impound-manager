@@ -521,10 +521,10 @@ details.section[open] .sec-arrow { transform: rotate(180deg); }
         <li class="step"><input type="checkbox"><span class="step-n">2</span><span class="step-text">Print the letter on your printer. Set it aside — you'll fold and envelope it after creating the UPS label.</span></li>
       </ul>
 
-      <p class="sub-h">Create UPS Label &amp; Mark Sent</p>
+      <p class="sub-h">Create UPS Label &amp; Send Letter</p>
       <ul class="steps">
-        <li class="step"><input type="checkbox"><span class="step-n">3</span><span class="step-text">From Heather's dashboard or the Letters → "Need to Send" tab, click <strong>"Mark Sent"</strong> on the Letter 1 row for this vehicle.</span></li>
-        <li class="step"><input type="checkbox"><span class="step-n">4</span><span class="step-text">On the Mark Sent page, click <strong>"Create UPS Label &amp; Mark Sent"</strong> at the top. The system calls UPS and generates a certified mail label. <em>The label image (GIF) appears on the page — this is what you print and stick on the envelope.</em></span></li>
+        <li class="step"><input type="checkbox"><span class="step-n">3</span><span class="step-text">From Heather's dashboard or the Letters → "Need to Send" tab, click <strong>"Send Letter"</strong> on the Letter 1 row for this vehicle.</span></li>
+        <li class="step"><input type="checkbox"><span class="step-n">4</span><span class="step-text">On the Send Letter page, click <strong>"Create UPS Label &amp; Send Letter"</strong> at the top. The system calls UPS and generates a certified mail label. <em>The label image (GIF) appears on the page — this is what you print and stick on the envelope. It's also saved permanently, so "View/Print UPS Label" on the vehicle's page pulls it back up any time later.</em></span></li>
         <li class="step"><input type="checkbox"><span class="step-n">5</span><span class="step-text">Print the label. It's ~4 inches wide, standard UPS label format. The label includes the owner name/address and the <strong>invoice number as the UPS reference number</strong> — this is how the system matches the envelope when it comes back.</span></li>
         <li class="step"><input type="checkbox"><span class="step-n">6</span><span class="step-text">Confirm the <strong>Date Sent</strong> field (defaults to today). The UPS tracking number auto-fills from the label that was just created.</span></li>
         <li class="step"><input type="checkbox"><span class="step-n">7</span><span class="step-text"><em>For AFO (Accident for Owner) cases only:</em> enter <code>AFO</code> in the <strong>Reference #2</strong> field. This gets written on the physical label and will auto-flag the vehicle when the envelope comes back through the scanner.</span></li>
@@ -596,8 +596,8 @@ details.section[open] .sec-arrow { transform: rotate(180deg); }
 
       <ul class="steps">
         <li class="step"><input type="checkbox"><span class="step-n">1</span><span class="step-text">Print the second letter from the vehicle detail → Letters card → "Second Notice" link. It opens in a new tab with the "SECOND AND FINAL NOTICE" banner at the top.</span></li>
-        <li class="step"><input type="checkbox"><span class="step-n">2</span><span class="step-text">Click <strong>"Mark Sent"</strong> on the Letter 2 row.</span></li>
-        <li class="step"><input type="checkbox"><span class="step-n">3</span><span class="step-text">Click <strong>"Create UPS Label &amp; Mark Sent"</strong> — same button, new label, new UPS tracking number.</span></li>
+        <li class="step"><input type="checkbox"><span class="step-n">2</span><span class="step-text">Click <strong>"Send Letter"</strong> on the Letter 2 row.</span></li>
+        <li class="step"><input type="checkbox"><span class="step-n">3</span><span class="step-text">Click <strong>"Create UPS Label &amp; Send Letter"</strong> — same button, new label, new UPS tracking number.</span></li>
         <li class="step"><input type="checkbox"><span class="step-n">4</span><span class="step-text">Print the label, confirm date, submit.</span></li>
       </ul>
 
@@ -606,7 +606,7 @@ details.section[open] .sec-arrow { transform: rotate(180deg); }
         <ul>
           <li>Vehicle detail shows Letter 2 with its own tracking number — <strong>different</strong> from Letter 1's.</li>
           <li>For <strong>PPI impounds</strong>: no Letter 3 is created after Letter 2. The vehicle enters the waiting period before title eligibility.</li>
-          <li>For <strong>POLICE impounds</strong>: a 5-letter chain is used. Letters 3–6 appear at the right stages — check vehicle detail after marking Letter 2 sent.</li>
+          <li>For <strong>POLICE impounds</strong>: there's no Letter 2/second-notice at all — the Notice of Lien's own 60-day claim window is the whole compliance clock. What POLICE does have (as of 08/04/2026) is a separate <strong>Notice of Lien (Lienholder)</strong> letter, generated from the same Generate Letters screen, whenever a lienholder is on file — same content, own tracking number, own Send Letter button, completely independent of the owner's letter.</li>
         </ul>
       </div>
     </div>
@@ -723,7 +723,7 @@ details.section[open] .sec-arrow { transform: rotate(180deg); }
       <input type="checkbox">
       <div>
         <div class="test-title">2 · First Letter + UPS Label Test</div>
-        <div class="test-desc">Find a vehicle with no sent Letter 1. Click Mark Sent → Create UPS Label. Confirm: label appears with a 1Z tracking number. After submit: vehicle detail shows sent date + tracking, and Letter 2 is auto-scheduled ~30 days out.</div>
+        <div class="test-desc">Find a vehicle with no sent Letter 1. Click Send Letter → Create UPS Label. Confirm: label appears with a 1Z tracking number. After submit: vehicle detail shows sent date + tracking, and Letter 2 is auto-scheduled ~30 days out.</div>
       </div>
     </div>
     <div class="test-item">
@@ -758,7 +758,7 @@ details.section[open] .sec-arrow { transform: rotate(180deg); }
       <input type="checkbox">
       <div>
         <div class="test-title">7 · Ghost Vehicle Test</div>
-        <div class="test-desc">Find a Possible Release vehicle. Confirm: it does NOT appear in letter queues. Confirm: clicking Mark Sent or Generate Letter for that vehicle shows a blocking error, not a form.</div>
+        <div class="test-desc">Find a Possible Release vehicle. Confirm: it does NOT appear in letter queues. Confirm: clicking Send Letter or Generate Letter for that vehicle shows a blocking error, not a form.</div>
       </div>
     </div>
     <div class="test-item">

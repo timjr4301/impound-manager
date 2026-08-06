@@ -289,7 +289,11 @@
         <img src="../uploads/1782961375531_image.png" alt="BMV Search Complete modal">
         <div class="caption">BMV Search Complete — type the owner name and address you found, then click Mark BMV Complete</div>
       </div>
-      <p>Fill in the <strong>Owner name</strong>, <strong>Street address</strong>, and <strong>City / State / Zip</strong> boxes — <strong>this is exactly what prints on the certified letters</strong>, so double-check spelling. Use the notes box for anything extra (like a lienholder). Click <strong>Mark BMV Complete</strong>. This moves the vehicle into Tina's queue once all letters are done.</p>
+      <p>Fill in the <strong>Owner name</strong>, <strong>Street address</strong>, and <strong>City / State / Zip</strong> boxes — <strong>this is exactly what prints on the certified letters</strong>, so double-check spelling.</p>
+      <div class="callout red">
+        <strong>If you found a lienholder, put it in the real Lienholder fields on this same modal</strong> — Name, Address, City, State, Zip. Don't just write it in the Notes box at the bottom; Notes is for extra context only and does <strong>not</strong> feed the letter. If a lienholder's info only ever goes in Notes, they will never get their required letter.
+      </div>
+      <p>You'll also see a <strong>Vehicle value ($)</strong> box on this same modal — fill it in if you have it handy (NADA/AI estimate), and an optional <strong>Add a 2nd owner or lienholder</strong> section for joint titles or co-signers. Click <strong>Mark BMV Complete</strong>. This moves the vehicle into Tina's queue once all letters are done.</p>
     </div>
 
     <div class="step">
@@ -363,12 +367,12 @@
       <div class="step-label">Actions panel</div>
       <h3>Buttons at the bottom of every vehicle record</h3>
       <ul class="checklist">
-        <li><strong>Valuation Report</strong> — shows the vehicle's NADA value and total fees owed</li>
+        <li><strong>Valuation Report</strong> — shows the vehicle's estimated value and total fees owed</li>
         <li><strong>Collect Payment</strong> — if the owner comes in to pay and retrieve</li>
-        <li><strong>Create Invoice</strong> — generates an invoice for the vehicle</li>
-        <li><strong>Mark as Released</strong> — removes it from active impounds</li>
-        <li><strong>Envelope Scan</strong> — scan a returned envelope for this specific vehicle</li>
+        <li><strong>File for Title</strong> — appears once the vehicle is title-eligible; hands it to Tina's queue</li>
+        <li><strong>Mark Paid — Release for Pickup</strong> — the owner paid in full; this doesn't release the vehicle yet, it flags it pending pickup until someone confirms it actually left the lot</li>
       </ul>
+      <p class="callout blue" style="display:block;">Above this Actions panel, near the top of the page, are the header buttons: <strong>Flag Missing/Ghost</strong>, <strong>Hold Letters</strong> (pauses the letter clock — for boats/grandfathered junk, not everyday use), <strong>Generate Letters</strong>, <strong>Edit</strong>, and <strong>Snooze</strong> (hides a vehicle from your queues for a set number of days).</p>
     </div>
   </div>
 </div>
@@ -382,44 +386,32 @@
   </div>
   <div class="section-body">
     <div class="step">
-      <div class="step-label">Sending a letter</div>
-      <h3>From the vehicle record, click "Print Letter" to get the letter</h3>
-      <div class="screenshot">
-        <img src="../uploads/1782961573821_image.png" alt="Printed certified letter">
-        <div class="caption">Printed Letter 1 — Broad &amp; James letterhead, VIA CERTIFIED MAIL, vehicle info auto-filled. Print and mail this.</div>
-      </div>
-      <p>Print it, put it in the certified mail envelope, take it to the post office. Get a USPS tracking number from the receipt.</p>
-      <div class="callout yellow"><strong>Note:</strong> The letter says [REGISTERED OWNER NAME] and [OWNER ADDRESS] until you've entered the owner info in the vehicle record. Make sure the owner info is filled in before printing.</div>
-      <div class="callout blue">
-        <strong>UPS tracking also works.</strong> Ohio BMV accepts UPS proof of delivery as a substitute for certified mail. The tracking number goes in the same field.
-      </div>
-    </div>
-
-    <div class="step">
-      <div class="step-label">After you mail it</div>
-      <h3>Mark it as Sent and enter the tracking number</h3>
-      <div class="screenshot">
-        <img src="../uploads/1782961398251_image.png" alt="Mark Letter as Sent page">
-        <div class="caption">Mark Letter as Sent — enter the date sent and the USPS tracking number from your receipt</div>
-      </div>
+      <div class="step-label">Sending a letter — the normal way</div>
+      <h3>Click "Send Letter" on the letter, then "Create UPS Label &amp; Send Letter"</h3>
+      <p>You don't need to print anything and drive it to the post office yourself. From the vehicle record's Certified Letter Timeline (or the dashboard queue, or the letter's own Print Letter page), click <strong>Send Letter</strong> — this opens the send screen for that specific letter and party (owner, or lienholder — they're tracked and sent separately).</p>
       <div class="workflow-steps">
-        <div class="workflow-step"><div class="wf-text">Go to the vehicle record</div></div>
-        <div class="workflow-step"><div class="wf-text">In the Certified Letter Timeline, find the letter row</div></div>
-        <div class="workflow-step"><div class="wf-text">Click the send/mark button and enter the date sent</div></div>
-        <div class="workflow-step"><div class="wf-text">Enter the tracking number from your USPS or UPS receipt</div></div>
-        <div class="workflow-step"><div class="wf-text">Click <strong>Mark as Sent</strong></div></div>
+        <div class="workflow-step"><div class="wf-text">Click <strong>Send Letter</strong> on the letter you're sending</div></div>
+        <div class="workflow-step"><div class="wf-text">Click <strong>Create UPS Label &amp; Send Letter</strong> at the top — the system calls UPS for real and creates an actual shipping label, no typing required</div></div>
+        <div class="workflow-step"><div class="wf-text">Optional: type <code>AFO</code> into the <strong>Reference #2</strong> box first if this is an Accident-for-Owner case — it prints on the real label and auto-flags the vehicle if the envelope ever comes back</div></div>
+        <div class="workflow-step"><div class="wf-text">The tracking number (starts with 1Z) fills in automatically and the letter is marked sent in the same step</div></div>
       </div>
       <div class="callout green">
-        After marking Letter 1 as sent, <strong>Letter 2 is automatically scheduled for 30 days later.</strong> You don't need to do anything else — it will appear in your queue on the right day.
+        After Letter 1 is sent, <strong>Letter 2 is automatically scheduled for 30 days later.</strong> You don't need to do anything else — it'll appear in your queue on the right day.
+      </div>
+      <div class="callout blue">
+        <strong>Need to see the label again later?</strong> The real UPS label is saved — click <strong>View/Print UPS Label</strong> on that same letter's card any time to pull it back up and reprint it.
+      </div>
+      <div class="callout yellow">
+        <strong>If UPS won't work</strong> (PO Box address, or the UPS API is down): use the <strong>Send Letter (Manual Entry)</strong> option below the main button instead — type the date and tracking number by hand after mailing it the old-fashioned way (certified mail at the counter). Same result, just no auto-created label.
       </div>
     </div>
 
     <div class="step">
       <div class="step-label">When delivery is confirmed</div>
-      <h3>Confirm delivery after checking UPS/USPS</h3>
-      <p>Check the tracking number on UPS.com or USPS.com. Once it shows delivered, go back to the vehicle record and click <strong>Confirm Delivery</strong>.</p>
+      <h3>This mostly happens on its own</h3>
+      <p>The system checks UPS automatically every few hours and marks a letter delivered by itself — you don't have to look anything up. If you want to check sooner, click <strong>Refresh from UPS</strong> on the vehicle's page, or <strong>Refresh UPS Tracking</strong> on the Letters page to check everything at once.</p>
       <div class="callout yellow">
-        <strong>If it shows "Exception"</strong> — that means delivery failed. Check UPS/USPS for the specific reason. Then go to the Letters tab and click <strong>RTS</strong> (Return to Sender) to flag it.
+        <strong>If a letter comes back undeliverable</strong> — click <strong>Returned to Sender</strong> on that letter's card. Verify/fix the address before sending it again.
       </div>
     </div>
   </div>
