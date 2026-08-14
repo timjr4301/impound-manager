@@ -2307,6 +2307,69 @@ def create_app():
         flash('2nd recipient marked Returned to Sender.', 'warning')
         return redirect(url_for('vehicles_detail', vehicle_id=letter.vehicle_id))
 
+    @app.route('/letters/<int:letter_id>/edit-tracking', methods=['POST'])
+    @login_required
+    def letters_edit_tracking(letter_id):
+        """Correct a sent letter's tracking number and/or sent date by hand —
+        for typos, or letters mailed outside the app and backfilled with the
+        wrong date/number. Every change is logged to VehicleNote (old → new)
+        since this is part of the compliance record, and the vehicle's task
+        clock is recalculated since letter_number 2's due date is anchored to
+        letter_number 1's sent_date (see task_engine.compute_task)."""
+        letter = db.get_or_404(CertifiedLetter, letter_id)
+        vehicle = letter.vehicle
+
+        if not current_user.is_heather:
+            flash('Permission denied.', 'danger')
+            return redirect(url_for('vehicles_detail', vehicle_id=vehicle.id) + '#letters')
+        if not letter.sent_date:
+            flash('That letter has not been sent yet — use Send Letter instead.', 'danger')
+            return redirect(url_for('vehicles_detail', vehicle_id=vehicle.id) + '#letters')
+
+        new_tracking = request.form.get('tracking_number', '').strip() or None
+        sent_str = request.form.get('sent_date', '').strip()
+        if not sent_str:
+            flash('Sent date is required.', 'danger')
+            return redirect(url_for('vehicles_detail', vehicle_id=vehicle.id) + '#letters')
+        new_sent = date.fromisoformat(sent_str)
+
+        old_tracking = letter.tracking_number
+        old_sent = letter.sent_date
+        changes = []
+        if new_tracking != old_tracking:
+            changes.append(
+                f'tracking # {old_tracking or "(none)"} → {new_tracking or "(none)"}'
+            )
+            letter.tracking_number = new_tracking
+        if new_sent != old_sent:
+            changes.append(
+                f'sent date {old_sent.strftime("%m/%d/%Y")} → {new_sent.strftime("%m/%d/%Y")}'
+            )
+            letter.sent_date = new_sent
+
+        if not changes:
+            flash('No changes made.', 'secondary')
+            return redirect(url_for('vehicles_detail', vehicle_id=vehicle.id) + '#letters')
+
+        now = datetime.utcnow()
+        actor = current_user.display_name or current_user.username
+        letter.updated_at = now
+        label = f'{letter.display_title or letter.label}{" (Lienholder)" if letter.recipient_type == "lienholder" else ""}'
+        db.session.add(VehicleNote(
+            vehicle_id=vehicle.id,
+            body=f'{label} corrected by {actor}: ' + '; '.join(changes) + '.',
+            author=actor,
+            created_at=now,
+        ))
+        db.session.commit()
+
+        from task_engine import recalculate_vehicle
+        recalculate_vehicle(vehicle)
+        db.session.commit()
+
+        flash(f'{label} updated.', 'success')
+        return redirect(url_for('vehicles_detail', vehicle_id=vehicle.id) + '#letters')
+
     @app.route('/letters/<int:letter_id>/returned-to-sender', methods=['POST'])
     @login_required
     def letters_returned_to_sender(letter_id):

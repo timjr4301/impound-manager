@@ -1582,6 +1582,48 @@ function showGeneralDocImage(btn) {
         {% endif %}
         {% endmacro %}
 
+        {# ── Edit tracking # / sent date on an already-sent letter — for typos
+           or letters mailed outside the app and backfilled with the wrong
+           info. Every save is logged to this vehicle's history (old → new)
+           since it's part of the compliance record. ── #}
+        {% macro edit_tracking_controls(l) %}
+        {% if l and l.sent_date and current_user.is_heather %}
+        <button type="button" class="btn btn-sm btn-link p-0 ms-1" data-bs-toggle="modal" data-bs-target="#editTrackingModal{{ l.id }}">
+          <i class="bi bi-pencil-square"></i> Edit
+        </button>
+        <div class="modal fade" id="editTrackingModal{{ l.id }}" tabindex="-1">
+          <div class="modal-dialog modal-dialog-centered">
+            <div class="modal-content">
+              <form method="POST" action="{{ url_for('letters_edit_tracking', letter_id=l.id) }}">
+                <div class="modal-header">
+                  <h5 class="modal-title"><i class="bi bi-pencil-square me-1"></i>{{ l.display_title or l.label }}{% if l.recipient_type == 'lienholder' %} (Lienholder){% endif %} — Edit Tracking</h5>
+                  <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                  <div class="mb-3">
+                    <label class="form-label small mb-0 fw-semibold">Tracking Number</label>
+                    <input type="text" name="tracking_number" class="form-control font-monospace" value="{{ l.tracking_number or '' }}" placeholder="(none on file)">
+                  </div>
+                  <div class="mb-2">
+                    <label class="form-label small mb-0 fw-semibold">Sent Date</label>
+                    <input type="date" name="sent_date" class="form-control" value="{{ l.sent_date.isoformat() }}" required>
+                  </div>
+                  <div class="alert alert-secondary small py-2 mb-0">
+                    <i class="bi bi-clock-history me-1"></i>This correction is saved to the vehicle's history
+                    (old value → new value) so there's a record of what changed.
+                  </div>
+                </div>
+                <div class="modal-footer">
+                  <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">Cancel</button>
+                  <button type="submit" class="btn btn-primary btn-sm">Save Correction</button>
+                </div>
+              </form>
+            </div>
+          </div>
+        </div>
+        {% endif %}
+        {% endmacro %}
+
         {# ── Letter 1 ── #}
         {% set l1 = vehicle.letter1 %}
         <div class="mb-4">
@@ -1612,13 +1654,11 @@ function showGeneralDocImage(btn) {
             </dd>
             {% if l1.sent_date %}
             <dt class="col-sm-4 text-muted">Sent</dt>
-            <dd class="col-sm-8">{{ l1.sent_date|mdY }}</dd>
-            {% if l1.tracking_number %}
+            <dd class="col-sm-8">{{ l1.sent_date|mdY }}{{ edit_tracking_controls(l1) }}</dd>
             <dt class="col-sm-4 text-muted">Tracking #</dt>
             <dd class="col-sm-8 font-monospace">
-              {{ l1.tracking_number }}{% if l1.ups_status %} <span class="text-muted small">({{ l1.ups_status }})</span>{% endif %}
+              {{ l1.tracking_number or '—' }}{% if l1.ups_status %} <span class="text-muted small">({{ l1.ups_status }})</span>{% endif %}
             </dd>
-            {% endif %}
             {% if l1.delivery_confirmed_date %}
             <dt class="col-sm-4 text-muted">Delivered</dt>
             <dd class="col-sm-8 text-success"><i class="bi bi-check-circle-fill me-1"></i>{{ l1.delivery_confirmed_date|mdY }}</dd>
@@ -1694,13 +1734,11 @@ function showGeneralDocImage(btn) {
             </dd>
             {% if l2.sent_date %}
             <dt class="col-sm-4 text-muted">Sent</dt>
-            <dd class="col-sm-8">{{ l2.sent_date|mdY }}</dd>
-            {% if l2.tracking_number %}
+            <dd class="col-sm-8">{{ l2.sent_date|mdY }}{{ edit_tracking_controls(l2) }}</dd>
             <dt class="col-sm-4 text-muted">Tracking #</dt>
             <dd class="col-sm-8 font-monospace">
-              {{ l2.tracking_number }}{% if l2.ups_status %} <span class="text-muted small">({{ l2.ups_status }})</span>{% endif %}
+              {{ l2.tracking_number or '—' }}{% if l2.ups_status %} <span class="text-muted small">({{ l2.ups_status }})</span>{% endif %}
             </dd>
-            {% endif %}
             {% if l2.delivery_confirmed_date %}
             <dt class="col-sm-4 text-muted">Delivered</dt>
             <dd class="col-sm-8 text-success"><i class="bi bi-check-circle-fill me-1"></i>{{ l2.delivery_confirmed_date|mdY }}</dd>
@@ -1774,13 +1812,11 @@ function showGeneralDocImage(btn) {
             </dd>
             {% if xl.sent_date %}
             <dt class="col-sm-4 text-muted">Sent</dt>
-            <dd class="col-sm-8">{{ xl.sent_date|mdY }}</dd>
-            {% if xl.tracking_number %}
+            <dd class="col-sm-8">{{ xl.sent_date|mdY }}{{ edit_tracking_controls(xl) }}</dd>
             <dt class="col-sm-4 text-muted">Tracking #</dt>
             <dd class="col-sm-8 font-monospace">
-              {{ xl.tracking_number }}{% if xl.ups_status %} <span class="text-muted small">({{ xl.ups_status }})</span>{% endif %}
+              {{ xl.tracking_number or '—' }}{% if xl.ups_status %} <span class="text-muted small">({{ xl.ups_status }})</span>{% endif %}
             </dd>
-            {% endif %}
             {% if xl.delivery_confirmed_date %}
             <dt class="col-sm-4 text-muted">Delivered</dt>
             <dd class="col-sm-8 text-success"><i class="bi bi-check-circle-fill me-1"></i>{{ xl.delivery_confirmed_date|mdY }}</dd>
