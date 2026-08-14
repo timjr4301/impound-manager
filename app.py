@@ -738,6 +738,7 @@ def build_top_nav(user):
         # right now?" on one screen. Same roles as Envelopes, since it's the
         # same audience (Heather does the voiding, Tim/Brady/Jim want the view).
         item('UPS Postage', 'bi-truck', 'heather.ups_postage') if r in ('heather', 'tim', 'brady', 'jim') else None,
+        item('Proof of Delivery Needed', 'bi-envelope-exclamation', 'pending_proof_report') if r in ('heather', 'tim', 'brady', 'jim') else None,
     )
     if mw:
         sections.append(mw)
@@ -3284,6 +3285,32 @@ def create_app():
                  .limit(500)
                  .all())
         return render_template('reports/date_changes.html', notes=notes)
+
+    # ── Proof of Delivery Needed ────────────────────────────────────────────
+    # Heather's ask (2026-08-14): a report of sent letters that still have NO
+    # outcome recorded at all — not delivered, not returned to sender. These
+    # are the ones nobody's checked back on yet; Confirm Delivery / Returned
+    # to Sender / Refresh from UPS on the vehicle's own page is how staff
+    # resolve each one (this report is just the punch list).
+    @app.route('/reports/pending-proof')
+    @login_required
+    def pending_proof_report():
+        if not current_user.is_heather:
+            flash('Permission denied.', 'danger')
+            return redirect(url_for('dashboard'))
+        today = date.today()
+        letters = (
+            CertifiedLetter.query
+            .join(Vehicle)
+            .filter(Vehicle.status == 'ACTIVE')
+            .filter(CertifiedLetter.sent_date.isnot(None))
+            .filter(CertifiedLetter.delivery_confirmed_date.is_(None))
+            .filter(CertifiedLetter.return_to_sender.isnot(True))
+            .filter(CertifiedLetter.superseded.isnot(True))
+            .order_by(CertifiedLetter.sent_date.asc())
+            .all()
+        )
+        return render_template('reports/pending_proof.html', letters=letters, today=today)
 
     # ── Letter Clock Restart ──────────────────────────────────────────────────
     # impound_date is locked forever and never changes. As of WP-2, PPI's

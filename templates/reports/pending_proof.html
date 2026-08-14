@@ -1,0 +1,57 @@
+{% extends "base.html" %}
+{% block title %}Proof of Delivery Needed — Impound Manager{% endblock %}
+
+{% block content %}
+<div class="d-flex align-items-center justify-content-between mb-3">
+  <h2 class="h4 mb-0 fw-bold"><i class="bi bi-envelope-exclamation me-2"></i>Proof of Delivery Needed</h2>
+  <span class="text-muted small">{{ letters|length }} letter{{ '' if letters|length == 1 else 's' }} still open</span>
+</div>
+
+<p class="text-muted small">
+  Every sent certified letter that has <strong>no outcome recorded yet</strong> — not marked
+  Delivered, not marked Returned to Sender. Go to the vehicle's page to resolve one: use
+  <strong>Refresh from UPS</strong> to pull the live status, or <strong>Confirm Delivery</strong> /
+  <strong>Returned to Sender</strong> once you know the outcome. Sorted oldest first — those have
+  waited longest for an answer.
+</p>
+
+{% if letters %}
+<div class="card shadow-sm">
+  <div class="card-body p-0">
+    <table class="table table-sm table-hover mb-0">
+      <thead><tr>
+        <th style="width:220px;">Vehicle</th>
+        <th style="width:170px;">Letter</th>
+        <th style="width:110px;">Sent</th>
+        <th style="width:100px;">Days Out</th>
+        <th style="width:200px;">Tracking #</th>
+        <th>UPS Status</th>
+      </tr></thead>
+      <tbody>
+      {% for l in letters %}
+      {% set days_out = (today - l.sent_date).days %}
+      <tr>
+        <td>
+          <a href="{{ url_for('vehicles_detail', vehicle_id=l.vehicle_id) }}#letters" class="row-link fw-semibold">
+            {{ l.vehicle.display_name }}
+          </a>
+        </td>
+        <td class="small">
+          {{ l.display_title or l.label }}{% if l.recipient_type == 'lienholder' %} <span class="text-muted">(Lienholder)</span>{% endif %}
+        </td>
+        <td class="small text-nowrap">{{ l.sent_date.strftime('%m/%d/%Y') }}</td>
+        <td class="small {% if days_out >= 10 %}text-danger fw-semibold{% elif days_out >= 5 %}text-warning-emphasis{% endif %}">
+          {{ days_out }}d
+        </td>
+        <td class="font-monospace small">{{ l.tracking_number or '—' }}</td>
+        <td class="small text-muted">{{ l.ups_status or '—' }}</td>
+      </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% else %}
+<div class="alert alert-light border text-muted">Nothing open — every sent letter has a recorded outcome.</div>
+{% endif %}
+{% endblock %}
