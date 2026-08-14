@@ -17,6 +17,15 @@ from permissions import require_permission
 
 bp = Blueprint('heather', __name__, url_prefix='/heather')
 
+# Holds a just-created UPS label GIF just long enough to redirect-then-render
+# on the notices page, keyed by vehicle_id. Used to ride in the redirect's own
+# query string (?label=<base64 GIF>) — real label images are big enough
+# base64-encoded that this could exceed gunicorn's default 4094-byte
+# limit_request_line and 400 with "Request Line is too large" (same bug fixed
+# in app.py's letters_create_ups_label 2026-08-14). Single-worker-process
+# assumption, same as app.py's _pending_label_cache.
+_pending_notice_label_cache = {}
+
 # Vehicles impounded before this date are excluded from Heather's daily
 # queues (BMV Search Queue, Overdue/Urgent, Due Soon, On Track) until the
 # historical review screen is built. They remain in the database untouched.
@@ -1025,7 +1034,7 @@ def notices(vehicle_id):
     next_notice_number = len(notices) + 1
     import ups_api
     ups_configured = ups_api.is_configured()
-    label_b64 = request.args.get('label')
+    label_b64 = _pending_notice_label_cache.pop(vehicle_id, None)
     prefill = None
     if request.args.get('prefill_type'):
         prefill = {
@@ -1136,9 +1145,8 @@ def send_notice(vehicle_id):
             f'Notice #{notice_number} sent! Tracking: {tracking}',
             'success',
         )
-        return redirect(
-            url_for('heather.notices', vehicle_id=vehicle.id) + f'?label={label_b64}'
-        )
+        _pending_notice_label_cache[vehicle.id] = label_b64
+        return redirect(url_for('heather.notices', vehicle_id=vehicle.id))
     except Exception as exc:
         flash(f'UPS API error: {exc}', 'danger')
         return redirect(url_for('heather.notices', vehicle_id=vehicle.id))

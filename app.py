@@ -32,8 +32,15 @@ try:
 except ImportError:
     _APScheduler = None
 
-# Holds a 2nd-party UPS label GIF just long enough to redirect-then-render on
-# mark_sent.html — see letters_create_ups_label for why this stays in-memory.
+# Holds a just-created UPS label GIF (primary + 2nd-party) just long enough to
+# redirect-then-render on mark_sent.html — see letters_create_ups_label for why
+# this stays in-memory. The primary label USED to ride in the redirect's own
+# query string (?label=<base64 GIF>) — real label images are big enough
+# base64-encoded that this occasionally exceeded gunicorn's default 4094-byte
+# limit_request_line and 400'd with "Request Line is too large" (hit in
+# production 2026-08-14, letter 1865). Both labels now go through this cache
+# instead, so the redirect never carries a query string at all.
+_pending_label_cache = {}
 _pending_label_2_cache = {}
 
 # WP-6: same idea as _pending_label_2_cache, but for the inline Mark Sent
@@ -2113,7 +2120,7 @@ def create_app():
         import ups_api
         return render_template('letters/mark_sent.html', letter=letter, today=date.today(),
                                 ups_configured=ups_api.is_configured(),
-                                label_b64=request.args.get('label'),
+                                label_b64=_pending_label_cache.pop(letter_id, None),
                                 label_2_b64=_pending_label_2_cache.pop(letter_id, None))
 
     def _parse_city_state_zip(address_text):
@@ -2250,13 +2257,15 @@ def create_app():
             _pending_inline_label_cache[letter.id] = (label_b64, label_2_b64)
             return redirect(url_for('vehicles_detail', vehicle_id=vehicle.id))
 
+        # In-memory only, keyed by letter id, popped on next render — relies on
+        # this app's confirmed single gunicorn worker (render.yaml -w 1, same
+        # assumption the Wally chat fix already depends on). No query string,
+        # so this can't hit gunicorn's request-line-length limit no matter how
+        # big the real label image is.
+        _pending_label_cache[letter.id] = label_b64
         if label_2_b64:
-            # In-memory only, keyed by letter id, popped on next render — relies
-            # on this app's confirmed single gunicorn worker (render.yaml -w 1,
-            # same assumption the Wally chat fix already depends on). Avoids
-            # doubling the query-string size of the existing label redirect.
             _pending_label_2_cache[letter.id] = label_2_b64
-        return redirect(url_for('letters_mark_sent', letter_id=letter.id) + f'?label={label_b64}')
+        return redirect(url_for('letters_mark_sent', letter_id=letter.id))
 
     # Per-letter UPS refresh + POD pull now live in ups_poll.py (module-level)
     # so the scheduled auto-poll job and these routes share one implementation.
