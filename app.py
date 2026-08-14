@@ -2598,9 +2598,20 @@ def create_app():
         void if the package is actually in transit, so a refusal here is
         informative, not an error."""
         letter = db.get_or_404(CertifiedLetter, letter_id)
+        # Lets the vehicle detail page's own Void Label button (added
+        # 2026-08-14 so Heather can void a label right from the vehicle she's
+        # looking at — e.g. the owner walks in to pick it up — instead of
+        # hunting for it in the full /heather/ups-postage list) send staff
+        # back to where they came from instead of always jumping to
+        # heather.letters.
+        back_url = (
+            url_for('vehicles_detail', vehicle_id=letter.vehicle_id) + '#letters'
+            if request.form.get('from_vehicle_card')
+            else url_for('heather.letters')
+        )
         if not current_user.is_heather:
             flash('Permission denied.', 'danger')
-            return redirect(url_for('heather.letters'))
+            return redirect(back_url)
 
         which = request.form.get('which', 'primary')
         if which == '2nd':
@@ -2610,24 +2621,24 @@ def create_app():
             tracking, already = letter.tracking_number, letter.label_voided_at
         if not tracking:
             flash('That letter has no such label to void.', 'danger')
-            return redirect(url_for('heather.letters'))
+            return redirect(back_url)
         if already:
             flash(f'Label {tracking} is already voided.', 'info')
-            return redirect(url_for('heather.letters'))
+            return redirect(back_url)
         if which == 'primary' and (letter.delivery_confirmed_date or letter.return_to_sender):
             flash(f'Label {tracking} was actually used (delivered or returned) — nothing to void.', 'danger')
-            return redirect(url_for('heather.letters'))
+            return redirect(back_url)
 
         import ups_api
         try:
             ok, description = ups_api.void_shipment(tracking, trans_id=f'void-manual-{letter.id}')
         except Exception as exc:
             flash(f'UPS API error voiding {tracking}: {exc}', 'danger')
-            return redirect(url_for('heather.letters'))
+            return redirect(back_url)
 
         if not ok:
             flash(f'UPS refused the void for {tracking}: {description}', 'warning')
-            return redirect(url_for('heather.letters'))
+            return redirect(back_url)
 
         now = datetime.utcnow()
         actor = current_user.display_name or current_user.username
@@ -2646,7 +2657,7 @@ def create_app():
         ))
         db.session.commit()
         flash(f'Label {tracking} voided — it will not be billed.', 'success')
-        return redirect(url_for('heather.letters'))
+        return redirect(back_url)
 
     @app.route('/letters/void-orphaned-labels', methods=['POST'])
     @login_required

@@ -1,16 +1,44 @@
+{# Void Label button — added 2026-08-14 so Heather can void a printed-but-
+   unshipped label right from the vehicle she's looking at (e.g. the owner
+   walks in to pick it up before the letter ever mailed) instead of having to
+   find it in the full /heather/ups-postage list. Posts to the same
+   letters_void_label route that page already uses; UPS itself refuses the
+   void if the label was actually scanned, so this is safe to offer whenever
+   a label exists and hasn't already been voided/delivered/returned. #}
+{% macro _void_label_button(letter, which, tracking) %}
+<form method="POST" action="{{ url_for('letters_void_label', letter_id=letter.id) }}" class="d-inline"
+      onsubmit="return confirm('Void UPS label {{ tracking }}? Only do this if the vehicle won\'t be mailed this letter after all — UPS will refuse if it\'s already been picked up/scanned.')">
+  <input type="hidden" name="which" value="{{ which }}">
+  <input type="hidden" name="from_vehicle_card" value="1">
+  <button type="submit" class="btn btn-sm btn-outline-danger">
+    <i class="bi bi-x-circle"></i> Void Label
+  </button>
+</form>
+{% endmacro %}
+
 {% macro ups_label_section(letter) %}
 {% if letter.label_image_data %}
-<div class="mt-2">
+<div class="mt-2 d-flex flex-wrap gap-2 align-items-center">
   <button type="button" class="btn btn-sm btn-outline-secondary" onclick='printUpsLabel({{ letter.label_image_data|tojson }})'>
     <i class="bi bi-printer"></i> View/Print UPS Label
   </button>
+  {% if letter.label_voided_at %}
+  <span class="badge bg-secondary"><i class="bi bi-x-circle"></i> Voided {{ letter.label_voided_at.strftime('%m/%d/%Y') }}</span>
+  {% elif current_user.is_heather and not letter.delivery_confirmed_date and not letter.return_to_sender %}
+  {{ _void_label_button(letter, 'primary', letter.tracking_number) }}
+  {% endif %}
 </div>
 {% endif %}
 {% if letter.label_image_data_2 %}
-<div class="mt-2">
+<div class="mt-2 d-flex flex-wrap gap-2 align-items-center">
   <button type="button" class="btn btn-sm btn-outline-secondary" onclick='printUpsLabel({{ letter.label_image_data_2|tojson }})'>
     <i class="bi bi-printer"></i> View/Print 2nd Party UPS Label
   </button>
+  {% if letter.label_voided_at_2 %}
+  <span class="badge bg-secondary"><i class="bi bi-x-circle"></i> Voided {{ letter.label_voided_at_2.strftime('%m/%d/%Y') }}</span>
+  {% elif current_user.is_heather %}
+  {{ _void_label_button(letter, '2nd', letter.tracking_number_2) }}
+  {% endif %}
 </div>
 {% endif %}
 {% endmacro %}

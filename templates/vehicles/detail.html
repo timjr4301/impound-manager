@@ -1,7 +1,7 @@
 {% extends 'base.html' %}
 {% from '_macros/snooze.html' import snooze_button, snooze_modal %}
 {% from '_macros/pod.html' import pod_section, pod_modal %}
-{% from '_macros/ups_label.html' import ups_label_section, ups_label_script %}
+{% from '_macros/ups_label.html' import ups_label_section, ups_label_script with context %}
 {% block title %}{{ vehicle.display_name }} — Impound Manager{% endblock %}
 
 {% block content %}
