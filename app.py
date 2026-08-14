@@ -1666,16 +1666,22 @@ def create_app():
         if not current_user.can_edit_vehicles:
             flash('Permission denied.', 'danger')
             return redirect(url_for('vehicles_detail', vehicle_id=vehicle_id))
+        # Per Tim's explicit instruction (2026-08-14), the prior hard-stop here
+        # (blocking release when a required letter was overdue/unsent) is
+        # removed — Release is available at all times so backlog cleanup
+        # doesn't get stuck. release_to_customer_blocked_reason is still
+        # computed and logged below (not blocking) so there's a record if a
+        # vehicle was released while a letter was actually overdue.
         blocked_reason = vehicle.release_to_customer_blocked_reason
-        if blocked_reason:
-            flash(f'Cannot release {vehicle.display_name} — {blocked_reason}', 'danger')
-            return redirect(url_for('vehicles_detail', vehicle_id=vehicle_id))
         vehicle.status = 'PENDING_PICKUP'
         vehicle.pending_pickup_since = datetime.utcnow()
         vehicle.updated_at = datetime.utcnow()
+        note_body = f'Marked Paid/Released — pending pickup by {current_user.display_name or current_user.username}.'
+        if blocked_reason:
+            note_body += f' (Released with an open flag: {blocked_reason})'
         db.session.add(VehicleNote(
             vehicle_id=vehicle.id,
-            body=f'Marked Paid/Released — pending pickup by {current_user.display_name or current_user.username}.',
+            body=note_body,
             author=current_user.display_name or current_user.username,
             created_at=datetime.utcnow(),
         ))

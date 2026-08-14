@@ -1373,17 +1373,16 @@ function showGeneralDocImage(btn) {
           </a>
           {% endif %}
           {% if vehicle.release_to_customer_blocked_reason %}
-          <div class="alert alert-danger py-2 px-2 small mb-0">
-            <i class="bi bi-slash-circle-fill me-1"></i> Release blocked — {{ vehicle.release_to_customer_blocked_reason }}
+          <div class="alert alert-warning py-2 px-2 small mb-1">
+            <i class="bi bi-exclamation-triangle-fill me-1"></i> {{ vehicle.release_to_customer_blocked_reason }}
           </div>
-          {% else %}
+          {% endif %}
           <form method="POST" action="{{ url_for('vehicles_release', vehicle_id=vehicle.id) }}"
                 onsubmit="return confirm('Mark this vehicle Paid/Released — pending pickup?')">
             <button type="submit" class="btn btn-outline-secondary w-100">
               <i class="bi bi-box-arrow-right"></i> Mark Paid — Release for Pickup
             </button>
           </form>
-          {% endif %}
         {% endif %}
         {# Undo Release — restore a mistakenly-released vehicle to active #}
         {% if vehicle.status == 'RELEASED' and current_user.can_unrelease %}
