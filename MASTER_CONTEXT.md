@@ -1,39 +1,49 @@
 # [IMPOUND MANAGER — MASTER CONTEXT DOC]
-_Last updated: August 3, 2026 (evening session) — **verified the whole multi-party letter system end to end,
-live, on real vehicles — this was last session's top open item, and it's confirmed working.** Also confirmed:
-the UPS Ship API fix from 08/02 really did work (real label created, real tracking number) and the POLICE
-$0.00 billing bug is fixed (real letter printed a real dollar total). Found and fixed several real gaps along
-the way: (1) the transport/non-impound skip-guard only protected new Towbook imports, not vehicles already in
-the system before the guard existed — a real transport-relocation vehicle (2017 Nissan Rogue) had a live
-Letter 1 sitting in the send queue; every sync now re-checks existing active vehicles too, not just inserts;
-(2) the BMV Search Complete modal's "Notes (lienholder, extra info)" box was a dead end — text typed there
-never reached the real `lienholder_name` field a letter depends on, so a lienholder found during BMV search
-could silently never get a required letter; the modal now has real structured Lienholder + Vehicle Value +
-optional 2nd Owner/Lienholder fields; (3) the "NADA Lookup" button always silently returned the flat $3,499
-default because `VINAUDIT_API_KEY` was never set up — swapped in a Claude-based estimate instead (same
-Anthropic account already used elsewhere in this app), then recalibrated it toward rough/impounded condition
-per Tim's real-world read (impounded vehicles skew rough — most weren't reclaimed because they weren't worth
-the bill); (4) the real UPS shipping label image was never actually saved anywhere — UPS hands it back exactly
-once at creation and there's no way to re-fetch it later, so clicking "UPS Label" on an already-sent letter
-took you to a disconnected manual/blank template instead of the real one; now persisted permanently (same
-pattern as the existing POD-image columns) and viewable any time. Also renamed "Mark Sent"/"Mark as Sent" to
-"Send Letter" everywhere (Tim's ask — the old wording read as passive/confusing for an action button).
-**Live confirmation, not just code review:** picked a real vehicle (2015 Jeep Grand Cherokee, stock/vehicle id
-11315, owner Darrian Darrell Jackson + lienholder Republic Finance) and actually sent both real certified
-letters live — real UPS labels, real tracking numbers (`1Z81Y7X14239837218` owner / `1Z81Y7X14201186635`
-lienholder), both visible as clearly separate "Sent" cards on the vehicle's own page. That confirms the
-multi-party system genuinely works, not just in theory. **Open for next session:** the impound-slip feature
-(ask Tim first whether it replaces Tina's Towbook workaround — still unanswered), teaching the AI document
-reader to also recognize Auto Data Direct's report formats (Tim shared two real sample ADD PDFs tonight — an
-NMVTIS/Title-Pointer report and a state Vehicle Record — so a dropped-in ADD document can auto-fill
-owner/lienholder the same way an Ohio BMV document already does; not built yet), whatever Heather explains
-about the actual real-world process for a genuine BMV "no record found" vehicle, and the 159-vehicle
-Towbook/IM letter-status mismatch list Tim is still working through by hand (see the 08/02 late-evening entry
-below for what that list actually means — it's Towbook claiming a letter was sent that IM has no record of,
-not simply "no letter sent"; early evidence suggests most of the 159 are Towbook's own field being set at
+_Last updated: August 6, 2026 — **Heather live-tested the whole letter system in production over several days
+and it held up — found real bugs along the way, all fixed same-day.** In order: (1) the brand-new "View/Print
+UPS Label" button from 08/03 was completely broken for every real letter — an HTML double-quote collision
+(`onclick="...{{ x|tojson }}..."`, and `tojson` also double-quotes) silently truncated the click handler;
+fixed by switching those onclick attributes to single quotes. (2) POLICE letters no longer nag about missing
+vehicle value — Heather confirmed that's only needed later for Tina's title work, not at send time. (3)
+Reference #2/AFO now works on the *fast* one-click "Create UPS Label" path, not just the slow manual-entry
+form — the real UPS API call only ever sent one reference number; confirmed against UPS's own spec
+(`Package_ReferenceNumber` in `github.com/UPS-API/api-documentation`) that it's an array supporting 2 visible
+references before touching that payload again. (4) **POLICE lienholders now get their own separately-sent
+Notice of Lien** — the 07/31 "one letter only" simplification didn't hold up in practice (real case: 2022
+Dodge Charger, lienholder Ally Financial); reused PPI's lienholder letter_number (5) and the same
+`notice_of_lien` content, just addressed to the lienholder instead of the owner. (5) Delivered/returned date
+now shows next to each party's letter on the Generate Letters page, not just buried on the vehicle's own page.
+**Bigger find:** `APScheduler` was never in `requirements.txt` — same silent-failure shape as the old
+Flask-SocketIO bug. This means the 5am Towbook sync, 6am urgency recalc, and the UPS delivery auto-poll had
+likely **never once run automatically** in production; HTTP routes still worked so nobody noticed. Fixed and
+**confirmed working** — the very next scheduled slot fired on its own (`Last UPS tracking refresh: ...by
+auto-poll`, zero clicks). Also fixed a real Daily Intake bug Heather reported: the LKA-file classifier only
+matched the literal substring "lka", but Ohio's BMV portal's own download is always named
+`LastKnownAddress (N).pdf` — never containing that substring — so every real LKA download was silently
+landing in the "couldn't classify" pile. And brought both staff guides (plus Tina's) back in line with
+everything that shipped, including a spot in Heather's guide that was actively telling staff to do the exact
+broken thing (put lienholder info in Notes) that got fixed. **Open for next session:** the impound-slip
+feature (ask Tim first whether it replaces Tina's Towbook workaround — still unanswered, question restated in
+full further down), teaching the AI document reader to also recognize Auto Data Direct's report formats (Tim
+shared two real sample ADD PDFs — an NMVTIS/Title-Pointer report and a state Vehicle Record — not built yet),
+whatever Heather explains about the actual real-world process for a genuine BMV "no record found" vehicle, and
+the 159-vehicle Towbook/IM letter-status mismatch list Tim is still working through by hand (see the 08/02
+late-evening entry below for what that list actually means — it's Towbook claiming a letter was sent that IM
+has no record of, not simply "no letter sent"; early evidence suggests most of the 159 are Towbook's own field
+being set at
 task-due time rather than a real send confirmation, not genuine gaps).
 
-_Previous entry: August 2, 2026 (late evening session) — **the towbook_import.py root cause IS NOW FIXED.**
+_Previous entry: August 3, 2026 (evening session) — verified the whole multi-party letter system end to end,
+live, on a real vehicle (2015 Jeep Grand Cherokee, owner Darrian Jackson + lienholder Republic Finance) —
+sent two real certified letters live, real UPS tracking numbers, both showing as clearly separate "Sent"
+cards. Confirmed the 08/02 UPS fix and POLICE $0.00 billing fix both actually worked. Found and fixed four
+gaps: the transport-hold guard only protected new Towbook imports, not existing vehicles; the BMV Search
+Complete modal's lienholder Notes box never reached the real letter fields; "NADA Lookup" always silently
+returned the flat $3,499 default (swapped in a Claude estimate, recalibrated toward rough/impounded
+condition); the real UPS label image was never persisted anywhere. Also renamed "Mark Sent" to "Send Letter"
+throughout. Full detail in "NEW — August 3, 2026 (evening session)" below._
+
+_Earlier: August 2, 2026 (late evening session) — **the towbook_import.py root cause IS NOW FIXED.**
 New Towbook-synced vehicles get a real Letter 1 record automatically on import — the gap that caused the
 whole 08/02 overnight backfill can't recur. Also shipped the same night: two more "not a real impound"
 guards (transport/relocation calls, Goose/PVG Brokerage container storage), a working CSV-upload tool that
@@ -140,6 +150,100 @@ An audit against the codebase found most of the old BUILD QUEUE was already ship
 **Stored-data backfill (boot migration in `run_migrations`)** — PPI `letter_number=2` rows created before commit f3cca7d, or imported verbatim from Towbook's "SECOND LETTER Due Date" column by `towbook_letter_backfill.py`, could carry a stored `due_date` disagreeing with the corrected rule (live example: vehicle 5354 / stock 28559544 — Letter 1 sent 06/11, stored due 07/10 vs computed 07/11, so Heather's dashboard and the detail page/audit disagreed by a day). The backfill sets `due_date = letter1.sent_date + 30` on non-superseded PPI letter-2 rows whose Letter 1 is sent, only when it differs; idempotent; logs `[letter2_backfill] … N row(s) changed` on boot. **POLICE chains need no equivalent:** their 2nd notices (letter_number 4/6) are only created by `letter_triggers.py`, whose formula has always been trigger `sent_date + 30`; anomalous POLICE letter-2 rows (Towbook import — POLICE's real 2nd owner notice is letter_number 4) are deliberately left untouched.
 
 **Last delivery-anchored logic/wording swept out** — the vehicle-detail **Task 3 card was still computing `task3_open` off `delivery_confirmed_date + 10`** (pre-de71135 remnant) with an "Awaiting delivery confirmation" wait state; now `l1.sent_date + 30` with subtitle "(30d after Letter 1 sent)". Stale comments fixed in `app.py` (`_finalize_letter_sent`, mark-sent gate), `task_engine.py` module docstring, `models.py` (`task_2_letter_completed_at`); removed the now-unused `task_engine.letter_delivery_date` helper; corrected letter-workflow-guide test item 6 (UPS Refresh: delivery sets POD only, due date does NOT shift). Delivery tracking itself (POD records, Awaiting Delivery tabs, auto-poll) is untouched — delivery just never gates or times Letter 2. Verified locally end-to-end: backfill scope (PPI-only, superseded/POLICE untouched), all readers agree on 07/11 for the 5354 replica, detail page renders sent-anchored and ignores early delivery.
+
+### ✅ NEW — August 4–6, 2026 (Heather's live testing + a real scheduler outage found + 7 commits)
+
+**Context: Heather started actually using the multi-party system live in production over several days**,
+texting Tim real problems as she hit them. Every one of these was a real bug or a real gap, not a
+misunderstanding — confirms the value of live staff testing over code review alone.
+
+**1. "View/Print UPS Label" was completely broken (commit 42a07bc) — same-day regression from 08/03's own
+label-persistence fix.** Root cause: `onclick="printUpsLabel({{ letter.label_image_data|tojson }})"` —
+`tojson` always wraps its output in double quotes, and the `onclick` HTML attribute was also double-quoted,
+so the browser terminated the attribute at the very first quote (right after the opening paren), silently
+corrupting the button and leaving the rest of the ~37,000-character base64 payload as garbage trailing HTML
+attributes. Confirmed via `element.getAttribute('onclick')` showing a 15-character truncated string instead
+of the real thing. Fixed by switching those `onclick` attributes to single quotes (`tojson`'s double quotes
+can't collide with a single-quoted attribute) in `_macros/ups_label.html` and `print/letter.html`. Verified
+live: attribute length went from 15 to 37,093 characters, properly closed.
+
+**2. POLICE letters excluded from the "no vehicle value on file" warning (commit e7b2139, bundled with #3).**
+Heather: value isn't needed to send a POLICE letter, only later for Tina's title work. Added
+`and letter.vehicle.impound_type != 'POLICE'` to all 5 occurrences of the warning/confirm across
+`mark_sent.html` and `vehicles/detail.html`.
+
+**3. Reference #2 (AFO) now works on the fast "Create UPS Label" path, not just manual entry (commit
+e7b2139).** The real one-click button had no Reference #2 field at all, and the underlying
+`ups_api.create_label()` only ever sent one reference number to UPS. Verified against UPS's own spec
+(`Package_ReferenceNumber` in `github.com/UPS-API/api-documentation`, `Shipping.yaml`) before touching this
+payload again, given it already caused two real bugs earlier — confirmed `ReferenceNumber` is an array (max
+5, first 2 visible on non-Mail-Innovation labels). `create_label()` gained an optional `reference2` param;
+the array is now always sent correctly (was a bare object before — worked by luck for one reference, would
+not have worked for two). New optional Reference #2 field added to both copies of the Create UPS Label form.
+
+**4. POLICE lienholders now get their own separately-sent Notice of Lien (commit 783de2d).**
+COMPLIANCE-TRUTH.md item 3 (07/31) collapsed POLICE to one owner-only letter, reasoning the old
+owner/lienholder chain never affected title eligibility. Real case broke that reasoning: 2022 Dodge Charger,
+lienholder Ally Financial (a PO Box address, which turned out to be irrelevant — POLICE's letter was never
+mailing to the lienholder at all until this fix). New `police_lienholder` slug reuses PPI's lienholder
+letter_number (5) and the same `notice_of_lien` content — `print/letter.html`'s addressee block was hardcoded
+to `owner_block()`, now conditional on `is_lienholder` like the PPI letter section already was. The vehicle
+detail page's "extra letters" section already renders any letter_number 3–6 generically, so the new letter
+got full tracking/Send Letter/UPS-label support with zero additional template work. Still only one round for
+POLICE — no letter_number-6 equivalent — since the Notice of Lien's own 60-day window is the whole compliance
+clock, unlike PPI's two-step escalation. No schema change. Verified live on the real Dodge Charger.
+
+**5. Delivered/returned date now shown on Generate Letters, not just the vehicle's own page (commit
+526be94).** Tim's ask, small pure-display addition.
+
+**6. Root cause of a real production outage nobody had noticed: `APScheduler` was never in
+`requirements.txt` (commit a18f4dd).** Same silent-failure shape as the earlier Flask-SocketIO bug — `app.py`
+imports it inside a `try/except ImportError`, so on Render (where the package was never installed) the import
+always failed, `_start_scheduler()` hit `if _APScheduler is None: return` on its very first line, and **the
+5am Towbook sync, 6am urgency recalc, and UPS delivery auto-poll had likely never once run automatically in
+production.** HTTP routes still worked fine, so nothing looked broken. Surfaced by Tim relaying Heather's
+report that UPS labels "weren't showing up" — investigation found the UPS-poll log's last real entry was
+three weeks stale, then found the missing dependency. Manually clicking "Refresh UPS Tracking" worked
+instantly (confirmed the sweep logic itself was fine — 11 letters checked, banner updated), isolating the bug
+to the scheduler never starting at all. Pinned `APScheduler==3.10.4` (deliberately the 3.x line — 4.x is an
+incompatible async rewrite). **Confirmed fixed, not just theorized:** the very next scheduled slot (5:00 PM
+ET) fired on its own with zero clicks — `Last UPS tracking refresh: Aug 5, 5:00 PM ET by auto-poll — 20
+checked`. `triggered_by == 'auto-poll'` only ever comes from the scheduled job, never a manual click.
+
+**7. Daily Intake's LKA classifier never actually matched Ohio's real BMV portal filename (commit f5d2234).**
+Heather: LKA documents dropped into the bulk BMV uploader weren't being recognized, suspected the filename.
+Confirmed: `classifyFilename()` only checked for the literal substring `"lka"`, but the Ohio BMV portal's own
+default download is always named `LastKnownAddress (N).pdf` — which never contains "lka" as a substring (only
+one L in the whole string, followed by 'a', not 'k'). Every genuine LKA download was silently landing in the
+"Could not classify" pile, and the warning message told staff to rename the file — backwards, since the real
+fix belongs in the classifier recognizing the name the portal actually produces. Now also matches
+`"lastknown"`/`"last known"`. Updated the on-page help text, the warning message, and Heather's guide to match.
+
+**Also: brought all three staff guides back in line with reality (commit aefee7d).** Heather's guide had
+drifted enough to be actively harmful in one spot — the BMV Search Complete section told staff to put a found
+lienholder in the Notes box, exactly the dead-end behavior fixed on 08/03. Rewrote the letter-sending section
+(only ever described manual print-and-mail, never mentioned the one-click UPS flow that's actually the normal
+path), corrected the Actions panel button list, and renamed "Mark Sent" → "Send Letter" throughout both
+`heather-guide.html` and `letter-workflow-guide.html`. `letter-workflow-guide.html`'s POLICE section still
+described the old pre-COMPLIANCE-TRUTH 5-letter chain (3–6) — corrected to describe the real current behavior
+(one Notice of Lien to the owner, no second notice, plus the new separate lienholder letter). `tina-guide.html`
+still described clicking through to Edmunds and manually picking worst-case condition checkboxes — that
+process doesn't exist anymore; corrected to describe the instant AI estimate that already assumes rough
+condition by default. Pure documentation, no logic touched.
+
+**Impound-slip feature — question restated in full** (still unresolved, asked again 08/06 since Tim didn't
+recall the specifics): for POLICE impounds, Jim's policy is to cross-check the physical impound slip's own
+Owner field (filled in by the tow driver, already sitting in Towbook) against whoever BMV search separately
+finds as registered owner — if they're different people, that impound-slip person needs their own letter too.
+Spec'd: upload the slip photo, read it with the same AI reader already used for LKA/Title documents, compare,
+auto-populate the existing "2nd owner" slot if they differ (already auto-triggers its own letter — built and
+working, used tonight on the Jeep). **Not built.** The actual open question: Tina has her own manual
+workaround for this exact problem today, but it lives inside Towbook, not Impound Manager — she manually
+types "driver" as a separate individual plus "owner" separately, directly in Towbook, so Towbook's own letter
+feature auto-populates correctly, then Tim has to go back and remove the driver entry so it doesn't pollute
+Towbook's "BMV packages." If this gets built in Impound Manager, does Tina get to stop doing the Towbook
+workaround entirely, or would she need to keep doing it anyway (making the IM version a redundant second
+system)? Only Tim can answer this.
 
 ### ✅ NEW — August 3, 2026 (evening session — multi-party system verified live + 6 commits)
 

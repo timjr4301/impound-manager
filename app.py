@@ -3639,6 +3639,33 @@ def create_app():
             flash(f'PDF generation failed: {exc}', 'danger')
             return redirect(url_for('vehicles_detail', vehicle_id=vehicle_id))
 
+    @app.route('/vehicles/<int:vehicle_id>/damage-analysis.pdf')
+    @login_required
+    def damage_analysis_pdf(vehicle_id):
+        vehicle = db.get_or_404(Vehicle, vehicle_id)
+        template_path = app.config['TITLE_PACKET_TEMPLATE']
+        if not os.path.isfile(template_path):
+            flash(
+                f'Title packet template not found at: {template_path}. '
+                'Set TITLE_PACKET_TEMPLATE environment variable.',
+                'danger'
+            )
+            return redirect(url_for('vehicles_detail', vehicle_id=vehicle_id))
+        try:
+            from titlebot.pdf_gen import generate_damage_analysis_pdf
+            pdf_bytes = generate_damage_analysis_pdf(vehicle, template_path)
+            safe_name = (vehicle.vin or f'vehicle{vehicle.id}')[-10:]
+            filename = f'{safe_name}_DamageAnalysis_{date.today().strftime("%Y%m%d")}.pdf'
+            return send_file(
+                io.BytesIO(pdf_bytes),
+                mimetype='application/pdf',
+                as_attachment=True,
+                download_name=filename,
+            )
+        except Exception as exc:
+            flash(f'PDF generation failed: {exc}', 'danger')
+            return redirect(url_for('vehicles_detail', vehicle_id=vehicle_id))
+
     # ── UPS Quantum View import ────────────────────────────────────────────────
 
     @app.route('/import/quantum-view', methods=['GET', 'POST'])
