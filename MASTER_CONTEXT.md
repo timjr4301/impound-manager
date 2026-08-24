@@ -97,6 +97,69 @@ _Earlier: July 30, 2026 (evening) — daily-workflow batch, PRs #14 + #18–#21 
 ## COMPLETED BUILDS (through July 13, 2026)
 Foundation, CSV import, role-based permissions (now 10 roles), auto-seed users, possible-release flagging, Opus damage photos, Base44 API, NADA override, unified nav at /hub, envelope scanner, help system, ghost-vehicle alerts, file restart logic, document viewer, VIN photo verification, /vin-lookup, reference search, task backlog snooze, staff feedback, staff guides, /driver VIN-snap, additional charges, owner/lienholder-2 fields, UPS Phase 1 (labels/POD), damage-photo bulk uploader, staff to-do lists, undo-release, status audit tool + bulk release, police-department rates, 5-letter templates.
 
+### ✅ NEW — August 24, 2026 (every party gets the owner's treatment — branch `feat/vehicle-parties`)
+
+**Heather's report:** on a vehicle entry, the owner was the only party with any information showing.
+She was right, and it wasn't only a display problem — the other parties were half-built. The 2nd owner /
+2nd lienholder had a name and one address box, no city/state/zip columns at all, and no letter of their
+own: they rode along on the primary party's envelope as a second UPS label, and **the letter inside that
+envelope was still addressed to the primary party**. There was no way to record a third party at all —
+which is why Tina still hand-types drivers into Towbook.
+
+**Now:** a new `vehicle_parties` table. Every interested party — registered owner, 2nd owner, lienholder,
+2nd lienholder, driver, insurer, anyone — is a first-class row with full address and the same functions
+the owner has: their own letter addressed to them by name, their own due dates, their own UPS label,
+tracking, delivery confirmation, POD and returned-to-sender. One **Parties** card on the vehicle page
+(expanded by default) replaces the two collapsed Owner and Lienholder cards, with Add/Edit per party.
+
+**Tim's three decisions (08/24):** unlimited party list, not fixed slots; each party gets their own letter
+with their own due dates; a non-owner party's returned letter is **recorded only** — the letter round and
+title clock stay anchored to the registered owner.
+
+**The rule that governs the whole build — letter numbering.** `letter_number` is load-bearing: 125
+references across 20 files, and `Vehicle.letter1`/`letter2`, `task_engine` and `letter_engine` all resolve
+a letter by `letter_number == 1` / `== 2`, with `title_eligible_date` hanging off `letter1`. A party letter
+reusing number 1 could be picked up as THE Letter 1 and silently move the title clock — the same class of
+failure as the 2026-07-22 outage. So the owner's chain (1/2) and the lienholder's (5/6) are untouched, and
+**extra-party letters are allocated from a separate band starting at 101**, which every existing `== 1` /
+`in [3,4,5,6]` check already excludes. `party_id IS NULL` means "the primary chain" — every pre-existing
+letter row keeps working unchanged.
+
+**Two real bugs found and fixed while building:**
+1. `letters_returned_to_sender` (`address_error`) superseded *every* non-lienholder letter on the vehicle.
+   That would have cancelled other parties' letter chains when the owner's came back — and, in the other
+   direction, a 2nd owner's returned letter would have restarted the OWNER's round and moved title
+   eligibility. Party letters now record only; the owner's restart sweep skips `party_id` rows.
+2. The Print Label 2nd-party fan-out had to come off. Every party has their own letter and label now, so
+   fanning out would mail the 2nd party twice — once on their own letter, once riding along.
+
+**Migration is non-destructive and does not re-mail anyone.** The boot backfill turns the four legacy slots
+into party rows (splitting the old single address box into real city/state/zip). Where a primary letter
+already carries a `tracking_number_2`, that 2nd party's new letter is written as **already sent**, carrying
+that tracking number plus its delivery/return/POD history — so nobody who was mailed weeks ago gets a fresh
+"due" letter or a duplicate envelope. Idempotent; reports 0 on every boot after the first.
+
+**Legacy columns still work.** `Vehicle.owner_*` / `lienholder_*` remain authoritative for everything that
+already reads them (print template, task_engine, Towbook sync, dashboards), kept in step both ways: editing
+a primary party writes through to the columns, and a `before_flush` listener in `models.py` turns column
+writes from any other source (vehicle edit form, BMV Search Complete modal, BMV document scanner) back into
+party rows. The old `owner_2_*`/`lienholder_2_*` columns are a legacy inbox only — filled into a party row
+once, never overwriting a value someone has since corrected.
+
+**`[RENDER SHELL]` SQL** (the boot migration does the same thing idempotently, so this is optional):
+```sql
+ALTER TABLE certified_letters ADD COLUMN party_id INTEGER;
+```
+The `vehicle_parties` table itself is created from the model on boot, like `vehicle_damage_photos`.
+
+**Verified locally against a purpose-built SQLite DB, not just code-read:** owner clock byte-identical
+(`letter1`, `letter2`, `title_eligible_date`, `letter_round`, `letter_urgency`) before and after adding a
+third party; an already-mailed 2nd owner adopted rather than re-queued; a third party added through the real
+UI got their own letter, printed addressed to THEM with the lienholder-of-record cross-reference intact,
+sent with their own tracking, opened their own 2nd notice 30 days after their own send date, and their
+returned letter left the owner untouched; the owner's own returned-to-sender restart still supersedes the
+round and opens a fresh Letter 1 without taking other parties' letters with it; 38 pages swept for 500s.
+
 ### ✅ NEW — July 13, 2026 (queue-clearing session — PR #1)
 
 An audit against the codebase found most of the old BUILD QUEUE was already shipped (audit bulk release, release hard-stop gate, Build A/C/E, Build B's letter/police-dept system). These items were what remained:

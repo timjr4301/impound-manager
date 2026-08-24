@@ -90,6 +90,27 @@
   {{ [vehicle.lienholder_city, vehicle.lienholder_state, vehicle.lienholder_zip] | select | join(' ') }}
 {%- endmacro %}
 
+{# Who this letter is actually addressed to. Every party on the vehicle — 2nd
+   owner, driver, 2nd lienholder — now gets their own letter, so the addressee
+   comes from the letter's own party rather than from whichever of the two
+   Vehicle column sets recipient_type happened to point at. Falls back to
+   those columns for any letter written before parties existed.
+   NOTE: this is the ADDRESSEE only. The "Registered owners name:" /
+   "Lien holders name:" cross-references further down are letter CONTENT —
+   they must keep naming the owner and lienholder of record no matter who
+   this particular copy is addressed to. #}
+{% macro addressee_block(addressee, lienholder_fallback) -%}
+  {% if addressee and addressee.name -%}
+  {{ addressee.name }}<br>
+  {% if addressee.address %}{{ addressee.address }}<br>{% endif %}
+  {{ [addressee.city, addressee.state, addressee.zip_code] | select | join(' ') }}
+  {%- elif lienholder_fallback -%}
+  {{ lienholder_block() }}
+  {%- else -%}
+  {{ owner_block() }}
+  {%- endif %}
+{%- endmacro %}
+
 {% from '_macros/ups_label.html' import ups_label_script %}
 {# This bar is hidden by @media print — it never appears on the mailed letter.
    Rendered for both /letters/<id>/print and heather.letter_template, whose
@@ -137,7 +158,7 @@
   <div>REF# {{ vehicle.call_number or '—' }}&nbsp;&nbsp;Invoice # {{ vehicle.invoice_number or '—' }}</div>
 </div>
 
-<div class="addressee">{% if is_lienholder %}{{ lienholder_block() }}{% else %}{{ owner_block() }}{% endif %}</div>
+<div class="addressee">{{ addressee_block(letter.addressee_party, is_lienholder) }}</div>
 
 <table class="grid">
   <tr><th>Vehicle</th><th>VIN</th><th>Color</th><th>License Plate</th><th>Value of Motor Vehicle</th></tr>
@@ -253,7 +274,7 @@
 
 {# Addressed to whichever party this letter is for #}
 <div class="addressee">
-  {% if is_lienholder %}{{ lienholder_block() }}{% else %}{{ owner_block() }}{% endif %}
+  {{ addressee_block(letter.addressee_party, is_lienholder) }}
 </div>
 
 <div class="meta">

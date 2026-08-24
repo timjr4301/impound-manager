@@ -126,7 +126,7 @@
             &bull; <span class="text-danger">Returned{% if opt.letter.returned_date %} {{ opt.letter.returned_date|mdY }}{% endif %}</span>
             {% endif %}
           {% elif opt.letter %}
-            Letter {{ opt.letter.letter_number }} &bull; due {{ opt.letter.due_date|mdY }} &bull; not yet sent
+            {{ opt.letter.label }} &bull; due {{ opt.letter.due_date|mdY }} &bull; not yet sent
           {% elif opt.reason %}
             {{ opt.reason }}
           {% else %}

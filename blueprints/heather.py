@@ -797,6 +797,14 @@ def bmv_complete(vehicle_id):
     import letter_triggers
     letter_triggers.on_bmv_complete(vehicle)
 
+    # A 2nd owner / 2nd lienholder found during BMV search becomes a real
+    # party (models.py's column-sync listener turns the _2 fields above into
+    # VehicleParty rows on flush) — open their letters here so they aren't a
+    # name on file that nobody ever mails. Needs the flush first, since a
+    # brand-new party has no id until then.
+    db.session.flush()
+    letter_triggers.ensure_all_party_letters(vehicle)
+
     if vehicle.file_complete_for_tina:
         vehicle.tina_stage = 'QUEUED'
         db.session.add(VehicleNote(
