@@ -53,9 +53,18 @@ def generate_title_packet(vehicle, template_path, filing_date=None):
     f = {}  # field dict
 
     # ── Vehicle ID ────────────────────────────────────────────────────────
+    # Note: the template reuses lowercase field names ('vin', 'make', 'model',
+    # 'vehich year' [sic], 'mileage') as repeated widgets across pages 1-5, and
+    # separate all-caps fields ('VIN', 'Make', 'Model') only on the last page —
+    # both must be set or the earlier pages render blank.
     f['VIN']            = _s(vehicle.vin)
     f['Make']           = _s(vehicle.make)
     f['Model']          = _s(vehicle.model_name)
+    f['vin']            = _s(vehicle.vin)
+    f['make']           = _s(vehicle.make)
+    f['model']          = _s(vehicle.model_name)
+    f['vehich year']    = _s(vehicle.year)
+    f['mileage']        = _s(vehicle.mileage)
     f['REFERENCE #']    = vehicle.vin[-6:] if vehicle.vin else ''
     f['Text68']         = _s(vehicle.year)     # DMG_YEAR_FIELD
     f['Text69']         = _s(vehicle.make)     # DMG_MAKE_FIELD
@@ -65,6 +74,9 @@ def generate_title_packet(vehicle, template_path, filing_date=None):
     # ── Owner ─────────────────────────────────────────────────────────────
     f['previous owner name']    = _s(vehicle.owner_name)
     f['previous owner address'] = _s(vehicle.owner_address)
+    f['PO CITY']                 = _s(vehicle.owner_city)
+    f['PO STATE']                = _s(vehicle.owner_state)
+    f['PO ZIP']                  = _s(vehicle.owner_zip)
 
     # ── Lienholder ────────────────────────────────────────────────────────
     f['lien holder name']       = _s(vehicle.lienholder_name) or 'None'
@@ -81,6 +93,7 @@ def generate_title_packet(vehicle, template_path, filing_date=None):
 
     f['date of tow']    = _d(vehicle.impound_date)
     f['DATE OF COMPLETED REPAIR  TERM OF STORAGE'] = _d(vehicle.impound_date)
+    f['date completed repair'] = _d(vehicle.impound_date)
 
     l1_sent = l1.sent_date if l1 else None
     f['1st letter date']                  = _d(l1_sent)
@@ -168,6 +181,33 @@ def generate_title_packet(vehicle, template_path, filing_date=None):
     clean = {k: str(v) for k, v in f.items() if v is not None}
     for page in writer.pages:
         writer.update_page_form_field_values(page, clean)
+    if '/AcroForm' in writer._root_object:
+        writer._root_object['/AcroForm'].update({
+            NameObject('/NeedAppearances'): BooleanObject(True)
+        })
+    buf = io.BytesIO()
+    writer.write(buf)
+    return buf.getvalue()
+
+
+# 0-indexed page in BlankTitlePacket.pdf holding the Damage Analysis worksheet
+# (Text50-Text77 damage description/value rows + totaldv).
+DAMAGE_ANALYSIS_PAGE_INDEX = 2
+
+
+def generate_damage_analysis_pdf(vehicle, template_path, filing_date=None):
+    """
+    Fill the full title packet, then return just the Damage Analysis page
+    (page 3 of BlankTitlePacket.pdf) as its own single-page PDF — for printing
+    that worksheet without the rest of the BMV 4202 packet.
+    """
+    from pypdf import PdfReader, PdfWriter
+    from pypdf.generic import NameObject, BooleanObject
+
+    full_pdf = generate_title_packet(vehicle, template_path, filing_date=filing_date)
+    reader = PdfReader(io.BytesIO(full_pdf))
+    writer = PdfWriter()
+    writer.append(reader, pages=(DAMAGE_ANALYSIS_PAGE_INDEX, DAMAGE_ANALYSIS_PAGE_INDEX + 1))
     if '/AcroForm' in writer._root_object:
         writer._root_object['/AcroForm'].update({
             NameObject('/NeedAppearances'): BooleanObject(True)

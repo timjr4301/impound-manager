@@ -10,7 +10,7 @@ from flask_login import LoginManager, login_required, current_user
 from models import (db, User, Vehicle, CertifiedLetter, TitleFiling,
                     VehicleNote, DamageItem, SyncLog, VehicleDocument, StaffFeedback,
                     StaffTodo, PoliceDepartment, VehicleCharge, GeneralDocument, VehicleDamagePhoto,
-                    UpsPollLog, CustodyEvent, AuctionEvent,
+                    UpsPollLog, CustodyEvent, AuctionEvent, VehicleParty,
                     PPI_LETTER1_DAYS, PPI_LETTER2_DAYS, POLICE_LETTER1_DAYS)
 from werkzeug.utils import secure_filename
 
@@ -358,6 +358,14 @@ def run_migrations(app):
                     conn.execute(text('ALTER TABLE certified_letters ADD COLUMN mail_method VARCHAR(10)'))
                 if 'po_box_sop_confirmed' not in cols:
                     conn.execute(text('ALTER TABLE certified_letters ADD COLUMN po_box_sop_confirmed BOOLEAN'))
+                # Which VehicleParty a letter is addressed to. NULL means the
+                # primary chain (letter_number 1/2 = registered owner, 5/6 =
+                # lienholder of record) — i.e. every letter that existed
+                # before parties. Only extra-party letters set this, and they
+                # are always numbered 101+ so nothing resolving a letter by
+                # `letter_number == 1` can pick one up.
+                if 'party_id' not in cols:
+                    conn.execute(text('ALTER TABLE certified_letters ADD COLUMN party_id INTEGER'))
                 # Backfill letter_kind on pre-existing letter_number 1/2 rows
                 # (created before the 5-letter system existed) so their print
                 # content routes correctly. Safe to re-run — only touches
@@ -436,6 +444,13 @@ def run_migrations(app):
             if 'auction_events' not in existing_tables:
                 AuctionEvent.__table__.create(db.engine)
 
+            # Interested parties (owner, 2nd owner, lienholder, driver, …) as
+            # first-class rows — see VehicleParty in models.py. Backfilled
+            # from the legacy owner_*/lienholder_*/…_2 columns further down.
+            if 'vehicle_parties' not in existing_tables:
+                VehicleParty.__table__.create(db.engine)
+                existing_tables.append('vehicle_parties')
+
         # One-time backfill (2026-07-30): PPI Letter 2 rows created before the
         # 2026-07-29 sent-anchored correction (commit f3cca7d) — or imported
         # verbatim from Towbook's "SECOND LETTER Due Date" column by
@@ -473,6 +488,162 @@ def run_migrations(app):
             if fixed:
                 db.session.commit()
             print(f'[letter2_backfill] sent+30 due-date correction: {fixed} row(s) changed')
+
+        # One-time backfill (2026-08-24): the four fixed owner/lienholder
+        # slots become VehicleParty rows, so every party on a vehicle has the
+        # same information and the same functions as the registered owner.
+        if 'vehicle_parties' in existing_tables and 'vehicles' in existing_tables:
+            _backfill_vehicle_parties()
+
+
+# Legacy _2 fields -> the party letter fields they become. The 2nd owner /
+# 2nd lienholder used to ride along on the primary party's envelope as a
+# second UPS label; that history moves onto their own letter row.
+_PARTY_ADOPT_FIELDS = (
+    ('tracking_number_2',         'tracking_number'),
+    ('label_image_data_2',        'label_image_data'),
+    ('pod_image_data_2',          'pod_image_data'),
+    ('pod_image_type_2',          'pod_image_type'),
+    ('delivery_confirmed_date_2', 'delivery_confirmed_date'),
+    ('return_to_sender_2',        'return_to_sender'),
+    ('returned_date_2',           'returned_date'),
+    ('label_voided_at_2',         'label_voided_at'),
+)
+
+
+def _split_city_state_zip(address_text):
+    '''Split a freeform address blob into (street, city, state, zip).
+
+    Used to turn the old owner_2/lienholder_2 single address box into real
+    fields during the parties backfill — those two slots never had columns of
+    their own. The parsed "City, ST ZIP" line is REMOVED from the street part,
+    or the vehicle page would print the city twice: once from the blob and
+    once from the new fields. Lenient: when the last line doesn't look like a
+    City, ST ZIP, the blob is returned untouched with blank fields.'''
+    if not address_text:
+        return '', '', '', ''
+    lines = address_text.strip().splitlines()
+    m = re.match(r'^(.*?),?\s+([A-Za-z]{2})\s+(\d{5}(?:-\d{4})?)$', lines[-1].strip())
+    if not m:
+        return address_text.strip(), '', '', ''
+    street = '\n'.join(lines[:-1]).strip()
+    return street, m.group(1).strip(), m.group(2).upper(), m.group(3)
+
+
+def _backfill_vehicle_parties():
+    '''Turn the four fixed owner/lienholder slots into VehicleParty rows.
+
+    Idempotent by vehicle: a vehicle that already has any party row is skipped
+    entirely, so this does real work exactly once and reports 0 forever after.
+
+    THE PART THAT MATTERS: the 2nd owner / 2nd lienholder have already been
+    mailed — they rode along on the primary party's envelope as a second UPS
+    label (tracking_number_2). So wherever a primary letter carries a
+    tracking_number_2, the new party letter is written as ALREADY SENT,
+    carrying that tracking number and its delivery / return / POD history
+    across. Without this, the migration would drop a fresh "due" letter into
+    Heather's queue for someone who was mailed weeks ago, and that person
+    would get a second envelope.
+    '''
+    import letter_triggers
+
+    def _clean(value):
+        return (value or '').strip() or None
+
+    vehicles = (
+        db.session.query(Vehicle)
+        .outerjoin(VehicleParty, VehicleParty.vehicle_id == Vehicle.id)
+        .filter(VehicleParty.id.is_(None))
+        .all()
+    )
+
+    now = datetime.utcnow()
+    parties_made = letters_made = adopted = 0
+
+    for v in vehicles:
+        specs = []
+        if _clean(v.owner_name) or _clean(v.owner_address):
+            specs.append(dict(
+                role='owner', notice_class='owner', is_primary=True, sort_order=0,
+                name=_clean(v.owner_name), address=_clean(v.owner_address),
+                city=_clean(v.owner_city), state=_clean(v.owner_state),
+                zip_code=_clean(v.owner_zip), po_box_flag=bool(v.po_box_flag),
+            ))
+        # "None" is what staff type into the lienholder box when there is no
+        # lien (the BMV 4202 requires the field be filled in) — not a party.
+        lien = _clean(v.lienholder_name)
+        if lien and lien.lower() not in ('none', 'n/a', 'na'):
+            specs.append(dict(
+                role='lienholder', notice_class='lienholder', is_primary=True, sort_order=10,
+                name=lien, address=_clean(v.lienholder_address),
+                city=_clean(v.lienholder_city), state=_clean(v.lienholder_state),
+                zip_code=_clean(v.lienholder_zip),
+            ))
+        # The 2nd slots never had city/state/zip columns — split the trailing
+        # "City, ST ZIP" line out of the address blob the same way the label
+        # printer already did for them.
+        for name_attr, addr_attr, role, order in (
+            ('owner_2_name', 'owner_2_address', 'owner', 1),
+            ('lienholder_2_name', 'lienholder_2_address', 'lienholder', 11),
+        ):
+            nm, addr = _clean(getattr(v, name_attr)), _clean(getattr(v, addr_attr))
+            if not (nm or addr):
+                continue
+            street, city, state, zipc = _split_city_state_zip(addr)
+            specs.append(dict(
+                role=role, notice_class=role, is_primary=False, sort_order=order,
+                name=nm, address=(street or addr), city=city or None,
+                state=state or None, zip_code=zipc or None,
+                # 'legacy_2' is how models.py's column-sync listener finds this
+                # row again if anything still writes the old _2 columns.
+                source='legacy_2',
+            ))
+
+        if not specs:
+            continue
+
+        made = []
+        for spec in specs:
+            spec.setdefault('source', 'migration')
+            party = VehicleParty(vehicle_id=v.id, created_at=now,
+                                 created_by='migration', **spec)
+            db.session.add(party)
+            made.append(party)
+        db.session.flush()      # real ids are needed before letters can point at them
+        parties_made += len(made)
+
+        for party in made:
+            if party.is_primary:
+                continue
+            # 1. Adopt whatever this party has already been mailed.
+            legacy = [l for l in v.letters
+                      if l.party_id is None and not l.superseded and l.tracking_number_2
+                      and (l.recipient_type == 'lienholder') == (party.role == 'lienholder')]
+            for src in legacy:
+                letter = CertifiedLetter(
+                    vehicle_id=v.id,
+                    party_id=party.id,
+                    letter_number=letter_triggers._next_party_letter_number(v),
+                    letter_kind=src.effective_letter_kind,
+                    recipient_type=src.recipient_type,
+                    due_date=src.due_date,
+                    sent_date=src.sent_date,
+                    mail_method=src.mail_method,
+                    created_at=now,
+                )
+                for src_attr, dest_attr in _PARTY_ADOPT_FIELDS:
+                    setattr(letter, dest_attr, getattr(src, src_attr, None))
+                db.session.add(letter)
+                v.letters.append(letter)
+                adopted += 1
+            # 2. Create whatever they are still owed.
+            letters_made += len(letter_triggers.ensure_party_letters(v, party))
+
+    if parties_made:
+        db.session.commit()
+    print(f'[party_backfill] {parties_made} party row(s) created, '
+          f'{adopted} existing 2nd-party mailing(s) adopted, '
+          f'{letters_made} new party letter(s) created')
 
 
 def parse_quantum_view_csv(content: str):
@@ -1006,6 +1177,10 @@ def create_app():
             'timedelta': _td,
             'towbook_sync_status': sync_status,
             'nav_sections': nav_sections,
+            # Role choices for the Add/Edit Party forms — single source of
+            # truth is the model, so the dropdown can't drift from what the
+            # backfill and the letter logic actually understand.
+            'party_roles': VehicleParty.ROLES,
         }
 
     # ── Deploy verification (WP-5) ───────────────────────────────────────────────
@@ -1553,15 +1728,18 @@ def create_app():
             police_department_id=int(dept_str) if dept_str.isdigit() else None,
             owner_name=form.get('owner_name', '').strip() or None,
             owner_address=form.get('owner_address', '').strip() or None,
+            owner_city=form.get('owner_city', '').strip() or None,
+            owner_state=form.get('owner_state', '').strip() or None,
+            owner_zip=form.get('owner_zip', '').strip() or None,
             lienholder_name=form.get('lienholder_name', '').strip() or None,
             lienholder_address=form.get('lienholder_address', '').strip() or None,
             lienholder_city=form.get('lienholder_city', '').strip() or None,
             lienholder_state=form.get('lienholder_state', '').strip() or None,
             lienholder_zip=form.get('lienholder_zip', '').strip() or None,
-            owner_2_name=form.get('owner_2_name', '').strip() or None,
-            owner_2_address=form.get('owner_2_address', '').strip() or None,
-            lienholder_2_name=form.get('lienholder_2_name', '').strip() or None,
-            lienholder_2_address=form.get('lienholder_2_address', '').strip() or None,
+            # The owner_2_*/lienholder_2_* columns are deliberately absent:
+            # extra parties are VehicleParty rows now, edited in Parties on the
+            # vehicle page. This dict assigns EVERY key it lists, so leaving
+            # them in would blank a legacy column on every save of this form.
             mileage=int(mile_str.replace(',', '')) if mile_str.replace(',', '').isdigit() else None,
             tow_fee=float(tow_str) if tow_str else None,
             daily_storage_rate=storage_rate,
@@ -1664,6 +1842,162 @@ def create_app():
             return redirect(url_for('vehicles_detail', vehicle_id=vehicle.id))
         police_departments = PoliceDepartment.query.filter_by(active=True).order_by(PoliceDepartment.name).all()
         return render_template('vehicles/edit.html', vehicle=vehicle, police_departments=police_departments)
+
+    # ── Interested parties ────────────────────────────────────────────────
+    # Owner, 2nd owner, lienholder, driver, anyone else — every one of them a
+    # VehicleParty row with the same fields and the same letter functions as
+    # the registered owner (Heather, 08/24/2026). The PRIMARY owner and
+    # lienholder mirror back onto the legacy Vehicle columns on every save,
+    # which is what keeps the print template, task_engine, Towbook sync and
+    # every dashboard working untouched.
+
+    def _party_from_form(form, party):
+        """Apply the party form to a VehicleParty (new or existing)."""
+        def val(field, default=None):
+            return form.get(field, '').strip() or default
+
+        role = val('role', 'owner')
+        party.role = role
+        party.role_label = val('role_label')
+        # notice_class decides which letter body prints. Default follows the
+        # role, but stays overridable — a co-signer or driver gets the
+        # owner-style notice even though their role isn't "owner".
+        party.notice_class = val('notice_class', 'lienholder' if role == 'lienholder' else 'owner')
+        party.name = val('name')
+        party.address = val('address')
+        party.city = val('city')
+        state = val('state')
+        party.state = state.upper() if state else None
+        party.zip_code = val('zip_code')
+        party.notes = val('notes')
+        party.send_letters = form.get('send_letters') == 'on'
+        party.po_box_flag = form.get('po_box_flag') == 'on'
+        party.updated_at = datetime.utcnow()
+        return party
+
+    def _party_letters_message(created):
+        if not created:
+            return ''
+        return f' {len(created)} letter(s) opened for them.'
+
+    @app.route('/vehicles/<int:vehicle_id>/parties', methods=['POST'])
+    @login_required
+    def parties_add(vehicle_id):
+        vehicle = db.get_or_404(Vehicle, vehicle_id)
+        if not current_user.can_edit_vehicles:
+            flash('You do not have permission to edit vehicles.', 'danger')
+            return redirect(url_for('vehicles_detail', vehicle_id=vehicle_id))
+
+        party = VehicleParty(vehicle_id=vehicle.id, source='manual',
+                             created_at=datetime.utcnow(),
+                             created_by=current_user.username)
+        _party_from_form(request.form, party)
+        if not party.name:
+            flash('A party needs a name.', 'danger')
+            return redirect(url_for('vehicles_detail', vehicle_id=vehicle.id))
+
+        # Becomes the primary owner / lienholder of record only when the
+        # vehicle doesn't have one yet — otherwise this is an additional party.
+        existing_primary = next((p for p in vehicle.parties
+                                 if p.is_primary and p.role == party.role), None)
+        party.is_primary = party.role in ('owner', 'lienholder') and existing_primary is None
+        party.sort_order = max([p.sort_order or 0 for p in vehicle.parties] or [0]) + 1
+
+        db.session.add(party)
+        vehicle.parties.append(party)
+        db.session.flush()
+
+        created = []
+        if party.is_primary:
+            party.sync_to_vehicle()
+        else:
+            import letter_triggers
+            created = letter_triggers.ensure_party_letters(vehicle, party)
+
+        db.session.add(VehicleNote(
+            vehicle_id=vehicle.id,
+            body=f'Party added: {party.name} ({party.display_role}).'
+                 + (' Letters will be sent to them.' if party.send_letters else
+                    ' Recorded only — no letters.'),
+            author=current_user.display_name or current_user.username,
+            created_at=datetime.utcnow(),
+        ))
+        db.session.commit()
+        flash(f'{party.name} added as {party.display_role}.' + _party_letters_message(created),
+              'success')
+        return redirect(url_for('vehicles_detail', vehicle_id=vehicle.id))
+
+    @app.route('/parties/<int:party_id>', methods=['POST'])
+    @login_required
+    def parties_edit(party_id):
+        party = db.get_or_404(VehicleParty, party_id)
+        vehicle = party.vehicle
+        if not current_user.can_edit_vehicles:
+            flash('You do not have permission to edit vehicles.', 'danger')
+            return redirect(url_for('vehicles_detail', vehicle_id=vehicle.id))
+
+        was_sending = party.send_letters
+        # A primary party's role is fixed — it's the owner/lienholder of record
+        # and the legacy Vehicle columns it mirrors to depend on that.
+        locked_role = party.role if party.is_primary else None
+        _party_from_form(request.form, party)
+        if locked_role:
+            party.role = locked_role
+
+        created = []
+        if party.is_primary:
+            party.sync_to_vehicle()
+        elif party.send_letters:
+            import letter_triggers
+            created = letter_triggers.ensure_party_letters(vehicle, party)
+        elif was_sending:
+            # Turned off — drop only the letters that were never mailed. A sent
+            # letter is a compliance record and is never removed.
+            for l in list(party.letters):
+                if not l.sent_date:
+                    vehicle.letters.remove(l)
+                    db.session.delete(l)
+
+        db.session.commit()
+        flash(f'{party.display_name} updated.' + _party_letters_message(created), 'success')
+        return redirect(url_for('vehicles_detail', vehicle_id=vehicle.id))
+
+    @app.route('/parties/<int:party_id>/delete', methods=['POST'])
+    @login_required
+    def parties_delete(party_id):
+        party = db.get_or_404(VehicleParty, party_id)
+        vehicle = party.vehicle
+        if not current_user.can_edit_vehicles:
+            flash('You do not have permission to edit vehicles.', 'danger')
+            return redirect(url_for('vehicles_detail', vehicle_id=vehicle.id))
+
+        if party.is_primary:
+            flash(f'{party.display_name} is the {party.display_role} of record — '
+                  'edit them instead of removing them.', 'danger')
+            return redirect(url_for('vehicles_detail', vehicle_id=vehicle.id))
+        # A mailed letter is a compliance record. The party stays on file.
+        sent = [l for l in party.letters if l.sent_date]
+        if sent:
+            flash(f'{party.display_name} has already been mailed '
+                  f'{len(sent)} letter(s) — they stay on the record. Turn off '
+                  '"Send letters to this party" instead.', 'danger')
+            return redirect(url_for('vehicles_detail', vehicle_id=vehicle.id))
+
+        name = party.display_name
+        for l in list(party.letters):
+            vehicle.letters.remove(l)
+            db.session.delete(l)
+        vehicle.parties.remove(party)
+        db.session.delete(party)
+        db.session.add(VehicleNote(
+            vehicle_id=vehicle.id,
+            body=f'Party removed: {name} — no letters had been mailed to them.',
+            author=current_user.display_name or current_user.username,
+            created_at=datetime.utcnow(),
+        ))
+        db.session.commit()
+        flash(f'{name} removed.', 'success')
+        return redirect(url_for('vehicles_detail', vehicle_id=vehicle.id))
 
     @app.route('/vehicles/<int:vehicle_id>/release', methods=['POST'])
     @login_required
@@ -2124,20 +2458,6 @@ def create_app():
                                 label_b64=_pending_label_cache.pop(letter_id, None),
                                 label_2_b64=_pending_label_2_cache.pop(letter_id, None))
 
-    def _parse_city_state_zip(address_text):
-        """Best-effort parse of a trailing 'City, ST ZIP' line out of a freeform
-        address blob. Used for owner_2/lienholder_2, which (unlike the primary
-        owner/lienholder) have no separate city/state/zip columns — mirrors the
-        same lenient blank-if-unparseable behavior the primary owner flow already
-        has when its own city/state/zip haven't been populated by the BMV scanner."""
-        if not address_text:
-            return '', '', ''
-        last_line = address_text.strip().splitlines()[-1].strip()
-        m = re.match(r'^(.*?),?\s+([A-Za-z]{2})\s+(\d{5}(?:-\d{4})?)$', last_line)
-        if m:
-            return m.group(1).strip(), m.group(2).upper(), m.group(3)
-        return '', '', ''
-
     @app.route('/letters/<int:letter_id>/create-ups-label', methods=['POST'])
     @login_required
     def letters_create_ups_label(letter_id):
@@ -2178,23 +2498,32 @@ def create_app():
             flash(block, 'danger')
             return redirect(url_for('vehicles_detail', vehicle_id=vehicle.id))
 
-        if letter.recipient_type == 'lienholder':
+        # Who this letter is addressed to. Every party — owner, lienholder,
+        # 2nd owner, driver, anyone else — now has their own letter and their
+        # own label, which is why there is no longer a second-label fan-out
+        # here: fanning out would mail the 2nd party TWICE, once on their own
+        # letter and once riding along on this one. The tracking_number_2 /
+        # *_2 columns stay readable for letters mailed before parties existed.
+        party = letter.addressee_party
+        if party is not None:
+            name, address = party.name, party.address
+            city, state, zip_code = party.city, party.state, party.zip_code
+        elif letter.recipient_type == 'lienholder':
             name, address, city, state, zip_code = (
                 vehicle.lienholder_name, vehicle.lienholder_address,
                 vehicle.lienholder_city, vehicle.lienholder_state, vehicle.lienholder_zip,
             )
-            name_2, address_2 = vehicle.lienholder_2_name, vehicle.lienholder_2_address
         else:
             name, address, city, state, zip_code = (
                 vehicle.owner_name, vehicle.owner_address,
                 vehicle.owner_city, vehicle.owner_state, vehicle.owner_zip,
             )
-            name_2, address_2 = vehicle.owner_2_name, vehicle.owner_2_address
 
         if not name or not address:
+            who = party.display_role.lower() if party is not None else letter.recipient_type
             flash(
-                f'No {letter.recipient_type} name/address on file for {vehicle.display_name} — '
-                'add it on the vehicle edit form before creating a label.',
+                f'No {who} name/address on file for {vehicle.display_name} — '
+                'add it on the vehicle page before creating a label.',
                 'danger',
             )
             return redirect(url_for('vehicles_detail', vehicle_id=vehicle.id))
@@ -2217,29 +2546,10 @@ def create_app():
         # gone for good. Same pattern already used for signed POD images.
         letter.label_image_data = label_b64
 
+        # One label per letter, one letter per party — see the addressee note
+        # above. label_2_b64 stays None so the inline label cache and the
+        # mark-sent page keep their existing two-slot shape for old letters.
         tracking_number_2, label_2_b64 = None, None
-        if name_2:
-            if not address_2:
-                flash(
-                    f'Primary label created, but no address on file for the 2nd '
-                    f'{letter.recipient_type} ({name_2}) — add it on the vehicle edit '
-                    'form to print their label too.',
-                    'warning',
-                )
-            else:
-                city_2, state_2, zip_2 = _parse_city_state_zip(address_2)
-                try:
-                    tracking_number_2, label_2_b64 = ups_api.create_label(
-                        reference, name_2, address_2, city_2, state_2, zip_2,
-                        trans_id=f'letter-{letter.id}-2nd', reference2=reference_2,
-                    )
-                    letter.label_image_data_2 = label_2_b64
-                except Exception as exc:
-                    flash(
-                        f'Primary label created, but the 2nd {letter.recipient_type} '
-                        f'label failed: {exc}',
-                        'warning',
-                    )
 
         message = _finalize_letter_sent(
             letter, date.today(), tracking_number=tracking_number, ups_status='Label Created',
@@ -2445,6 +2755,29 @@ def create_app():
         letter.returned_date = returned_on
         letter.updated_at = now
 
+        # Extra-party letters (VehicleParty, letter_number 101+) are RECORDED
+        # ONLY — per Tim 08/24/2026 the letter round and the title clock stay
+        # anchored to the registered owner, whichever other party's envelope
+        # comes back. Without this branch, address_error below would supersede
+        # the owner's round and restart the vehicle at a fresh Letter 1,
+        # moving title eligibility because someone else's address was wrong.
+        if letter.party_id is not None:
+            who = letter.addressee_name or 'this party'
+            note = (f'{label} to {who} came back Returned to Sender — received '
+                    f'{returned_on.strftime("%m/%d/%Y")}, recorded by {actor}. '
+                    f'Recorded against this party only: the letter round and '
+                    f'title-eligibility clock stay anchored to the registered owner.')
+            if letter.returned_envelope_image_data:
+                note += ' Envelope image on file.'
+            if letter.tracking_number:
+                note += f' Tracking {letter.tracking_number} (certified-mail cost may be refundable).'
+            db.session.add(VehicleNote(vehicle_id=vehicle.id, body=note,
+                                       author=actor, created_at=now))
+            db.session.commit()
+            flash(f'Recorded: {label} to {who} came back. The registered owner\'s '
+                  f'letter round and title date are unchanged.', 'warning')
+            return redirect(url_for('vehicles_detail', vehicle_id=vehicle.id) + '#letters')
+
         if outcome == 'valid_return':
             # No restart — this letter stays the current round's Letter 1.
             note = (f'{label} came back Returned to Sender — received '
@@ -2475,9 +2808,14 @@ def create_app():
         # End the whole current owner round — any other active owner letters
         # (sent or unsent) were anchored to the failed service and are replaced
         # by the new round. Lienholder notices go to a different address and
-        # are untouched.
+        # are untouched. So are EXTRA-PARTY letters (party_id set): a 2nd owner
+        # or driver has their own address, their own mailing and their own
+        # dates, so a bad address for the registered owner says nothing about
+        # theirs — superseding them would silently cancel letters they are
+        # still owed.
         for l in vehicle.letters:
-            if l.id != letter.id and not l.superseded and l.recipient_type != 'lienholder':
+            if (l.id != letter.id and not l.superseded
+                    and l.party_id is None and l.recipient_type != 'lienholder'):
                 l.superseded = True
                 l.updated_at = now
 
@@ -2932,6 +3270,31 @@ def create_app():
         'second_lienholder': 'Second Notice (Lienholder)',
     }
 
+    # Extra parties don't have fixed slugs the way the owner/lienholder chains
+    # do — there can be any number of them — so their slugs carry the party id:
+    # "party_<id>" for the 1st notice, "party_<id>_2" for the 2nd.
+    def _party_from_slug(vehicle, slug):
+        """(party, wants_second) for a party slug, or (None, False)."""
+        if not slug.startswith('party_'):
+            return None, False
+        rest = slug[len('party_'):]
+        second = rest.endswith('_2')
+        if second:
+            rest = rest[:-2]
+        if not rest.isdigit():
+            return None, False
+        return next((p for p in vehicle.parties if p.id == int(rest)), None), second
+
+    def _party_slug_title(party, second):
+        kind = '2nd Notice' if second else '1st Notice'
+        return f'{kind} ({party.display_role} — {party.display_name})'
+
+    def _slug_title(vehicle, slug):
+        if slug in LETTER_SLUG_TITLES:
+            return LETTER_SLUG_TITLES[slug]
+        party, second = _party_from_slug(vehicle, slug)
+        return _party_slug_title(party, second) if party else slug
+
     def _letter_by_number(vehicle, number):
         return next((l for l in vehicle.letters if l.letter_number == number), None)
 
@@ -2948,6 +3311,28 @@ def create_app():
         letter opened from this hub can never disagree with one the pipeline
         would have created on its own.
         """
+        # Extra-party letters resolve through the party, not the slug table —
+        # letter_triggers owns their numbering (the 101+ band) and their
+        # due dates, exactly as it owns the primary chains' numbering.
+        party, want_second = _party_from_slug(vehicle, slug)
+        if party is not None:
+            if not party.send_letters:
+                return None, 'Letters are turned off for this party.'
+            import letter_triggers
+            existing = letter_triggers._party_letter(vehicle, party, second=want_second)
+            if existing:
+                return existing, None
+            if not create:
+                return None, None
+            if want_second and vehicle.impound_type != 'PPI':
+                return None, 'A POLICE impound is a single Notice of Lien — there is no 2nd notice.'
+            letter_triggers.ensure_party_letters(vehicle, party)
+            db.session.commit()
+            found = letter_triggers._party_letter(vehicle, party, second=want_second)
+            if found:
+                return found, None
+            return None, "Their 1st Notice must be sent first."
+
         slugs = LETTER_SLUGS.get(vehicle.impound_type, {})
         if slug not in slugs:
             return None, f'Not applicable to a {vehicle.impound_type} impound.'
@@ -3022,6 +3407,23 @@ def create_app():
                 'reason': reason,
             })
 
+        # Then every other party on the vehicle, each with the same options the
+        # owner gets. PPI parties get a 2nd notice row too; POLICE is a single
+        # Notice of Lien, same as the owner's.
+        for party in vehicle.extra_parties:
+            if not (party.send_letters and party.name):
+                continue
+            wants = [False] if vehicle.impound_type == 'POLICE' else [False, True]
+            for second in wants:
+                slug = f'party_{party.id}_2' if second else f'party_{party.id}'
+                letter, reason = _resolve_letter(vehicle, slug, create=False)
+                options.append({
+                    'slug': slug,
+                    'title': _party_slug_title(party, second),
+                    'letter': letter,
+                    'reason': reason,
+                })
+
         return render_template('letters/hub.html',
             vehicle=vehicle,
             options=options,
@@ -3053,7 +3455,7 @@ def create_app():
 
         db.session.add(VehicleNote(
             vehicle_id=vehicle.id,
-            body=(f'{LETTER_SLUG_TITLES[letter_type]} generated by '
+            body=(f'{_slug_title(vehicle, letter_type)} generated by '
                   f'{current_user.username} on {date.today().strftime("%m/%d/%Y")}'),
             author=current_user.username,
             created_at=datetime.utcnow(),
@@ -3629,6 +4031,33 @@ def create_app():
             pdf_bytes = generate_title_packet(vehicle, template_path)
             safe_name = (vehicle.vin or f'vehicle{vehicle.id}')[-10:]
             filename = f'{safe_name}_TitlePacket_{date.today().strftime("%Y%m%d")}.pdf'
+            return send_file(
+                io.BytesIO(pdf_bytes),
+                mimetype='application/pdf',
+                as_attachment=True,
+                download_name=filename,
+            )
+        except Exception as exc:
+            flash(f'PDF generation failed: {exc}', 'danger')
+            return redirect(url_for('vehicles_detail', vehicle_id=vehicle_id))
+
+    @app.route('/vehicles/<int:vehicle_id>/damage-analysis.pdf')
+    @login_required
+    def damage_analysis_pdf(vehicle_id):
+        vehicle = db.get_or_404(Vehicle, vehicle_id)
+        template_path = app.config['TITLE_PACKET_TEMPLATE']
+        if not os.path.isfile(template_path):
+            flash(
+                f'Title packet template not found at: {template_path}. '
+                'Set TITLE_PACKET_TEMPLATE environment variable.',
+                'danger'
+            )
+            return redirect(url_for('vehicles_detail', vehicle_id=vehicle_id))
+        try:
+            from titlebot.pdf_gen import generate_damage_analysis_pdf
+            pdf_bytes = generate_damage_analysis_pdf(vehicle, template_path)
+            safe_name = (vehicle.vin or f'vehicle{vehicle.id}')[-10:]
+            filename = f'{safe_name}_DamageAnalysis_{date.today().strftime("%Y%m%d")}.pdf'
             return send_file(
                 io.BytesIO(pdf_bytes),
                 mimetype='application/pdf',

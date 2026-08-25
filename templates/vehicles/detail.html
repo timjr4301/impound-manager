@@ -419,7 +419,13 @@
    Only renders once a 2nd label actually exists (created alongside the
    primary by the same Mark Sent action whenever owner_2_name is set). ── #}
 {% macro second_recipient_status(l, today) %}
-{% if l and l.tracking_number_2 %}
+{# Only for mailings that DON'T already have a letter card of their own. The
+   parties migration adopted every ride-along envelope onto its own party's
+   letter row (carrying this same tracking number), so showing this block too
+   would report one mailing twice on the same page. #}
+{% set adopted = l and l.tracking_number_2 and (
+     l.vehicle.letters | selectattr('party_id') | selectattr('tracking_number', 'equalto', l.tracking_number_2) | list) %}
+{% if l and l.tracking_number_2 and not adopted %}
 <div class="border rounded p-2 mt-2 {% if l.delivery_confirmed_date_2 %}border-success bg-success bg-opacity-10{% elif l.return_to_sender_2 %}border-danger bg-danger bg-opacity-10{% else %}border-secondary{% endif %}">
   <div class="d-flex align-items-center gap-2 mb-1">
     {% if l.delivery_confirmed_date_2 %}
@@ -1103,72 +1109,210 @@ function showGeneralDocImage(btn) {
       </div>
     </div>
 
-    {# Owner / Addressee #}
+    {# ── Parties ────────────────────────────────────────────────────────
+       Every interested party on this vehicle, not just the owner. The
+       registered owner and the lienholder of record come first (they mirror
+       the legacy Vehicle owner_*/lienholder_* columns); everyone else follows
+       underneath with the same fields and the same letter functions.
+
+       Expanded by default on purpose — Heather's report (08/24/2026) was that
+       the owner was the only party with any information showing, and a
+       collapsed card was half of that. ── #}
+    {% macro party_form_fields(p) %}
+      <div class="mb-2">
+        <label class="form-label fw-semibold">Name</label>
+        <input type="text" name="name" class="form-control" required
+               value="{{ p.name if p else '' }}" placeholder="Jane Smith or Huntington Bank">
+      </div>
+      <div class="row g-2 mb-2">
+        <div class="col-7">
+          <label class="form-label fw-semibold">Role</label>
+          {% if p and p.is_primary %}
+          <input type="text" class="form-control" value="{{ p.display_role }} (of record)" disabled>
+          <div class="form-text">The {{ p.display_role|lower }} of record — role is fixed.</div>
+          {% else %}
+          <select name="role" class="form-select">
+            {% for value, text in party_roles %}
+            <option value="{{ value }}" {% if p and p.role == value %}selected{% endif %}>{{ text }}</option>
+            {% endfor %}
+          </select>
+          {% endif %}
+        </div>
+        <div class="col-5">
+          <label class="form-label fw-semibold">Letter type</label>
+          <select name="notice_class" class="form-select">
+            <option value="owner" {% if not p or p.notice_class != 'lienholder' %}selected{% endif %}>Owner notice</option>
+            <option value="lienholder" {% if p and p.notice_class == 'lienholder' %}selected{% endif %}>Lienholder notice</option>
+          </select>
+        </div>
+      </div>
+      <div class="mb-2">
+        <label class="form-label fw-semibold">Label on letters <span class="fw-normal text-muted">(optional)</span></label>
+        <input type="text" name="role_label" class="form-control" value="{{ p.role_label if p else '' }}"
+               placeholder="e.g. Co-signer, Estate of…">
+      </div>
+      <div class="mb-2">
+        <label class="form-label fw-semibold">Address</label>
+        <textarea name="address" class="form-control" rows="2" placeholder="123 Main St">{{ p.address if p else '' }}</textarea>
+      </div>
+      <div class="row g-2 mb-2">
+        <div class="col-6">
+          <label class="form-label fw-semibold">City</label>
+          <input type="text" name="city" class="form-control" value="{{ p.city if p else '' }}">
+        </div>
+        <div class="col-2">
+          <label class="form-label fw-semibold">St</label>
+          <input type="text" name="state" class="form-control" maxlength="2" style="text-transform:uppercase;"
+                 value="{{ p.state if p else '' }}">
+        </div>
+        <div class="col-4">
+          <label class="form-label fw-semibold">Zip</label>
+          <input type="text" name="zip_code" class="form-control" maxlength="10" value="{{ p.zip_code if p else '' }}">
+        </div>
+      </div>
+      <div class="form-check mb-1">
+        <input class="form-check-input" type="checkbox" name="send_letters" id="send{{ p.id if p else 'new' }}"
+               {% if not p or p.send_letters %}checked{% endif %}>
+        <label class="form-check-label" for="send{{ p.id if p else 'new' }}">
+          Send letters to this party
+          <span class="d-block text-muted" style="font-size:.75rem;">Uncheck to keep them on the record without mailing them.</span>
+        </label>
+      </div>
+      <div class="form-check mb-2">
+        <input class="form-check-input" type="checkbox" name="po_box_flag" id="pobox{{ p.id if p else 'new' }}"
+               {% if p and p.po_box_flag %}checked{% endif %}>
+        <label class="form-check-label" for="pobox{{ p.id if p else 'new' }}">
+          PO Box address
+          <span class="d-block text-muted" style="font-size:.75rem;">UPS can't deliver here — send theirs through USPS.</span>
+        </label>
+      </div>
+      <div class="mb-2">
+        <label class="form-label fw-semibold">Notes <span class="fw-normal text-muted">(optional)</span></label>
+        <textarea name="notes" class="form-control" rows="2">{{ p.notes if p else '' }}</textarea>
+      </div>
+    {% endmacro %}
+
     <div class="card shadow-sm mb-4">
       <div class="card-header fw-semibold d-flex justify-content-between align-items-center">
-        <span style="cursor:pointer;" data-bs-toggle="collapse" data-bs-target="#owner-addressee-collapse">
-          Last Registered Owner
+        <span style="cursor:pointer;" data-bs-toggle="collapse" data-bs-target="#parties-collapse">
+          Parties <span class="badge bg-secondary">{{ vehicle.parties|length }}</span>
           <i class="bi bi-chevron-down ms-2 small"></i>
         </span>
-        <a href="{{ url_for('vehicles_edit', vehicle_id=vehicle.id) }}" class="btn btn-outline-secondary btn-sm py-0 px-2">
-          <i class="bi bi-pencil"></i>
-        </a>
+        {% if current_user.can_edit_vehicles %}
+        <button type="button" class="btn btn-outline-primary btn-sm py-0 px-2"
+                data-bs-toggle="modal" data-bs-target="#addPartyModal">
+          <i class="bi bi-person-plus"></i> Add
+        </button>
+        {% endif %}
       </div>
-      <div class="collapse" id="owner-addressee-collapse">
+      <div class="collapse show" id="parties-collapse">
       <div class="card-body small">
-        {% if vehicle.owner_name or vehicle.owner_address %}
-          <div class="fw-semibold">{{ vehicle.owner_name or '—' }}</div>
-          {% if vehicle.owner_address %}
-          <div class="text-muted" style="white-space:pre-line;">{{ vehicle.owner_address }}</div>
-          {% endif %}
+        {% for p in vehicle.parties %}
+        <div class="{% if not loop.first %}border-top pt-2 mt-2{% endif %}">
+          <div class="d-flex align-items-start gap-2">
+            <div class="flex-grow-1">
+              <div class="d-flex align-items-center gap-1 flex-wrap mb-1">
+                <span class="fw-semibold">{{ p.display_name }}</span>
+                <span class="badge {% if p.is_primary %}bg-dark{% else %}bg-secondary{% endif %}">{{ p.display_role }}</span>
+                {% if p.is_primary %}<span class="badge bg-light text-dark border">of record</span>{% endif %}
+                {% if not p.send_letters %}<span class="badge bg-warning text-dark">No letters</span>{% endif %}
+                {% if p.po_box_flag %}<span class="badge bg-danger">PO Box</span>{% endif %}
+              </div>
+              {% if p.address %}<div class="text-muted" style="white-space:pre-line;">{{ p.address }}</div>{% endif %}
+              {% if p.city_state_zip %}<div class="text-muted">{{ p.city_state_zip }}</div>{% endif %}
+              {% if p.send_letters and not p.has_mailable_address %}
+              <div class="text-danger mt-1" style="font-size:.75rem;">
+                <i class="bi bi-exclamation-triangle-fill me-1"></i>No mailable address — their letter can't be printed.
+              </div>
+              {% endif %}
+              {% set plines = p.letters_for_display %}
+              {% if plines %}
+              <div class="mt-1 d-flex flex-wrap gap-1">
+                {% for l in plines %}
+                <span class="badge {% if l.sent_date %}bg-success{% elif l.is_overdue %}bg-danger{% elif l.is_due_today %}bg-warning text-dark{% else %}bg-light text-dark border{% endif %}"
+                      style="font-size:.68rem;">
+                  {{ l.label }}
+                  {%- if l.sent_date %} sent {{ l.sent_date|mdY }}
+                  {%- elif l.is_overdue %} overdue
+                  {%- else %} due {{ l.due_date|mdY }}{% endif %}
+                </span>
+                {% endfor %}
+              </div>
+              {% elif p.send_letters %}
+              <div class="text-muted mt-1" style="font-size:.75rem;">No letters opened yet.</div>
+              {% endif %}
+            </div>
+            {% if current_user.can_edit_vehicles %}
+            <button type="button" class="btn btn-outline-secondary btn-sm py-0 px-2 flex-shrink-0"
+                    data-bs-toggle="modal" data-bs-target="#editPartyModal{{ p.id }}">
+              <i class="bi bi-pencil"></i>
+            </button>
+            {% endif %}
+          </div>
+        </div>
+
+        {% if current_user.can_edit_vehicles %}
+        <div class="modal fade" id="editPartyModal{{ p.id }}" tabindex="-1">
+          <div class="modal-dialog modal-dialog-centered">
+            <form method="POST" action="{{ url_for('parties_edit', party_id=p.id) }}" class="modal-content">
+              <div class="modal-header">
+                <h5 class="modal-title"><i class="bi bi-pencil-square me-1"></i>{{ p.display_name }}</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+              </div>
+              <div class="modal-body">
+                {{ party_form_fields(p) }}
+              </div>
+              <div class="modal-footer d-flex justify-content-between">
+                <div>
+                  {% if not p.is_primary %}
+                  <button type="submit" class="btn btn-outline-danger btn-sm"
+                          formaction="{{ url_for('parties_delete', party_id=p.id) }}"
+                          onclick="return confirm('Remove {{ p.display_name }} from this vehicle?');">
+                    <i class="bi bi-trash"></i> Remove
+                  </button>
+                  {% endif %}
+                </div>
+                <div>
+                  <button type="button" class="btn btn-outline-secondary btn-sm" data-bs-dismiss="modal">Cancel</button>
+                  <button type="submit" class="btn btn-primary btn-sm">Save</button>
+                </div>
+              </div>
+            </form>
+          </div>
+        </div>
+        {% endif %}
         {% else %}
-          <span class="text-muted fst-italic">Not recorded — add via Edit to enable letter printing.</span>
-        {% endif %}
-        {% if vehicle.owner_2_name or vehicle.owner_2_address %}
-        <hr class="my-2">
-        <div class="text-uppercase text-muted fw-semibold" style="font-size:.7rem;">2nd Owner</div>
-        <div class="fw-semibold">{{ vehicle.owner_2_name or '—' }}</div>
-        {% if vehicle.owner_2_address %}
-        <div class="text-muted" style="white-space:pre-line;">{{ vehicle.owner_2_address }}</div>
-        {% endif %}
-        {% endif %}
+        <span class="text-muted fst-italic">
+          No parties recorded yet — add the registered owner to enable letter printing.
+        </span>
+        {% endfor %}
       </div>
       </div>
     </div>
 
-    {# Lienholder #}
-    <div class="card shadow-sm mb-4">
-      <div class="card-header fw-semibold d-flex justify-content-between align-items-center">
-        <span style="cursor:pointer;" data-bs-toggle="collapse" data-bs-target="#lienholder-collapse">
-          Lienholder
-          <i class="bi bi-chevron-down ms-2 small"></i>
-        </span>
-        <a href="{{ url_for('vehicles_edit', vehicle_id=vehicle.id) }}" class="btn btn-outline-secondary btn-sm py-0 px-2">
-          <i class="bi bi-pencil"></i>
-        </a>
-      </div>
-      <div class="collapse" id="lienholder-collapse">
-      <div class="card-body small">
-        {% if vehicle.lienholder_name %}
-          <div class="fw-semibold">{{ vehicle.lienholder_name }}</div>
-          {% if vehicle.lienholder_address %}<div class="text-muted">{{ vehicle.lienholder_address }}</div>{% endif %}
-          {% set sz = ((vehicle.lienholder_state or '') + ' ' + (vehicle.lienholder_zip or '')).strip() %}
-          {% set csz_parts = [] %}
-          {% if vehicle.lienholder_city %}{% set _ = csz_parts.append(vehicle.lienholder_city) %}{% endif %}
-          {% if sz %}{% set _ = csz_parts.append(sz) %}{% endif %}
-          {% if csz_parts %}<div class="text-muted">{{ csz_parts|join(', ') }}</div>{% endif %}
-        {% else %}
-          <span class="text-muted fst-italic">Not recorded — add via Edit.</span>
-        {% endif %}
-        {% if vehicle.lienholder_2_name or vehicle.lienholder_2_address %}
-        <hr class="my-2">
-        <div class="text-uppercase text-muted fw-semibold" style="font-size:.7rem;">2nd Lienholder</div>
-        <div class="fw-semibold">{{ vehicle.lienholder_2_name or '—' }}</div>
-        {% if vehicle.lienholder_2_address %}<div class="text-muted">{{ vehicle.lienholder_2_address }}</div>{% endif %}
-        {% endif %}
-      </div>
+    {% if current_user.can_edit_vehicles %}
+    <div class="modal fade" id="addPartyModal" tabindex="-1">
+      <div class="modal-dialog modal-dialog-centered">
+        <form method="POST" action="{{ url_for('parties_add', vehicle_id=vehicle.id) }}" class="modal-content">
+          <div class="modal-header">
+            <h5 class="modal-title"><i class="bi bi-person-plus me-1"></i>Add a Party</h5>
+            <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+          </div>
+          <div class="modal-body">
+            <p class="small text-muted">
+              Anyone with an interest in this vehicle — a second owner, another lienholder, the driver.
+              They get their own letter, their own label and their own tracking, exactly like the owner.
+            </p>
+            {{ party_form_fields(none) }}
+          </div>
+          <div class="modal-footer">
+            <button type="button" class="btn btn-outline-secondary btn-sm" data-bs-dismiss="modal">Cancel</button>
+            <button type="submit" class="btn btn-primary btn-sm">Add Party</button>
+          </div>
+        </form>
       </div>
     </div>
+    {% endif %}
 
     {# Financial #}
     <div class="card shadow-sm mb-4">
@@ -1783,7 +1927,12 @@ function showGeneralDocImage(btn) {
         {# ── Extended 5-letter system: POLICE Owner Notices + Lienholder Notices
              (letter_number 3-6) — only appear once their trigger condition has
              created them (see letter_triggers.py); nothing to show otherwise. ── #}
-        {% set extra_letters = vehicle.letters | selectattr('letter_number', 'in', [3, 4, 5, 6]) | rejectattr('superseded') | sort(attribute='letter_number') | list %}
+        {# Everything past the owner's own chain: the POLICE/lienholder notices
+           (3-6) and every extra party's letters (the 101+ band). Same card,
+           same buttons — Print, Send, tracking, Confirm Delivery, Refresh from
+           UPS, POD, UPS Label — so a 2nd owner is worked exactly like the
+           owner. Letters 1/2 render above; superseded rounds are excluded. #}
+        {% set extra_letters = vehicle.letters | rejectattr('letter_number', 'in', [1, 2]) | rejectattr('superseded') | sort(attribute='letter_number') | list %}
         {% for xl in extra_letters %}
         <hr>
         <div class="mb-3">
@@ -1797,7 +1946,10 @@ function showGeneralDocImage(btn) {
             {% else %}
               <span class="badge bg-light text-dark border">Pending</span>
             {% endif %}
-            <strong>{{ xl.display_title }}{% if xl.recipient_type == 'lienholder' %} (Lienholder){% endif %}</strong>
+            <strong>{{ xl.display_title }}</strong>
+            {% if xl.addressee_name %}
+            <span class="text-muted">— {{ xl.addressee_name }}{% if xl.addressee_party %} <span class="badge bg-light text-dark border" style="font-size:.65rem;">{{ xl.addressee_party.display_role }}</span>{% endif %}</span>
+            {% endif %}
             <a href="{{ url_for('print_letter', letter_id=xl.id) }}" class="btn btn-outline-secondary btn-sm ms-auto py-0" target="_blank">
               <i class="bi bi-printer"></i> Print Letter
             </a>
@@ -1828,6 +1980,8 @@ function showGeneralDocImage(btn) {
 
           {% if not xl.sent_date and vehicle.status == 'ACTIVE' and vehicle.possible_release %}
           <span class="badge bg-secondary">Blocked — verify Possible Release first</span>
+          {% elif not xl.sent_date and vehicle.status == 'ACTIVE' and vehicle.letter_send_block_reason(xl) %}
+          <span class="badge bg-secondary">{{ vehicle.letter_send_block_reason(xl) }}</span>
           {% elif not xl.sent_date and vehicle.status == 'ACTIVE' %}
           <a href="{{ url_for('letters_mark_sent', letter_id=xl.id) }}"
              class="btn btn-sm {% if xl.is_overdue %}btn-danger{% elif xl.is_due_today %}btn-warning{% else %}btn-outline-primary{% endif %}">
@@ -2114,7 +2268,12 @@ function showGeneralDocImage(btn) {
         {% endif %}
 
         {# Damage items #}
-        <h6 class="small fw-semibold text-muted text-uppercase mb-2">Damage Items <small class="fw-normal">(max 9 on BMV form)</small></h6>
+        <div class="d-flex justify-content-between align-items-center mb-2">
+          <h6 class="small fw-semibold text-muted text-uppercase mb-0">Damage Items <small class="fw-normal">(max 9 on BMV form)</small></h6>
+          <a href="{{ url_for('damage_analysis_pdf', vehicle_id=vehicle.id) }}" class="btn btn-sm btn-outline-secondary py-0">
+            <i class="bi bi-download"></i> Damage Analysis Sheet
+          </a>
+        </div>
         {% if vehicle.damage_items %}
         <table class="table table-sm mb-2">
           <tbody>

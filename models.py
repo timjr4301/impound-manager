@@ -1,4 +1,5 @@
 import json
+import re
 from flask_sqlalchemy import SQLAlchemy
 from flask_login import UserMixin
 from werkzeug.security import generate_password_hash, check_password_hash
@@ -433,9 +434,37 @@ class Vehicle(db.Model):
             2026-07-29 correction — NOT delivery).
 
         Letters 3–6 (POLICE / lienholder notices in the 5-letter system) are not
-        part of this Task 2 → Task 3 sequence and are left ungated here."""
+        part of this Task 2 → Task 3 sequence and are left ungated here.
+
+          • Extra-party letters (VehicleParty, letter_number 101+) get their
+            own copy of the same two gates, anchored to that party's own
+            dates only."""
         if letter is None:
             return None
+
+        # Extra-party letters (party_id set, letter_number in the 101+ band)
+        # run their OWN copy of this sequence: first notice waits on BMV
+        # Search, second notice waits 30 days after THAT PARTY's own first
+        # notice was sent. Nothing here reads or moves the registered owner's
+        # dates — per Tim 08/24/2026, a non-owner party never touches the
+        # title clock.
+        if getattr(letter, 'party_id', None) is not None:
+            if letter.letter_kind == 'second_notice':
+                first = next((l for l in self.letters
+                              if l.party_id == letter.party_id
+                              and l.letter_kind != 'second_notice'
+                              and not l.superseded), None)
+                if not (first and first.sent_date):
+                    return "This party's 1st Notice must be sent first."
+                from task_engine import TASK3_DELAY_DAYS
+                unlock = first.sent_date + timedelta(days=TASK3_DELAY_DAYS)
+                if date.today() < unlock:
+                    return f'Available {unlock.strftime("%m/%d/%Y")} (30 days after their 1st Notice was sent).'
+                return None
+            if not self.bmv_search_complete:
+                return 'BMV Search must be completed first.'
+            return None
+
         n = getattr(letter, 'letter_number', None)
         if n == 1:
             if not self.bmv_search_complete:
@@ -663,6 +692,14 @@ class Vehicle(db.Model):
         order_by='CertifiedLetter.letter_number',
         cascade='all, delete-orphan'
     )
+    # Every interested party on this vehicle (see VehicleParty). Ordered so
+    # the registered owner comes first and the rest follow underneath, which
+    # is how the vehicle page renders them.
+    parties = db.relationship(
+        'VehicleParty', back_populates='vehicle',
+        order_by='VehicleParty.sort_order, VehicleParty.id',
+        cascade='all, delete-orphan'
+    )
     title_filing = db.relationship(
         'TitleFiling', back_populates='vehicle',
         uselist=False, cascade='all, delete-orphan'
@@ -785,13 +822,42 @@ class Vehicle(db.Model):
             reverse=True
         )
 
+    # ── Interested parties (see VehicleParty) ─────────────────────────────
+    # The primary owner/lienholder parties mirror the legacy owner_*/
+    # lienholder_* columns; everyone else is an "extra" party with their own
+    # letters. These resolvers never raise on a vehicle that predates the
+    # parties backfill — they just return None / an empty list.
+
+    @property
+    def primary_owner_party(self):
+        return next((p for p in self.parties if p.is_primary and p.role == 'owner'), None)
+
+    @property
+    def primary_lienholder_party(self):
+        return next((p for p in self.parties if p.is_primary and p.role == 'lienholder'), None)
+
+    @property
+    def extra_parties(self):
+        """Every party beyond the registered owner and lienholder of record."""
+        return [p for p in self.parties if not p.is_primary]
+
+    @property
+    def mailable_parties(self):
+        """Parties who should be getting their own certified letter."""
+        return [p for p in self.parties if p.send_letters and p.name]
+
     @property
     def letter1(self):
-        return next((l for l in self.letters if l.letter_number == 1 and not l.superseded), None)
+        # `party_id is None` is belt-and-braces: extra-party letters are
+        # numbered in the 101+ band precisely so they can never collide with
+        # letter_number 1, which anchors the whole title clock.
+        return next((l for l in self.letters
+                     if l.letter_number == 1 and l.party_id is None and not l.superseded), None)
 
     @property
     def letter2(self):
-        return next((l for l in self.letters if l.letter_number == 2 and not l.superseded), None)
+        return next((l for l in self.letters
+                     if l.letter_number == 2 and l.party_id is None and not l.superseded), None)
 
     @property
     def letter_round(self):
@@ -802,7 +868,8 @@ class Vehicle(db.Model):
         (return_to_sender alone doesn't count: UPS polling sets that flag
         before staff have processed the return.)"""
         return 1 + sum(1 for l in self.letters
-                       if l.superseded and l.returned_date is not None)
+                       if l.superseded and l.returned_date is not None
+                       and l.party_id is None)
 
     @property
     def lka_document(self):
@@ -1027,6 +1094,279 @@ class Vehicle(db.Model):
         return sum(float(c.amount) for c in self.charges)
 
 
+class VehicleParty(db.Model):
+    """Every person or company with an interest in an impounded vehicle —
+    registered owner, 2nd owner, lienholder, 2nd lienholder, driver, anyone
+    else — as a first-class row, instead of the four fixed slots that used to
+    live as columns on Vehicle.
+
+    Why this exists (Heather, 08/24/2026): the owner was the only party with
+    real information showing on a vehicle. The 2nd owner / 2nd lienholder had
+    a name and one address box, no city/state/zip, and no letter of their own
+    — they rode along on the primary party's envelope as a second UPS label,
+    and the letter inside that envelope was still addressed to the primary
+    party. There was no way to record a third party at all. Now every party
+    gets their own letter, their own label, their own tracking and delivery
+    status.
+
+    Relationship to the old Vehicle columns: the PRIMARY owner and PRIMARY
+    lienholder parties are mirrored back onto Vehicle.owner_* / lienholder_*
+    on every write (sync_to_vehicle below). Those columns stay authoritative
+    for everything that already reads them — task_engine, letter_engine, the
+    print template, Towbook sync, the BMV modal, every dashboard — so none of
+    that had to change. The party row is the editing surface; the Vehicle
+    columns remain the compatibility surface.
+    """
+    __tablename__ = 'vehicle_parties'
+
+    # role -> label. 'other' plus the freeform role_label override means nobody
+    # is boxed in by this list.
+    ROLES = (
+        ('owner',      'Owner'),
+        ('lienholder', 'Lienholder'),
+        ('driver',     'Driver'),
+        ('insurer',    'Insurance Company'),
+        ('other',      'Other Interested Party'),
+    )
+
+    id = db.Column(db.Integer, primary_key=True)
+    vehicle_id = db.Column(db.Integer, db.ForeignKey('vehicles.id'), nullable=False, index=True)
+
+    role = db.Column(db.String(30), nullable=False, default='owner')
+    # Freeform display override — "Co-signer", "Estate of ...", whatever the
+    # real paperwork says. Falls back to the ROLES label when blank.
+    role_label = db.Column(db.String(60))
+    # Which letter body prints for this party: the owner notice or the
+    # lienholder notice (see is_lienholder in templates/print/letter.html).
+    # NOT the same as role — a driver or co-signer gets the owner-style
+    # notice, which is exactly the case Tina hand-works around in Towbook.
+    notice_class = db.Column(db.String(20), nullable=False, default='owner')
+    # False means "record this party, don't mail them."
+    send_letters = db.Column(db.Boolean, default=True)
+    # True for the registered owner and the lienholder of record — the two
+    # parties whose letters are the compliance chain (letter_number 1/2 and
+    # 5/6) and which mirror onto the Vehicle columns.
+    is_primary = db.Column(db.Boolean, default=False)
+
+    name = db.Column(db.String(100))
+    address = db.Column(db.Text)
+    city = db.Column(db.String(100))
+    state = db.Column(db.String(10))
+    zip_code = db.Column(db.String(15))
+    # UPS cannot deliver to a PO box — same meaning as Vehicle.po_box_flag,
+    # per party, so the USPS path can be chosen for one party without
+    # forcing it on everyone else.
+    po_box_flag = db.Column(db.Boolean, default=False)
+
+    source = db.Column(db.String(30))       # bmv | towbook | manual | migration
+    sort_order = db.Column(db.Integer, default=0)
+    notes = db.Column(db.Text)
+
+    created_at = db.Column(db.DateTime)
+    created_by = db.Column(db.String(50))
+    updated_at = db.Column(db.DateTime)
+
+    vehicle = db.relationship('Vehicle', back_populates='parties')
+    letters = db.relationship(
+        'CertifiedLetter', back_populates='party',
+        order_by='CertifiedLetter.letter_number',
+    )
+
+    @property
+    def display_role(self):
+        if self.role_label:
+            return self.role_label
+        return dict(self.ROLES).get(self.role, 'Party')
+
+    @property
+    def display_name(self):
+        return self.name or '(no name on file)'
+
+    @property
+    def city_state_zip(self):
+        sz = ' '.join(x for x in (self.state, self.zip_code) if x)
+        return ', '.join(x for x in (self.city, sz) if x)
+
+    @property
+    def has_mailable_address(self):
+        """Enough on file for UPS/USPS to accept a label. City/state/zip can
+        be blank and still work when the street blob carries them on its last
+        line — same leniency the primary owner flow already has."""
+        return bool(self.name and self.address)
+
+    @property
+    def is_lienholder_class(self):
+        return self.notice_class == 'lienholder'
+
+    @property
+    def active_letters(self):
+        return [l for l in self.letters if not l.superseded]
+
+    @property
+    def letters_for_display(self):
+        """Every live letter addressed to this party, whichever side of the
+        parties migration it was created on. A PRIMARY party's letters are the
+        original compliance chain (party_id NULL, matched on recipient_type —
+        letter_number 1/2 for the owner, 5/6 for the lienholder); everyone
+        else owns their rows outright."""
+        if not self.is_primary:
+            return sorted(self.active_letters, key=lambda l: l.letter_number or 0)
+        v = self.vehicle
+        if v is None:
+            return []
+        want = 'lienholder' if self.role == 'lienholder' else 'owner'
+        return sorted(
+            (l for l in v.letters
+             if l.party_id is None and not l.superseded
+             and (l.recipient_type or 'owner') == want),
+            key=lambda l: l.letter_number or 0,
+        )
+
+    def sync_to_vehicle(self):
+        """Mirror a PRIMARY party back onto the legacy Vehicle columns, which
+        stay the source of truth for every pre-existing reader (print
+        template, task_engine, Towbook sync, dashboards). No-op for extra
+        parties — they have no legacy column to mirror to."""
+        v = self.vehicle
+        if v is None or not self.is_primary:
+            return
+        if self.role == 'lienholder':
+            v.lienholder_name = self.name
+            v.lienholder_address = self.address
+            v.lienholder_city = self.city
+            v.lienholder_state = (self.state or None)
+            v.lienholder_zip = self.zip_code
+        elif self.role == 'owner':
+            v.owner_name = self.name
+            v.owner_address = self.address
+            v.owner_city = self.city
+            v.owner_state = self.state
+            v.owner_zip = self.zip_code
+            v.po_box_flag = bool(self.po_box_flag)
+
+
+# Legacy Vehicle column -> VehicleParty field, per primary role.
+_PRIMARY_PARTY_FIELDS = {
+    'owner': (('owner_name', 'name'), ('owner_address', 'address'),
+              ('owner_city', 'city'), ('owner_state', 'state'),
+              ('owner_zip', 'zip_code'), ('po_box_flag', 'po_box_flag')),
+    'lienholder': (('lienholder_name', 'name'), ('lienholder_address', 'address'),
+                   ('lienholder_city', 'city'), ('lienholder_state', 'state'),
+                   ('lienholder_zip', 'zip_code')),
+}
+
+# The two legacy "2nd slot" pairs. Their party rows are tagged source
+# 'legacy_2' so they can be matched back deterministically.
+_LEGACY_2_FIELDS = (
+    ('owner', 'owner_2_name', 'owner_2_address'),
+    ('lienholder', 'lienholder_2_name', 'lienholder_2_address'),
+)
+
+# Values staff type into a required lienholder box when there is no lien.
+_NO_LIENHOLDER = ('none', 'n/a', 'na', '-')
+
+
+def _blank(value):
+    return not (value or '').strip()
+
+
+@db.event.listens_for(db.session, 'before_flush')
+def _sync_parties_from_vehicle_columns(session, flush_context, instances):
+    """Keep the party rows in step with the legacy Vehicle columns, whoever
+    wrote them.
+
+    Those columns still have many writers — the vehicle edit form, the BMV
+    Search Complete modal, the BMV document scanner's auto-fill, one-off
+    backfill scripts. Rather than teach every one of them about parties, the
+    party row follows the column. Writes in the other direction (party ->
+    columns, via VehicleParty.sync_to_vehicle) land here as a no-op, because
+    by then the two already agree.
+
+    Deliberately never DELETES a party: a party may already have a mailed
+    letter against them, which is a compliance record. Clearing a column just
+    stops updating the row.
+    """
+    for obj in list(session.dirty) + list(session.new):
+        if not isinstance(obj, Vehicle):
+            continue
+
+        for role, fields in _PRIMARY_PARTY_FIELDS.items():
+            name = getattr(obj, f'{role}_name', None)
+            if _blank(name):
+                continue
+            if role == 'lienholder' and name.strip().lower() in _NO_LIENHOLDER:
+                continue
+            party = next((p for p in obj.parties if p.is_primary and p.role == role), None)
+            if party is None:
+                party = VehicleParty(
+                    role=role, notice_class=role, is_primary=True,
+                    send_letters=True, source='column-sync',
+                    sort_order=0 if role == 'owner' else 10,
+                    created_at=datetime.utcnow(),
+                )
+                obj.parties.append(party)
+                session.add(party)
+            for col, attr in fields:
+                value = getattr(obj, col, None)
+                if attr == 'po_box_flag':
+                    value = bool(value)
+                elif isinstance(value, str):
+                    value = value.strip() or None
+                if getattr(party, attr) != value:
+                    setattr(party, attr, value)
+                    party.updated_at = datetime.utcnow()
+
+        # The old 2nd-owner / 2nd-lienholder boxes. Anything still writing to
+        # them (BMV modal, document scanner) lands as a real party instead of
+        # being stranded in a column nothing reads any more.
+        for role, name_col, addr_col in _LEGACY_2_FIELDS:
+            name = getattr(obj, name_col, None)
+            if _blank(name):
+                continue
+            party = next((p for p in obj.parties
+                          if p.source == 'legacy_2' and p.role == role), None)
+            if party is None:
+                party = VehicleParty(
+                    role=role, notice_class=role, is_primary=False,
+                    send_letters=True, source='legacy_2',
+                    sort_order=1 if role == 'owner' else 11,
+                    created_at=datetime.utcnow(),
+                )
+                obj.parties.append(party)
+                session.add(party)
+
+            # FILL ONLY — never overwrite a value that's already on the party.
+            # Unlike the primary rows above, these two columns are a legacy
+            # inbox, not a mirror: nothing writes back to them, so a later save
+            # of the vehicle would otherwise clobber an address someone had
+            # since corrected in Parties (and would undo the city/state/zip
+            # split below by restoring the raw blob).
+            street, city, state, zip_code = _split_trailing_city_state_zip(
+                getattr(obj, addr_col, None))
+            for attr, value in (('name', (name or '').strip() or None),
+                                ('address', street or None),
+                                ('city', city or None),
+                                ('state', state or None),
+                                ('zip_code', zip_code or None)):
+                if value and not getattr(party, attr):
+                    setattr(party, attr, value)
+                    party.updated_at = datetime.utcnow()
+
+
+def _split_trailing_city_state_zip(address_text):
+    """Split a freeform address blob into (street, city, state, zip). The
+    2nd-slot columns never had city/state/zip of their own, so this is how
+    their party row gets real fields — and the parsed line is removed from the
+    street part so the address doesn't render its city twice."""
+    if not address_text:
+        return '', '', '', ''
+    lines = address_text.strip().splitlines()
+    m = re.match(r'^(.*?),?\s+([A-Za-z]{2})\s+(\d{5}(?:-\d{4})?)$', lines[-1].strip())
+    if not m:
+        return address_text.strip(), '', '', ''
+    return '\n'.join(lines[:-1]).strip(), m.group(1).strip(), m.group(2).upper(), m.group(3)
+
+
 class CertifiedLetter(db.Model):
     __tablename__ = 'certified_letters'
 
@@ -1114,6 +1454,17 @@ class CertifiedLetter(db.Model):
     # renders; letter_number alone still drives due-date/task_engine logic
     # exactly as before for numbers 1/2, and is otherwise just a sequence id.
     recipient_type = db.Column(db.String(20), default='owner')  # owner | lienholder
+
+    # Which VehicleParty this letter is addressed to.
+    #
+    # NULL is deliberate and load-bearing: NULL means "the primary chain" —
+    # letter_number 1/2 (the registered owner) and 5/6 (the lienholder of
+    # record) — which is every letter that existed before parties. Only
+    # EXTRA-party letters carry a party_id, and those are always numbered in
+    # the 101+ band, so nothing that resolves a letter by
+    # `letter_number == 1` can ever pick one up and move the title clock.
+    party_id = db.Column(db.Integer, db.ForeignKey('vehicle_parties.id'))
+    party = db.relationship('VehicleParty', back_populates='letters')
     letter_kind = db.Column(db.String(20))  # notice_of_lien | first_notice | second_notice
     # True when the vehicle's impound_type was corrected after this letter was
     # created — the letter is preserved as a historical record but excluded from
@@ -1210,7 +1561,48 @@ class CertifiedLetter(db.Model):
         return (self.due_date - date.today()).days
 
     @property
+    def is_party_letter(self):
+        """True for a letter belonging to a party beyond the registered owner
+        and the lienholder of record (letter_number 101+)."""
+        return self.party_id is not None
+
+    @property
+    def addressee_party(self):
+        """Who this letter is actually addressed to. An explicit party when
+        one is set; otherwise the vehicle's primary party for this
+        recipient_type, which is how every pre-parties letter resolves.
+        Returns None on a vehicle whose parties haven't been backfilled —
+        callers fall back to the Vehicle owner_*/lienholder_* columns."""
+        if self.party is not None:
+            return self.party
+        v = self.vehicle
+        if v is None:
+            return None
+        if self.recipient_type == 'lienholder':
+            return v.primary_lienholder_party
+        return v.primary_owner_party
+
+    @property
+    def addressee_name(self):
+        """Name to show alongside this letter in lists. Falls back to the
+        Vehicle columns so a not-yet-backfilled vehicle still reads right."""
+        party = self.addressee_party
+        if party is not None and party.name:
+            return party.name
+        v = self.vehicle
+        if v is None:
+            return None
+        return v.lienholder_name if self.recipient_type == 'lienholder' else v.owner_name
+
+    @property
     def label(self):
+        # Party letters live in the 101+ band, where "Letter 103" means
+        # nothing to anyone — show what it actually is instead.
+        if self.is_party_letter:
+            return {
+                'notice_of_lien': 'Notice of Lien',
+                'second_notice':  '2nd Notice',
+            }.get(self.effective_letter_kind, '1st Notice')
         if self.vehicle.impound_type == 'POLICE' and self.letter_number == 1:
             return 'Notification Letter'
         return f'Letter {self.letter_number}'

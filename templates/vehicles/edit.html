@@ -121,22 +121,35 @@
             </div>
             <div class="col-12">
               <label for="owner_address" class="form-label fw-semibold">Owner Address</label>
-              <textarea class="form-control" id="owner_address" name="owner_address" rows="3"
-                placeholder="123 Main St&#10;Columbus, OH 43215">{{ vehicle.owner_address or '' }}</textarea>
+              <textarea class="form-control" id="owner_address" name="owner_address" rows="2"
+                placeholder="123 Main St">{{ vehicle.owner_address or '' }}</textarea>
+            </div>
+            {# City/State/ZIP columns have always existed and the BMV scanner
+               fills them — this form just never showed them, so anything typed
+               here by hand had to be crammed into the address box. #}
+            <div class="col-sm-5">
+              <label for="owner_city" class="form-label fw-semibold">City</label>
+              <input type="text" class="form-control" id="owner_city" name="owner_city"
+                value="{{ vehicle.owner_city or '' }}">
+            </div>
+            <div class="col-sm-3">
+              <label for="owner_state" class="form-label fw-semibold">State</label>
+              <input type="text" class="form-control" id="owner_state" name="owner_state"
+                value="{{ vehicle.owner_state or '' }}" maxlength="2" style="text-transform:uppercase;">
+            </div>
+            <div class="col-sm-4">
+              <label for="owner_zip" class="form-label fw-semibold">ZIP</label>
+              <input type="text" class="form-control" id="owner_zip" name="owner_zip"
+                value="{{ vehicle.owner_zip or '' }}" maxlength="10">
             </div>
             <div class="col-12">
               <hr class="my-2">
-              <div class="text-uppercase text-muted fw-semibold mb-2" style="font-size:.7rem;">2nd Owner (optional)</div>
-            </div>
-            <div class="col-12">
-              <label for="owner_2_name" class="form-label fw-semibold">2nd Owner Name</label>
-              <input type="text" class="form-control" id="owner_2_name" name="owner_2_name"
-                value="{{ vehicle.owner_2_name or '' }}" placeholder="Optional">
-            </div>
-            <div class="col-12">
-              <label for="owner_2_address" class="form-label fw-semibold">2nd Owner Address</label>
-              <textarea class="form-control" id="owner_2_address" name="owner_2_address" rows="3"
-                placeholder="Optional">{{ vehicle.owner_2_address or '' }}</textarea>
+              <div class="small text-muted">
+                <i class="bi bi-people me-1"></i>Second owners, extra lienholders, drivers and anyone
+                else now live in <strong>Parties</strong> on the vehicle page, where each one gets their
+                own letter, label and tracking.
+                <a href="{{ url_for('vehicles_detail', vehicle_id=vehicle.id) }}#parties-collapse">Open Parties</a>
+              </div>
             </div>
           </div>
         </div>
@@ -171,20 +184,7 @@
               <input type="text" class="form-control" id="lienholder_zip" name="lienholder_zip"
                 value="{{ vehicle.lienholder_zip or '' }}" maxlength="10">
             </div>
-            <div class="col-12">
-              <hr class="my-2">
-              <div class="text-uppercase text-muted fw-semibold mb-2" style="font-size:.7rem;">2nd Lienholder (optional)</div>
-            </div>
-            <div class="col-12">
-              <label for="lienholder_2_name" class="form-label fw-semibold">2nd Lienholder Name</label>
-              <input type="text" class="form-control" id="lienholder_2_name" name="lienholder_2_name"
-                value="{{ vehicle.lienholder_2_name or '' }}" placeholder="Optional">
-            </div>
-            <div class="col-12">
-              <label for="lienholder_2_address" class="form-label fw-semibold">2nd Lienholder Address</label>
-              <input type="text" class="form-control" id="lienholder_2_address" name="lienholder_2_address"
-                value="{{ vehicle.lienholder_2_address or '' }}" placeholder="Optional">
-            </div>
+
           </div>
         </div>
       </div>
