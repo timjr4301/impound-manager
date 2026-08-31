@@ -10,8 +10,13 @@ This is the single source of truth for the pipeline. Relabeling or reordering a
 stage is a one-line change here.
 
 Real-world mapping:
-  Awaiting Title   – title not yet in hand
-  To Locate        – title obtained (Tina booked it); on the driver Find List
+  Awaiting Title   – title work not started / not yet filed for
+  Filed — Awaiting Title
+                   – application submitted to the title office; waiting on the
+                     title to come back. NOT "title in hand" — filing and
+                     receiving are two different days and the car is not
+                     saleable in between.
+  To Locate        – title IN HAND (it actually came back); on the driver Find List
   Key Row          – driver called it auction; "K in the window", needs a key
   Inspection Pool  – key cut; behind service at 4301, needs a tech look
   Needs Repairs    – tech says it needs work; waiting on Jim/Tina approval
@@ -28,8 +33,9 @@ Each stage: (key, label, track, terminal)
 """
 
 STAGES = [
-    ('AWAITING_TITLE', 'Awaiting Title',  'both', False),
-    ('TO_LOCATE',      'To Locate',       'both', False),
+    ('AWAITING_TITLE',  'Awaiting Title',         'both', False),
+    ('TITLE_SUBMITTED', 'Filed — Awaiting Title', 'both', False),
+    ('TO_LOCATE',       'To Locate',              'both', False),
     ('KEY_ROW',        'Key Row',         'sell', False),
     ('INSPECT_POOL',   'Inspection Pool', 'sell', False),
     ('NEEDS_REPAIRS',  'Needs Repairs',   'sell', False),
@@ -46,8 +52,9 @@ STAGE_LABELS    = {s[0]: s[1] for s in STAGES}
 STAGE_TRACK     = {s[0]: s[2] for s in STAGES}
 TERMINAL_STAGES = {s[0] for s in STAGES if s[3]}
 
-# Stages meaning "title not yet in hand" — the pre-locate spine.
-PRE_TITLE_STAGES = {'AWAITING_TITLE'}
+# Stages meaning "title not yet in hand" — the pre-locate spine. TITLE_SUBMITTED
+# belongs here: the application is in, but nothing has come back yet.
+PRE_TITLE_STAGES = {'AWAITING_TITLE', 'TITLE_SUBMITTED'}
 
 # Decision → the track's first working stage.
 DISPOSITION_ENTRY = {'SELL': 'KEY_ROW', 'JUNK': 'JUNK_PENDING', 'HOLD': 'HOLD'}
@@ -60,7 +67,13 @@ STAGE_OUTCOME = {'SOLD': 'SOLD', 'JUNKED': 'JUNKED'}
 # HOLD is a side option; Junk — Pending is reachable from most working stages
 # because a car can be condemned at any point (driver, key guy, or tech).
 TRANSITIONS = {
-    'AWAITING_TITLE': ['TO_LOCATE', 'HOLD'],
+    # TO_LOCATE stays reachable directly from AWAITING_TITLE — a title that
+    # arrives without ever going through this app's filing step (bought at
+    # auction with a title, court order, salvage title already in the file)
+    # is real, and the board should not force a fake filing to record it.
+    'AWAITING_TITLE':  ['TITLE_SUBMITTED', 'TO_LOCATE', 'HOLD'],
+    # Back to AWAITING_TITLE = the title office rejected it and it needs work.
+    'TITLE_SUBMITTED': ['TO_LOCATE', 'AWAITING_TITLE', 'HOLD'],
     'TO_LOCATE':      ['KEY_ROW', 'JUNK_PENDING', 'HOLD'],
     'KEY_ROW':        ['INSPECT_POOL', 'JUNK_PENDING', 'HOLD'],
     'INSPECT_POOL':   ['AUCTION_READY', 'NEEDS_REPAIRS', 'JUNK_PENDING', 'HOLD'],
@@ -112,7 +125,7 @@ def move_targets(stage):
 
 def allowed_stages_for(disposition):
     """Stage keys a vehicle with this disposition may legitimately occupy."""
-    base = {'AWAITING_TITLE', 'TO_LOCATE', 'HOLD'}
+    base = {'AWAITING_TITLE', 'TITLE_SUBMITTED', 'TO_LOCATE', 'HOLD'}
     if disposition == 'SELL':
         base |= {'KEY_ROW', 'INSPECT_POOL', 'NEEDS_REPAIRS', 'AUCTION_READY', 'AT_AUCTION', 'SOLD'}
     elif disposition == 'JUNK':

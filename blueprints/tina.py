@@ -7,7 +7,7 @@ from flask import (Blueprint, render_template, request, redirect,
                    url_for, flash, current_app, send_file)
 from flask_login import login_required, current_user
 from models import (db, Vehicle, TitleFiling, Invoice, VehicleNote, DamageReport,
-                    CustodyEvent, AuctionEvent)
+                    CustodyEvent, AuctionEvent, TITLE_WAIT_ALERT_DAYS)
 import disposition as dispo
 import pipeline_ops as ops
 from pipeline_ops import move_stage as _move_stage, record_custody as _custody
@@ -162,20 +162,38 @@ def title_eligibility():
         key=lambda v: v.impound_date
     )
 
-    recently_filed = (
+    # ── Out at the title office ────────────────────────────────────────
+    # Filed, nothing back yet. This bucket did not exist before 2026-08-31:
+    # filing and receiving were one click, so a car that had been sitting at
+    # the title office for two months looked exactly like one whose title
+    # came back the next day. Oldest first — those are the ones to chase.
+    filed = (
         Vehicle.query
-        .filter_by(status='TITLE_FILED')
-        .order_by(Vehicle.updated_at.desc())
-        .limit(25)
+        .join(TitleFiling, TitleFiling.vehicle_id == Vehicle.id)
+        .order_by(TitleFiling.filed_date.asc())
         .all()
     )
+    awaiting_title = [v for v in filed if v.title_filing.is_awaiting]
+    rejected = [v for v in filed if v.title_filing.is_rejected]
+    overdue_at_office = [v for v in awaiting_title if v.title_filing.is_overdue]
+
+    # Titles actually IN HAND — the real "done", not "paperwork submitted".
+    recently_received = sorted(
+        (v for v in filed if v.title_filing.is_complete),
+        key=lambda v: v.title_filing.title_received_date or date.min,
+        reverse=True,
+    )[:25]
 
     return render_template('tina/title_eligibility.html',
         today=date.today(),
         ready=ready,
         upcoming=upcoming,
         blocked=blocked,
-        recently_filed=recently_filed,
+        awaiting_title=awaiting_title,
+        overdue_at_office=overdue_at_office,
+        rejected=rejected,
+        recently_received=recently_received,
+        wait_alert_days=TITLE_WAIT_ALERT_DAYS,
         can_snooze=current_user.can_see_all,
     )
 

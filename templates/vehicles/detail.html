@@ -483,6 +483,11 @@
         </div>
         <div class="modal-body">
           <div class="mb-3">
+            <label class="form-label small mb-0 fw-semibold">Date filed</label>
+            <input type="date" name="filed_date" class="form-control form-control-sm"
+                   value="{{ today.isoformat() }}" max="{{ today.isoformat() }}">
+          </div>
+          <div class="mb-3">
             <label class="form-label small mb-0 fw-semibold">BMV Receipt / Application #</label>
             <input type="text" name="bmv_receipt_number" class="form-control form-control-sm"
                    placeholder="Ohio BMV receipt number">
@@ -493,9 +498,10 @@
             <textarea name="notes" class="form-control form-control-sm" rows="2"
                       placeholder="e.g. Drop-off location, agent name, etc."></textarea>
           </div>
-          <div class="alert alert-warning small py-2 mb-0">
-            <i class="bi bi-exclamation-triangle me-1"></i>
-            This marks the vehicle <strong>Title Filed</strong> and removes it from the active dashboard.
+          <div class="alert alert-info small py-2 mb-0">
+            <i class="bi bi-info-circle me-1"></i>
+            Records the application as <strong>submitted</strong> — not the title as received.
+            The car sits under <strong>At the Title Office</strong> until the title comes back.
           </div>
         </div>
         <div class="modal-footer">
@@ -652,14 +658,30 @@
          "File Now" at the wrong time. Now reads the same single source of
          truth everything else uses. #}
       {% set task4_open = vehicle.title_eligible_date %}
-      <div class="card flex-fill border {% if vehicle.title_filing %}border-success bg-success bg-opacity-10{% elif vehicle.is_title_eligible %}border-warning bg-warning bg-opacity-10{% else %}border-secondary bg-light{% endif %}" style="min-width:140px;max-width:220px;">
+      {% set tf = vehicle.title_filing %}
+      {# "Filed" is not "done" — the title still has to come back. Green is
+         reserved for a title actually in hand; an application still out reads
+         blue, and a rejected one reads red. #}
+      <div class="card flex-fill border {% if tf and tf.is_complete %}border-success bg-success bg-opacity-10{% elif tf and tf.is_rejected %}border-danger bg-danger bg-opacity-10{% elif tf %}border-primary bg-primary bg-opacity-10{% elif vehicle.is_title_eligible %}border-warning bg-warning bg-opacity-10{% else %}border-secondary bg-light{% endif %}" style="min-width:140px;max-width:220px;">
         <div class="card-body py-2 px-3">
-          <div class="small fw-semibold {% if vehicle.title_filing %}text-success{% elif vehicle.is_title_eligible %}text-warning{% endif %}">
-            {% if vehicle.title_filing %}<i class="bi bi-check-circle-fill me-1"></i>{% else %}<i class="bi bi-circle me-1"></i>{% endif %}
+          <div class="small fw-semibold {% if tf and tf.is_complete %}text-success{% elif tf and tf.is_rejected %}text-danger{% elif tf %}text-primary{% elif vehicle.is_title_eligible %}text-warning{% endif %}">
+            {% if tf and tf.is_complete %}<i class="bi bi-check-circle-fill me-1"></i>
+            {% elif tf and tf.is_rejected %}<i class="bi bi-x-octagon-fill me-1"></i>
+            {% elif tf %}<i class="bi bi-hourglass-split me-1"></i>
+            {% else %}<i class="bi bi-circle me-1"></i>{% endif %}
             Task 4 — Ready to File
           </div>
-          {% if vehicle.title_filing %}
-          <div class="text-success" style="font-size:.75rem;">Filed {{ vehicle.title_filing.filed_date|mdY }}</div>
+          {% if tf and tf.is_complete %}
+          <div class="text-success" style="font-size:.75rem;">
+            Title received {{ tf.title_received_date|mdY if tf.title_received_date else '' }}
+          </div>
+          {% elif tf and tf.is_rejected %}
+          <div class="text-danger fw-semibold" style="font-size:.75rem;">REJECTED — needs re-filing</div>
+          {% elif tf %}
+          <div class="text-primary" style="font-size:.75rem;">
+            Filed {{ tf.filed_date|mdY if tf.filed_date else '' }}
+            {% if tf.days_waiting is not none %}<br>waiting {{ tf.days_waiting }}d{% if tf.is_overdue %} <span class="text-danger fw-bold">— chase it</span>{% endif %}{% endif %}
+          </div>
           {% elif vehicle.is_title_eligible %}
           <div class="text-warning fw-semibold" style="font-size:.75rem;">ELIGIBLE — File with BMV</div>
           {% elif task4_open %}
@@ -667,7 +689,7 @@
           {% else %}
           <div class="text-muted" style="font-size:.75rem;">{{ vehicle.title_blocked_reason or 'Locked — complete Task 3 first' }}</div>
           {% endif %}
-          {% if vehicle.is_title_eligible and not vehicle.title_filing and vehicle.status in ('ACTIVE', 'TITLE_FILED') %}
+          {% if vehicle.is_title_eligible and (not tf or tf.is_rejected) and vehicle.status in ('ACTIVE', 'TITLE_FILED') %}
           {{ file_title_controls(vehicle, today) }}
           {% endif %}
         </div>
@@ -1506,9 +1528,11 @@ function showGeneralDocImage(btn) {
         </a>
         {% endif %}
         {% if vehicle.status == 'ACTIVE' and current_user.can_edit_vehicles %}
-          {% if vehicle.is_title_eligible and not vehicle.title_filing %}
-          <a href="{{ url_for('file_title', vehicle_id=vehicle.id) }}" class="btn btn-success">
-            <i class="bi bi-file-earmark-arrow-up"></i> File for Title
+          {% if vehicle.is_title_eligible and (not vehicle.title_filing or vehicle.title_filing.is_rejected) %}
+          <a href="{{ url_for('file_title', vehicle_id=vehicle.id) }}"
+             class="btn {% if vehicle.title_filing %}btn-danger{% else %}btn-success{% endif %}">
+            <i class="bi bi-file-earmark-arrow-up"></i>
+            {% if vehicle.title_filing %}Re-file for Title{% else %}File for Title{% endif %}
           </a>
           {% endif %}
           {% if current_user.is_tina %}
@@ -1558,27 +1582,153 @@ function showGeneralDocImage(btn) {
       </div>
     </div>
 
-    {# Title Filing Info #}
+    {# Title Filing — the whole process, not just the submission.
+       Expanded by default while the application is still out, because that is
+       when someone has something to do about it. #}
     {% if vehicle.title_filing %}
-    <div class="card shadow-sm mb-4 border-primary">
-      <div class="card-header fw-semibold bg-primary text-white" style="cursor:pointer;" data-bs-toggle="collapse" data-bs-target="#title-filing-collapse">
-        Title Filing
+    {% set tf = vehicle.title_filing %}
+    <div class="card shadow-sm mb-4 {% if tf.is_complete %}border-success{% elif tf.is_rejected %}border-danger{% else %}border-primary{% endif %}">
+      <div class="card-header fw-semibold {% if tf.is_complete %}bg-success{% elif tf.is_rejected %}bg-danger{% else %}bg-primary{% endif %} text-white"
+           style="cursor:pointer;" data-bs-toggle="collapse" data-bs-target="#title-filing-collapse">
+        Title Filing — {{ tf.status_label }}
+        {% if tf.is_awaiting and tf.days_waiting is not none %}
+          <span class="badge {% if tf.is_overdue %}bg-warning text-dark{% else %}bg-light text-dark{% endif %} ms-2">{{ tf.days_waiting }}d</span>
+        {% endif %}
         <i class="bi bi-chevron-down ms-2 small"></i>
       </div>
-      <div class="collapse" id="title-filing-collapse">
+      <div class="collapse {% if tf.is_awaiting or tf.is_rejected %}show{% endif %}" id="title-filing-collapse">
       <div class="card-body">
         <dl class="row mb-0 small">
           <dt class="col-sm-5 text-muted">Filed Date</dt>
-          <dd class="col-sm-7">{{ vehicle.title_filing.filed_date|mdY }}</dd>
+          <dd class="col-sm-7">{{ tf.filed_date|mdY if tf.filed_date else '—' }}</dd>
           <dt class="col-sm-5 text-muted">BMV Receipt #</dt>
-          <dd class="col-sm-7">{{ vehicle.title_filing.bmv_receipt_number or '—' }}</dd>
+          <dd class="col-sm-7">{{ tf.bmv_receipt_number or '—' }}</dd>
+          {% if tf.method_label %}
+          <dt class="col-sm-5 text-muted">How filed</dt>
+          <dd class="col-sm-7">{{ tf.method_label }}</dd>
+          {% endif %}
+          {% if tf.title_office %}
+          <dt class="col-sm-5 text-muted">Office</dt>
+          <dd class="col-sm-7">{{ tf.title_office }}</dd>
+          {% endif %}
+          {% if tf.submitted_by %}
+          <dt class="col-sm-5 text-muted">Filed by</dt>
+          <dd class="col-sm-7">{{ tf.submitted_by }}</dd>
+          {% endif %}
+          {% if tf.resubmit_count %}
+          <dt class="col-sm-5 text-muted">Attempt</dt>
+          <dd class="col-sm-7">{{ tf.resubmit_count + 1 }}</dd>
+          {% endif %}
           <dt class="col-sm-5 text-muted">Status</dt>
-          <dd class="col-sm-7">{{ vehicle.title_filing.status }}</dd>
-          {% if vehicle.title_filing.notes %}
+          <dd class="col-sm-7 fw-semibold">{{ tf.status_label }}</dd>
+          {% if tf.is_complete %}
+          <dt class="col-sm-5 text-muted">Title #</dt>
+          <dd class="col-sm-7">{{ tf.title_number or '—' }}</dd>
+          <dt class="col-sm-5 text-muted">Received</dt>
+          <dd class="col-sm-7 text-success fw-semibold">{{ tf.title_received_date|mdY if tf.title_received_date else '—' }}</dd>
+          {% if tf.turnaround_days is not none %}
+          <dt class="col-sm-5 text-muted">Turnaround</dt>
+          <dd class="col-sm-7">{{ tf.turnaround_days }} days</dd>
+          {% endif %}
+          {% endif %}
+          {% if tf.is_rejected %}
+          <dt class="col-sm-5 text-muted">Rejected</dt>
+          <dd class="col-sm-7 text-danger fw-semibold">{{ tf.rejected_date|mdY if tf.rejected_date else '—' }}</dd>
+          <dt class="col-sm-5 text-muted">Reason</dt>
+          <dd class="col-sm-7">{{ tf.rejection_reason or '—' }}</dd>
+          {% endif %}
+          {% if tf.notes %}
           <dt class="col-sm-5 text-muted">Notes</dt>
-          <dd class="col-sm-7">{{ vehicle.title_filing.notes }}</dd>
+          <dd class="col-sm-7">{{ tf.notes }}</dd>
           {% endif %}
         </dl>
+
+        {% if tf.is_awaiting and current_user.can_edit_vehicles %}
+        <hr>
+        {% if tf.is_overdue %}
+        <div class="alert alert-warning py-2 small">
+          <i class="bi bi-exclamation-triangle me-1"></i>
+          Out {{ tf.days_waiting }} days. Worth a call to
+          {{ tf.title_office or 'the title office' }}.
+        </div>
+        {% endif %}
+        <div class="fw-semibold small mb-2">Record the outcome</div>
+        <div class="d-flex gap-2">
+          <button type="button" class="btn btn-success btn-sm"
+                  data-bs-toggle="modal" data-bs-target="#titleReceivedModal">
+            <i class="bi bi-check-circle"></i> Title Received
+          </button>
+          <button type="button" class="btn btn-outline-danger btn-sm"
+                  data-bs-toggle="modal" data-bs-target="#titleRejectedModal">
+            <i class="bi bi-x-octagon"></i> Rejected
+          </button>
+        </div>
+
+        <div class="modal fade" id="titleReceivedModal" tabindex="-1">
+          <div class="modal-dialog modal-dialog-centered">
+            <div class="modal-content">
+              <form method="POST" action="{{ url_for('title_received', vehicle_id=vehicle.id) }}">
+                <div class="modal-header">
+                  <h5 class="modal-title"><i class="bi bi-check-circle me-1"></i>Title Received</h5>
+                  <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                  <div class="mb-3">
+                    <label class="form-label small fw-semibold mb-0">Date received</label>
+                    <input type="date" name="title_received_date" class="form-control form-control-sm"
+                           value="{{ today.isoformat() }}" max="{{ today.isoformat() }}">
+                  </div>
+                  <div class="mb-2">
+                    <label class="form-label small fw-semibold mb-0">Title number</label>
+                    <input type="text" name="title_number" class="form-control form-control-sm"
+                           placeholder="Ohio title number">
+                  </div>
+                  <div class="alert alert-info small py-2 mb-0">
+                    This is the point the car becomes sellable — it moves to
+                    <strong>To Locate</strong> and onto the driver Find List.
+                  </div>
+                </div>
+                <div class="modal-footer">
+                  <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">Cancel</button>
+                  <button type="submit" class="btn btn-success btn-sm">Record Title Received</button>
+                </div>
+              </form>
+            </div>
+          </div>
+        </div>
+
+        <div class="modal fade" id="titleRejectedModal" tabindex="-1">
+          <div class="modal-dialog modal-dialog-centered">
+            <div class="modal-content">
+              <form method="POST" action="{{ url_for('title_rejected', vehicle_id=vehicle.id) }}">
+                <div class="modal-header">
+                  <h5 class="modal-title"><i class="bi bi-x-octagon me-1"></i>Application Rejected</h5>
+                  <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                  <div class="mb-3">
+                    <label class="form-label small fw-semibold mb-0">Date rejected</label>
+                    <input type="date" name="rejected_date" class="form-control form-control-sm"
+                           value="{{ today.isoformat() }}" max="{{ today.isoformat() }}">
+                  </div>
+                  <div class="mb-2">
+                    <label class="form-label small fw-semibold mb-0">What do they want fixed? <span class="text-danger">*</span></label>
+                    <textarea name="rejection_reason" class="form-control form-control-sm" rows="3" required
+                              placeholder="e.g. lienholder release missing, VIN inspection required, wrong owner name"></textarea>
+                  </div>
+                  <div class="alert alert-warning small py-2 mb-0">
+                    The car goes back on the title-work list so it can be re-filed.
+                  </div>
+                </div>
+                <div class="modal-footer">
+                  <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">Cancel</button>
+                  <button type="submit" class="btn btn-danger btn-sm">Record Rejection</button>
+                </div>
+              </form>
+            </div>
+          </div>
+        </div>
+        {% endif %}
       </div>
       </div>
     </div>

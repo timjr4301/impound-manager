@@ -3,16 +3,28 @@
 
 {% block content %}
 <div class="row justify-content-center">
-  <div class="col-md-6">
+  <div class="col-md-8">
     <div class="d-flex align-items-center mb-4 gap-3">
       <a href="{{ url_for('vehicles_detail', vehicle_id=vehicle.id) }}" class="btn btn-outline-secondary btn-sm">
         <i class="bi bi-arrow-left"></i>
       </a>
       <div>
-        <h2 class="h4 mb-0 fw-bold">File for Title</h2>
+        <h2 class="h4 mb-0 fw-bold">{% if filing and filing.is_rejected %}Re-file for Title{% else %}File for Title{% endif %}</h2>
         <small class="text-muted">{{ vehicle.display_name }}</small>
       </div>
     </div>
+
+    {% if filing and filing.is_rejected %}
+    <div class="alert alert-danger">
+      <div class="fw-semibold mb-1">
+        <i class="bi bi-x-octagon me-1"></i>
+        Previous application rejected{% if filing.rejected_date %} {{ filing.rejected_date|mdY }}{% endif %}
+        {% if filing.resubmit_count %}(attempt {{ filing.resubmit_count + 1 }}){% endif %}
+      </div>
+      <div class="small">{{ filing.rejection_reason }}</div>
+      <div class="small text-muted mt-1">Fix that, then record the new filing below.</div>
+    </div>
+    {% endif %}
 
     {# Eligibility confirmation #}
     <div class="card shadow-sm mb-4 border-success">
@@ -55,26 +67,55 @@
       <div class="card shadow-sm">
         <div class="card-header fw-semibold">Filing Details</div>
         <div class="card-body">
-          <div class="mb-3">
-            <label for="bmv_receipt_number" class="form-label fw-semibold">BMV Receipt / Application #</label>
-            <input type="text" class="form-control" id="bmv_receipt_number" name="bmv_receipt_number"
-                   placeholder="Ohio BMV receipt number">
-            <div class="form-text">From your BMV title application receipt (can be added later).</div>
-          </div>
-          <div class="mb-3">
-            <label for="notes" class="form-label fw-semibold">Notes</label>
-            <textarea class="form-control" id="notes" name="notes" rows="2"
-                      placeholder="e.g. Drop-off location, agent name, etc."></textarea>
+          <div class="row g-3">
+            <div class="col-sm-6">
+              <label for="filed_date" class="form-label fw-semibold">Date filed</label>
+              <input type="date" class="form-control" id="filed_date" name="filed_date"
+                     value="{{ today.isoformat() }}" max="{{ today.isoformat() }}">
+              <div class="form-text">Defaults to today — change it if you filed on an earlier day.</div>
+            </div>
+            <div class="col-sm-6">
+              <label for="bmv_receipt_number" class="form-label fw-semibold">BMV Receipt / Application #</label>
+              <input type="text" class="form-control" id="bmv_receipt_number" name="bmv_receipt_number"
+                     placeholder="Ohio BMV receipt number"
+                     value="{{ filing.bmv_receipt_number or '' if filing else '' }}">
+              <div class="form-text">Can be added later.</div>
+            </div>
+            <div class="col-sm-6">
+              <label for="filing_method" class="form-label fw-semibold">How it was filed</label>
+              <select class="form-select" id="filing_method" name="filing_method">
+                <option value="">— not recorded —</option>
+                {% for key, label in filing_methods %}
+                <option value="{{ key }}" {% if filing and filing.filing_method == key %}selected{% endif %}>{{ label }}</option>
+                {% endfor %}
+              </select>
+            </div>
+            <div class="col-sm-6">
+              <label for="title_office" class="form-label fw-semibold">Which office</label>
+              <input type="text" class="form-control" id="title_office" name="title_office"
+                     placeholder="e.g. Franklin County Title Office"
+                     value="{{ filing.title_office or '' if filing else '' }}">
+              <div class="form-text">So a follow-up call knows where to call.</div>
+            </div>
+            <div class="col-12">
+              <label for="notes" class="form-label fw-semibold">Notes</label>
+              <textarea class="form-control" id="notes" name="notes" rows="2"
+                        placeholder="Anything worth knowing if this comes back — who you handed it to, what was missing, etc."></textarea>
+            </div>
           </div>
 
-          <div class="alert alert-warning small">
-            <i class="bi bi-exclamation-triangle me-1"></i>
-            <strong>Note:</strong> This will mark the vehicle as <em>Title Filed</em> and remove it from the active dashboard.
+          <div class="alert alert-info small mt-3 mb-3">
+            <i class="bi bi-info-circle me-1"></i>
+            This records the application as <strong>submitted</strong> — not the title as received.
+            The vehicle moves to <em>Filed — Awaiting Title</em> and shows up under
+            <strong>At the Title Office</strong> until you record the title coming back
+            (or getting rejected) from the vehicle page.
           </div>
 
           <div class="d-flex gap-2">
             <button type="submit" class="btn btn-success px-4">
-              <i class="bi bi-file-earmark-arrow-up"></i> Confirm Filing
+              <i class="bi bi-file-earmark-arrow-up"></i>
+              {% if filing and filing.is_rejected %}Record Re-filing{% else %}Confirm Filing{% endif %}
             </button>
             <a href="{{ url_for('vehicles_detail', vehicle_id=vehicle.id) }}" class="btn btn-outline-secondary">Cancel</a>
           </div>

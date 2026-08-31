@@ -1630,18 +1630,120 @@ class PoliceDepartment(db.Model):
     vehicles = db.relationship('Vehicle', back_populates='police_department')
 
 
+# How long an application can sit with the title office before the pipeline
+# calls it out. PLACEHOLDER — 30 days is a guess, not a measured turnaround.
+# Tim/Tina: set this to what "too long" actually means at your title office.
+TITLE_WAIT_ALERT_DAYS = 30
+
+
 class TitleFiling(db.Model):
+    """One title application, from submitted through to the title in hand.
+
+    Why this grew (2026-08-31): it used to hold filed_date + a receipt number
+    and nothing else, and the vehicle jumped straight to TO_LOCATE — the stage
+    whose own definition is "title obtained" — the instant Tina clicked
+    Confirm Filing. But filing and receiving are two different days. In
+    between, the application is sitting at the title office and the car is not
+    saleable. There was also no way to record a REJECTED application: the
+    route refused to run twice ("A title filing already exists"), so a kicked-
+    back packet had nowhere to go.
+
+    STATUS is the real state machine:
+      SUBMITTED      – application is in, waiting on the title office
+      TITLE_RECEIVED – title is physically in hand (terminal, the good end)
+      REJECTED       – kicked back; needs fixing and re-filing
+
+    Legacy rows carry status 'FILED', which means SUBMITTED. run_migrations()
+    normalizes them; is_awaiting below treats both as the same thing so a row
+    that somehow escapes the migration still reads correctly.
+    """
     __tablename__ = 'title_filings'
+
+    SUBMITTED      = 'SUBMITTED'
+    TITLE_RECEIVED = 'TITLE_RECEIVED'
+    REJECTED       = 'REJECTED'
+    _LEGACY_SUBMITTED = 'FILED'
+
+    FILING_METHODS = (
+        ('IN_PERSON', 'In person at the title office'),
+        ('MAIL',      'Mailed in'),
+        ('ONLINE',    'Submitted electronically'),
+    )
 
     id = db.Column(db.Integer, primary_key=True)
     vehicle_id = db.Column(db.Integer, db.ForeignKey('vehicles.id'), nullable=False)
+
+    # ── Submission ────────────────────────────────────────────────────────
     filed_date = db.Column(db.Date)
     bmv_receipt_number = db.Column(db.String(50))
-    status = db.Column(db.String(20), default='FILED')
+    filing_method = db.Column(db.String(20))
+    title_office = db.Column(db.String(100))
+    submitted_by = db.Column(db.String(100))
+
+    status = db.Column(db.String(20), default='SUBMITTED')
     notes = db.Column(db.Text)
     created_at = db.Column(db.DateTime)
 
+    # ── Outcome ───────────────────────────────────────────────────────────
+    title_number = db.Column(db.String(50))
+    title_received_date = db.Column(db.Date)
+    rejected_date = db.Column(db.Date)
+    rejection_reason = db.Column(db.Text)
+    # Times this application has been kicked back and re-filed. Kept on the
+    # one row rather than as a second row per attempt, so Vehicle.title_filing
+    # (a one-to-one) keeps working exactly as every existing caller expects.
+    resubmit_count = db.Column(db.Integer, default=0)
+
     vehicle = db.relationship('Vehicle', back_populates='title_filing')
+
+    @property
+    def is_awaiting(self):
+        """Submitted, nothing back yet. Accepts the legacy 'FILED' value."""
+        return self.status in (self.SUBMITTED, self._LEGACY_SUBMITTED)
+
+    @property
+    def is_complete(self):
+        return self.status == self.TITLE_RECEIVED
+
+    @property
+    def is_rejected(self):
+        return self.status == self.REJECTED
+
+    @property
+    def days_waiting(self):
+        """Days since submission, for an application still out. None once the
+        title is back or the application was rejected."""
+        if not self.is_awaiting or not self.filed_date:
+            return None
+        return (date.today() - self.filed_date).days
+
+    @property
+    def is_overdue(self):
+        """Out longer than TITLE_WAIT_ALERT_DAYS — chase it."""
+        waiting = self.days_waiting
+        return waiting is not None and waiting > TITLE_WAIT_ALERT_DAYS
+
+    @property
+    def turnaround_days(self):
+        """How long the title office actually took, once it is back. Feeds a
+        real answer to 'how long does this take' instead of the guess in
+        TITLE_WAIT_ALERT_DAYS."""
+        if not (self.title_received_date and self.filed_date):
+            return None
+        return (self.title_received_date - self.filed_date).days
+
+    @property
+    def status_label(self):
+        return {
+            self.SUBMITTED:         'Filed — awaiting title',
+            self._LEGACY_SUBMITTED: 'Filed — awaiting title',
+            self.TITLE_RECEIVED:    'Title received',
+            self.REJECTED:          'Rejected — needs re-filing',
+        }.get(self.status, self.status or '')
+
+    @property
+    def method_label(self):
+        return dict(self.FILING_METHODS).get(self.filing_method, '')
 
 
 class VehicleNote(db.Model):

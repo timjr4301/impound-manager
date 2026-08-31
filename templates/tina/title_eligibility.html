@@ -6,7 +6,7 @@
 <div class="d-flex align-items-center mb-4 gap-3">
   <div>
     <h2 class="h4 mb-0 fw-bold"><i class="bi bi-file-earmark-arrow-up me-2"></i>Title Eligibility Pipeline</h2>
-    <small class="text-muted">Every active vehicle's path to title filing — ready, upcoming, and blocked.</small>
+    <small class="text-muted">Every vehicle's path to a title in hand — ready, upcoming, blocked, out at the title office, and back.</small>
   </div>
   <div class="ms-auto">
     <a href="{{ url_for('tina.dashboard') }}" class="btn btn-outline-secondary btn-sm">
@@ -35,9 +35,27 @@
     </div>
   </div>
   <div class="col-6 col-md-3">
+    <div class="card shadow-sm text-center py-3 border-0 {% if overdue_at_office %}bg-danger{% else %}bg-primary{% endif %} text-white">
+      <div class="h2 fw-bold mb-0">{{ awaiting_title|length }}</div>
+      <div class="small fw-semibold">AT THE TITLE OFFICE</div>
+      {% if overdue_at_office %}
+      <div class="small">{{ overdue_at_office|length }} over {{ wait_alert_days }} days</div>
+      {% endif %}
+    </div>
+  </div>
+</div>
+
+<div class="row g-3 mb-4">
+  <div class="col-6 col-md-3">
+    <div class="card shadow-sm text-center py-3 border-0 {% if rejected %}bg-danger text-white{% else %}bg-light{% endif %}">
+      <div class="h2 fw-bold mb-0">{{ rejected|length }}</div>
+      <div class="small fw-semibold">REJECTED — RE-FILE</div>
+    </div>
+  </div>
+  <div class="col-6 col-md-3">
     <div class="card shadow-sm text-center py-3 border-0 bg-secondary text-white">
-      <div class="h2 fw-bold mb-0">{{ recently_filed|length }}</div>
-      <div class="small fw-semibold">RECENTLY FILED</div>
+      <div class="h2 fw-bold mb-0">{{ recently_received|length }}</div>
+      <div class="small fw-semibold">TITLES RECEIVED</div>
     </div>
   </div>
 </div>
@@ -144,30 +162,106 @@
   </div>
 </div>
 
-{# ── Recently Filed ── #}
-<div class="card shadow-sm mb-4">
-  <div class="card-header fw-semibold">
-    <i class="bi bi-archive me-2"></i>Recently Filed ({{ recently_filed|length }})
+{# ── Rejected — needs re-filing ──────────────────────────────────────────
+   A kicked-back application had nowhere to go before 08/31: file_title
+   refused to run twice, so the car stayed marked Title Filed forever with
+   nothing actually coming. These are re-filed through the same form. #}
+{% if rejected %}
+<div class="card shadow-sm mb-4 border-danger">
+  <div class="card-header bg-danger text-white fw-semibold">
+    <i class="bi bi-x-octagon me-2"></i>Rejected — Needs Re-filing ({{ rejected|length }})
   </div>
   <div class="card-body p-0">
-    {% if recently_filed %}
     <table class="table table-sm table-hover mb-0">
       <thead><tr>
-        <th>Vehicle</th><th>Impound Date</th><th>Filed</th><th>BMV Receipt #</th>
+        <th>Vehicle</th><th>Filed</th><th>Rejected</th><th>What they want fixed</th><th>Attempts</th><th></th>
       </tr></thead>
       <tbody>
-      {% for v in recently_filed %}
+      {% for v in rejected %}
+      {% set f = v.title_filing %}
       <tr>
         <td><a href="{{ url_for('vehicles_detail', vehicle_id=v.id) }}" class="row-link fw-semibold">{{ v.display_name }}</a></td>
-        <td>{{ v.impound_date|mdY }}</td>
-        <td>{{ v.title_filing.filed_date|mdY if v.title_filing else '—' }}</td>
-        <td>{{ v.title_filing.bmv_receipt_number if v.title_filing else '—' }}</td>
+        <td>{{ f.filed_date|mdY if f.filed_date else '—' }}</td>
+        <td class="text-danger fw-semibold">{{ f.rejected_date|mdY if f.rejected_date else '—' }}</td>
+        <td class="small">{{ f.rejection_reason or '—' }}</td>
+        <td>{{ f.resubmit_count + 1 }}</td>
+        <td class="text-end">
+          <a href="{{ url_for('file_title', vehicle_id=v.id) }}" class="btn btn-sm btn-danger py-0">Re-file</a>
+        </td>
+      </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endif %}
+
+{# ── At the title office ── #}
+<div class="card shadow-sm mb-4 border-primary">
+  <div class="card-header bg-primary text-white fw-semibold">
+    <i class="bi bi-hourglass-split me-2"></i>At the Title Office ({{ awaiting_title|length }})
+    <span class="small fw-normal ms-2">— filed, waiting on the title. Oldest first.</span>
+  </div>
+  <div class="card-body p-0">
+    {% if awaiting_title %}
+    <table class="table table-sm table-hover mb-0">
+      <thead><tr>
+        <th>Vehicle</th><th>Filed</th><th>Waiting</th><th>Receipt #</th><th>How / where</th><th>Filed by</th><th></th>
+      </tr></thead>
+      <tbody>
+      {% for v in awaiting_title %}
+      {% set f = v.title_filing %}
+      <tr {% if f.is_overdue %}class="table-danger"{% endif %}>
+        <td><a href="{{ url_for('vehicles_detail', vehicle_id=v.id) }}" class="row-link fw-semibold">{{ v.display_name }}</a></td>
+        <td>{{ f.filed_date|mdY if f.filed_date else '—' }}</td>
+        <td class="{% if f.is_overdue %}text-danger fw-bold{% endif %}">
+          {{ f.days_waiting }} days
+          {% if f.is_overdue %}<i class="bi bi-exclamation-triangle-fill ms-1" title="Over {{ wait_alert_days }} days — chase it"></i>{% endif %}
+        </td>
+        <td>{{ f.bmv_receipt_number or '—' }}</td>
+        <td class="small">{{ f.method_label or '—' }}{% if f.title_office %} · {{ f.title_office }}{% endif %}</td>
+        <td class="small">{{ f.submitted_by or '—' }}</td>
+        <td class="text-end">
+          <a href="{{ url_for('vehicles_detail', vehicle_id=v.id) }}" class="btn btn-sm btn-outline-primary py-0">Record outcome</a>
+        </td>
       </tr>
       {% endfor %}
       </tbody>
     </table>
     {% else %}
-    <div class="p-3 text-muted small">No filings yet.</div>
+    <div class="p-3 text-muted small">Nothing out at the title office right now.</div>
+    {% endif %}
+  </div>
+</div>
+
+{# ── Titles actually in hand ── #}
+<div class="card shadow-sm mb-4">
+  <div class="card-header fw-semibold">
+    <i class="bi bi-archive me-2"></i>Titles Received ({{ recently_received|length }})
+    <span class="small fw-normal text-muted ms-2">— title in hand, car is sellable</span>
+  </div>
+  <div class="card-body p-0">
+    {% if recently_received %}
+    <table class="table table-sm table-hover mb-0">
+      <thead><tr>
+        <th>Vehicle</th><th>Filed</th><th>Received</th><th>Turnaround</th><th>Title #</th><th>Receipt #</th>
+      </tr></thead>
+      <tbody>
+      {% for v in recently_received %}
+      {% set f = v.title_filing %}
+      <tr>
+        <td><a href="{{ url_for('vehicles_detail', vehicle_id=v.id) }}" class="row-link fw-semibold">{{ v.display_name }}</a></td>
+        <td>{{ f.filed_date|mdY if f.filed_date else '—' }}</td>
+        <td class="text-success fw-semibold">{{ f.title_received_date|mdY if f.title_received_date else '—' }}</td>
+        <td>{% if f.turnaround_days is not none %}{{ f.turnaround_days }} days{% else %}—{% endif %}</td>
+        <td>{{ f.title_number or '—' }}</td>
+        <td>{{ f.bmv_receipt_number or '—' }}</td>
+      </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+    {% else %}
+    <div class="p-3 text-muted small">No titles received yet.</div>
     {% endif %}
   </div>
 </div>
