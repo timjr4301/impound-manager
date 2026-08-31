@@ -1,6 +1,11 @@
 """
 CORS-enabled REST API for Base44 apps (LotCheck, Tow Command Hub, Tina Tracker).
 All endpoints return JSON. Authentication via API key header.
+
+Note: the external Base44 Tina Tracker was retired in c6b6ad8 (the pipeline now
+lives in-app at /tina/pipeline), so the /pipeline endpoints below speak the
+app's own stage vocabulary — disposition.STAGES — rather than a separate
+outward-facing one. There is deliberately no alias layer.
 """
 import os
 from datetime import date, datetime
@@ -14,6 +19,8 @@ except ImportError:
             return f
         return decorator
 from models import db, Vehicle, CertifiedLetter, TitleFiling, VehicleNote
+import disposition as dispo
+from pipeline_ops import move_stage, post_alert
 
 bp = Blueprint('api', __name__, url_prefix='/api/v1')
 
@@ -377,18 +384,12 @@ def tow_command_messages():
 
 # ── Tina Pipeline API ────────────────────────────────────────────────────────
 
-PIPELINE_STAGES = [
-    ('TITLE_PENDING',  'Title Pending'),
-    ('TITLE_COMPLETE', 'Title Complete'),
-    ('SERVICE_EVAL',   'Service Evaluation'),
-    ('AUCTION_CAND',   'Auction Candidate'),
-    ('KEY_INSPECT',    'Key Inspection'),
-    ('ROUTED_LIVE',    'Live Auction'),
-    ('ROUTED_ONLINE',  'Online Auction'),
-    ('ROUTED_JUNK',    'Junk Route'),
-]
-
-PIPELINE_STAGE_KEYS = [s[0] for s in PIPELINE_STAGES]
+# The API exposes the SAME stage ladder the app runs on — disposition.STAGES is
+# the single source of truth. This list used to be a second, hand-maintained
+# vocabulary (TITLE_PENDING, SERVICE_EVAL, ROUTED_LIVE, …); every one of those
+# keys is in disposition.LEGACY_STAGE_MAP, which run_migrations() applies on each
+# boot, so no vehicle could ever hold one — the board returned all-zero counts
+# and /move rejected every legitimate stage. Do not reintroduce a local list.
 
 
 @bp.route('/pipeline', methods=['GET'])
@@ -397,14 +398,16 @@ PIPELINE_STAGE_KEYS = [s[0] for s in PIPELINE_STAGES]
 def pipeline_board():
     """Tina Tracker: return all vehicles grouped by pipeline stage."""
     stages = {}
-    for key, label in PIPELINE_STAGES:
+    for key, label, track in dispo.board_columns():
         vehicles = Vehicle.query.filter_by(tina_stage=key).order_by(Vehicle.impound_date.asc()).all()
         stages[key] = {
             'label': label,
+            'track': track,                          # both | sell | junk | hold
+            'terminal': key in dispo.TERMINAL_STAGES,
             'count': len(vehicles),
             'vehicles': [_vehicle_json(v) for v in vehicles],
         }
-    return jsonify({'stages': stages, 'stage_order': PIPELINE_STAGE_KEYS})
+    return jsonify({'stages': stages, 'stage_order': dispo.STAGE_KEYS})
 
 
 @bp.route('/pipeline/<int:vehicle_id>/move', methods=['POST'])
@@ -416,73 +419,58 @@ def pipeline_move(vehicle_id):
     data = request.get_json() or {}
     new_stage = (data.get('stage') or '').upper()
 
-    if new_stage not in PIPELINE_STAGE_KEYS:
-        return jsonify({'error': f'Invalid stage. Must be one of: {PIPELINE_STAGE_KEYS}'}), 400
+    if new_stage not in dispo.STAGE_KEYS:
+        return jsonify({'error': f'Invalid stage. Must be one of: {dispo.STAGE_KEYS}'}), 400
 
-    old_stage = v.tina_stage
-    v.tina_stage = new_stage
-    v.updated_at = datetime.utcnow()
+    # Terminal stages finalize the vehicle and need capture data (sale proceeds /
+    # scrap $ + converter count) the API has no way to supply. The in-app board
+    # routes them through the invoice form for the same reason.
+    if new_stage in dispo.TERMINAL_STAGES:
+        return jsonify({
+            'error': f'{new_stage} is a terminal stage and must be completed in the app '
+                     'so sale/scrap details are captured.',
+        }), 400
 
-    stage_label = dict(PIPELINE_STAGES).get(new_stage, new_stage)
-    db.session.add(VehicleNote(
-        vehicle_id=v.id,
-        body=f'Pipeline stage changed to "{stage_label}" via API',
-        author='API',
-        created_at=datetime.utcnow(),
-    ))
+    stage_label = dispo.STAGE_LABELS.get(new_stage, new_stage)
+
+    # Same helper the in-app board uses: stamps tina_stage_at (days-in-stage),
+    # syncs the SELL/JUNK decision when the stage implies a track, and writes the
+    # note + chain-of-custody event.
+    move_stage(v, new_stage, note='via API')
+    _post_pipeline_alert(v, new_stage, stage_label)
     db.session.commit()
-
-    # Post Wally alert for important stage transitions
-    _post_pipeline_alert(v, old_stage, new_stage, stage_label)
 
     return jsonify({'ok': True, 'vehicle_id': vehicle_id, 'stage': new_stage})
 
 
-def _post_pipeline_alert(vehicle, old_stage, new_stage, stage_label):
-    """Post a Wally alert to the appropriate chat thread when pipeline stage changes."""
-    try:
-        from models import ChatThread, ChatMessage, ChatThreadMember, User as _User
+# Who to wake up when a card lands in a given stage. Stages absent here move
+# quietly. Keys must be disposition.STAGE_KEYS values.
+_ALERT_ROLES = {
+    'TO_LOCATE':     {'tina'},
+    'KEY_ROW':       {'tim', 'dispatcher'},
+    'INSPECT_POOL':  {'tim', 'lawrence', 'lori'},
+    'NEEDS_REPAIRS': {'tim', 'lawrence', 'lori'},
+    'AUCTION_READY': {'tim', 'tina'},
+    'AT_AUCTION':    {'tina', 'tim'},
+    'JUNK_PENDING':  {'tina', 'tim'},
+    'HOLD':          {'tina', 'tim'},
+}
 
-        # Determine who to alert based on the new stage
-        alert_roles = {
-            'TITLE_COMPLETE': {'tina'},
-            'SERVICE_EVAL': {'tim', 'lawrence', 'lori'},
-            'AUCTION_CAND': {'tim', 'lawrence', 'lori'},
-            'KEY_INSPECT': {'tim', 'dispatcher'},
-            'ROUTED_LIVE': {'tina', 'tim'},
-            'ROUTED_ONLINE': {'tina', 'tim'},
-            'ROUTED_JUNK': {'tina', 'tim'},
-        }
-        roles = alert_roles.get(new_stage)
-        if not roles:
-            return
 
-        thread = ChatThread.query.filter_by(title='Wally Alerts').first()
-        if not thread:
-            thread = ChatThread(title='Wally Alerts', is_group=True)
-            db.session.add(thread)
-            db.session.flush()
-            for u in _User.query.filter(_User.role.in_({'tim', 'lawrence', 'lori', 'tina'})).all():
-                db.session.add(ChatThreadMember(thread_id=thread.id, user_id=u.id))
-
-        alert_messages = {
-            'TITLE_COMPLETE': f'✅ {vehicle.display_name} title is complete — ready for service evaluation.',
-            'SERVICE_EVAL': f'🔧 {vehicle.display_name} needs service evaluation.',
-            'AUCTION_CAND': f'🏷 {vehicle.display_name} flagged as auction candidate.',
-            'KEY_INSPECT': f'🔑 {vehicle.display_name} needs key inspection.',
-            'ROUTED_LIVE': f'🔨 {vehicle.display_name} routed to live auction.',
-            'ROUTED_ONLINE': f'💻 {vehicle.display_name} listed for online auction.',
-            'ROUTED_JUNK': f'♻️ {vehicle.display_name} routed to junkyard.',
-        }
-
-        body = alert_messages.get(new_stage, f'{vehicle.display_name} moved to {stage_label}.')
-        db.session.add(ChatMessage(
-            thread_id=thread.id,
-            username='Wally',
-            is_wally=True,
-            alert_type='pipeline',
-            body=body,
-        ))
-        db.session.commit()
-    except Exception:
-        pass
+def _post_pipeline_alert(vehicle, new_stage, stage_label):
+    """Post a Wally alert when an API stage move needs someone's attention."""
+    roles = _ALERT_ROLES.get(new_stage)
+    if not roles:
+        return
+    messages = {
+        'TO_LOCATE':     f'📋 {vehicle.display_name} title is in hand — on the Find List.',
+        'KEY_ROW':       f'🔑 {vehicle.display_name} called for auction — needs a key.',
+        'INSPECT_POOL':  f'🔧 {vehicle.display_name} has a key — needs a tech look.',
+        'NEEDS_REPAIRS': f'🛠 {vehicle.display_name} needs repairs — awaiting approval.',
+        'AUCTION_READY': f'🏷 {vehicle.display_name} is auction-ready.',
+        'AT_AUCTION':    f'🔨 {vehicle.display_name} routed to auction.',
+        'JUNK_PENDING':  f'♻️ {vehicle.display_name} called junk — needs Ohio Steel sign-off.',
+        'HOLD':          f'⏸ {vehicle.display_name} placed on hold.',
+    }
+    body = messages.get(new_stage, f'{vehicle.display_name} moved to {stage_label}.')
+    post_alert(body, roles=roles)
