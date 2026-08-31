@@ -2,6 +2,19 @@
 One-time backfill: open the missing lienholder Notice of Lien (letter_number 5)
 for vehicles that already have a lienholder of record but no letter.
 
+*** NOT RUN. TIM DECIDED 2026-08-31 NOT TO BACKFILL — FORWARD-ONLY. ***
+
+    Do not run --apply without asking him again. The trigger fix that ships
+    alongside this script handles every vehicle from here on; the 54 vehicles
+    that were already missing a notice at the time of that decision
+    (POLICE 9 + PPI 45, counted live 2026-08-31) were deliberately left alone.
+
+    The script is kept, unrun, for two reasons: the decision may change, and
+    its DRY RUN mode (no --apply) writes nothing at all — it only prints the
+    list. That is a safe way to SEE which vehicles are affected, including the
+    ones where a title was already filed without the lienholder ever being
+    noticed, without mailing anybody.
+
 WHY THESE EXIST
 ---------------
 A lienholder is almost never known at intake — it comes back FROM the BMV
