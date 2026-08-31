@@ -385,6 +385,40 @@ def run_migrations(app):
                     WHERE letter_kind IS NULL AND letter_number = 2
                 """))
 
+            # ── Title filing lifecycle (2026-08-31) ──────────────────────
+            # TitleFiling used to be filed_date + a receipt number, and the
+            # vehicle jumped straight to TO_LOCATE ("title obtained") the
+            # instant Tina clicked Confirm Filing. Filing and RECEIVING are
+            # two different days; in between, the application is sitting at
+            # the title office and the car is not saleable. These columns
+            # carry the second half of that process, plus the rejection path
+            # that had nowhere to be recorded at all.
+            if 'title_filings' in existing_tables:
+                cols = {c['name'] for c in inspector.get_columns('title_filings')}
+                if 'filing_method' not in cols:
+                    conn.execute(text('ALTER TABLE title_filings ADD COLUMN filing_method VARCHAR(20)'))
+                if 'title_office' not in cols:
+                    conn.execute(text('ALTER TABLE title_filings ADD COLUMN title_office VARCHAR(100)'))
+                if 'submitted_by' not in cols:
+                    conn.execute(text('ALTER TABLE title_filings ADD COLUMN submitted_by VARCHAR(100)'))
+                if 'title_number' not in cols:
+                    conn.execute(text('ALTER TABLE title_filings ADD COLUMN title_number VARCHAR(50)'))
+                if 'title_received_date' not in cols:
+                    conn.execute(text('ALTER TABLE title_filings ADD COLUMN title_received_date DATE'))
+                if 'rejected_date' not in cols:
+                    conn.execute(text('ALTER TABLE title_filings ADD COLUMN rejected_date DATE'))
+                if 'rejection_reason' not in cols:
+                    conn.execute(text('ALTER TABLE title_filings ADD COLUMN rejection_reason TEXT'))
+                if 'resubmit_count' not in cols:
+                    conn.execute(text('ALTER TABLE title_filings ADD COLUMN resubmit_count INTEGER DEFAULT 0'))
+                    conn.execute(text('UPDATE title_filings SET resubmit_count = 0 WHERE resubmit_count IS NULL'))
+                # Legacy status 'FILED' means SUBMITTED. Normalize the
+                # vocabulary; TitleFiling.is_awaiting accepts both anyway, so
+                # a row that escapes this still reads correctly.
+                conn.execute(text("""
+                    UPDATE title_filings SET status = 'SUBMITTED' WHERE status = 'FILED'
+                """))
+
             if 'envelope_scans' in existing_tables:
                 cols = {c['name'] for c in inspector.get_columns('envelope_scans')}
                 if 'outcome' not in cols:
@@ -3129,45 +3163,177 @@ def create_app():
 
     # ── Title Filing ───────────────────────────────────────────────────────────
 
+    def _parse_form_date(field, default=None):
+        """A date the user typed, or `default`. Tina records filings after the
+        fact -- she gets back from the title office and enters it -- so these
+        dates must be editable, not silently stamped with today."""
+        raw = (request.form.get(field) or '').strip()
+        if not raw:
+            return default
+        try:
+            return datetime.strptime(raw, '%Y-%m-%d').date()
+        except ValueError:
+            return default
+
     @app.route('/vehicles/<int:vehicle_id>/file-title', methods=['GET', 'POST'])
     @login_required
     def file_title(vehicle_id):
+        """Record that the title application has been SUBMITTED.
+
+        This is step one of two. It does NOT mean the title is in hand -- see
+        title_received below. Before 2026-08-31 this route did both at once:
+        it flipped the vehicle straight to TO_LOCATE, the stage whose own
+        definition is "title obtained", the moment Tina clicked Confirm
+        Filing. The car then sat on the driver Find List as sellable while the
+        application was still sitting at the title office.
+        """
         vehicle = db.get_or_404(Vehicle, vehicle_id)
+        filing = vehicle.title_filing
 
         if not vehicle.is_title_eligible:
             flash('This vehicle is not yet eligible for title filing.', 'danger')
             return redirect(url_for('vehicles_detail', vehicle_id=vehicle_id))
 
-        if vehicle.title_filing:
+        # A rejected application is re-filed through this same form, on the
+        # same row. Only a live (submitted or completed) filing blocks it.
+        if filing and not filing.is_rejected:
             flash('A title filing already exists for this vehicle.', 'warning')
             return redirect(url_for('vehicles_detail', vehicle_id=vehicle_id))
 
         if request.method == 'POST':
-            db.session.add(TitleFiling(
-                vehicle_id=vehicle.id,
-                filed_date=date.today(),
+            filed_date = _parse_form_date('filed_date', date.today())
+            fields = dict(
+                filed_date=filed_date,
                 bmv_receipt_number=request.form.get('bmv_receipt_number', '').strip() or None,
-                status='FILED',
+                filing_method=request.form.get('filing_method', '').strip() or None,
+                title_office=request.form.get('title_office', '').strip() or None,
+                submitted_by=(current_user.display_name or current_user.username),
+                status=TitleFiling.SUBMITTED,
                 notes=request.form.get('notes', '').strip() or None,
-                created_at=datetime.utcnow(),
-            ))
+            )
+            if filing is None:
+                filing = TitleFiling(vehicle_id=vehicle.id, created_at=datetime.utcnow(), **fields)
+                db.session.add(filing)
+                action = 'Title application filed'
+            else:
+                # Re-filing after a rejection: same row, cleared outcome, and a
+                # count so a packet that keeps coming back is visible rather
+                # than looking like a first attempt every time.
+                for k, v in fields.items():
+                    setattr(filing, k, v)
+                filing.rejected_date = None
+                filing.rejection_reason = None
+                filing.resubmit_count = (filing.resubmit_count or 0) + 1
+                action = f'Title application RE-filed (attempt {filing.resubmit_count + 1})'
+
             vehicle.status = 'TITLE_FILED'
-            # Advance the disposition pipeline: title is now in hand, so the
-            # vehicle drops onto the driver Find List (To Locate) unless it's
-            # already further along or parked on HOLD.
+            # Filed, not received. TITLE_SUBMITTED is the waiting room; the car
+            # only reaches TO_LOCATE when the title actually comes back.
             from disposition import PRE_TITLE_STAGES
             if not vehicle.tina_stage or vehicle.tina_stage in PRE_TITLE_STAGES:
-                vehicle.tina_stage = 'TO_LOCATE'
+                vehicle.tina_stage = 'TITLE_SUBMITTED'
                 vehicle.tina_stage_at = datetime.utcnow()
             vehicle.updated_at = datetime.utcnow()
+            db.session.add(VehicleNote(
+                vehicle_id=vehicle.id,
+                body=(f'{action} {filed_date:%m/%d/%Y}'
+                      + (f' -- receipt {filing.bmv_receipt_number}' if filing.bmv_receipt_number else '')
+                      + (f' ({filing.method_label})' if filing.method_label else '')
+                      + (f' at {filing.title_office}' if filing.title_office else '')),
+                author=current_user.display_name or 'Tina',
+                created_at=datetime.utcnow(),
+            ))
             db.session.commit()
-            flash(f'Title filing recorded for {vehicle.display_name}.', 'success')
+            flash(f'Title application recorded for {vehicle.display_name} -- '
+                  f'now awaiting the title.', 'success')
             # WP-6 Session 2: the inline Task Pipeline modal submits here too.
             if request.form.get('from_vehicle_card'):
                 return redirect(url_for('vehicles_detail', vehicle_id=vehicle.id))
             return redirect(url_for('dashboard'))
 
-        return render_template('vehicles/file_title.html', vehicle=vehicle, today=date.today())
+        return render_template('vehicles/file_title.html', vehicle=vehicle,
+                               filing=filing, today=date.today(),
+                               filing_methods=TitleFiling.FILING_METHODS)
+
+    @app.route('/vehicles/<int:vehicle_id>/title-received', methods=['POST'])
+    @login_required
+    def title_received(vehicle_id):
+        """The title actually came back. THIS is "title obtained" -- the point
+        the car becomes sellable and drops onto the driver Find List."""
+        vehicle = db.get_or_404(Vehicle, vehicle_id)
+        filing = vehicle.title_filing
+        if filing is None:
+            flash('No title application on file for this vehicle.', 'danger')
+            return redirect(url_for('vehicles_detail', vehicle_id=vehicle_id))
+        if filing.is_complete:
+            flash('This title is already recorded as received.', 'info')
+            return redirect(url_for('vehicles_detail', vehicle_id=vehicle_id))
+
+        received = _parse_form_date('title_received_date', date.today())
+        filing.title_number = request.form.get('title_number', '').strip() or None
+        filing.title_received_date = received
+        filing.rejected_date = None
+        filing.rejection_reason = None
+        filing.status = TitleFiling.TITLE_RECEIVED
+
+        from disposition import PRE_TITLE_STAGES
+        if not vehicle.tina_stage or vehicle.tina_stage in PRE_TITLE_STAGES:
+            vehicle.tina_stage = 'TO_LOCATE'
+            vehicle.tina_stage_at = datetime.utcnow()
+        vehicle.updated_at = datetime.utcnow()
+
+        turnaround = filing.turnaround_days
+        db.session.add(VehicleNote(
+            vehicle_id=vehicle.id,
+            body=(f'Title RECEIVED {received:%m/%d/%Y}'
+                  + (f' -- title #{filing.title_number}' if filing.title_number else '')
+                  + (f' ({turnaround} days from filing)' if turnaround is not None else '')),
+            author=current_user.display_name or 'Tina',
+            created_at=datetime.utcnow(),
+        ))
+        db.session.commit()
+        flash(f'Title recorded for {vehicle.display_name} -- moved to To Locate.', 'success')
+        return redirect(url_for('vehicles_detail', vehicle_id=vehicle.id))
+
+    @app.route('/vehicles/<int:vehicle_id>/title-rejected', methods=['POST'])
+    @login_required
+    def title_rejected(vehicle_id):
+        """The title office kicked the application back. Before this existed a
+        rejected packet had nowhere to go -- file_title refused to run twice,
+        so the car sat marked TITLE_FILED forever with nothing coming."""
+        vehicle = db.get_or_404(Vehicle, vehicle_id)
+        filing = vehicle.title_filing
+        if filing is None:
+            flash('No title application on file for this vehicle.', 'danger')
+            return redirect(url_for('vehicles_detail', vehicle_id=vehicle_id))
+
+        reason = request.form.get('rejection_reason', '').strip()
+        if not reason:
+            flash('Say what the title office wants fixed -- that note is the '
+                  'whole point of recording a rejection.', 'danger')
+            return redirect(url_for('vehicles_detail', vehicle_id=vehicle_id))
+
+        filing.rejected_date = _parse_form_date('rejected_date', date.today())
+        filing.rejection_reason = reason
+        filing.status = TitleFiling.REJECTED
+
+        # Back to open title work: the car is active again, not "filed".
+        vehicle.status = 'ACTIVE'
+        from disposition import PRE_TITLE_STAGES
+        if not vehicle.tina_stage or vehicle.tina_stage in PRE_TITLE_STAGES:
+            vehicle.tina_stage = 'AWAITING_TITLE'
+            vehicle.tina_stage_at = datetime.utcnow()
+        vehicle.updated_at = datetime.utcnow()
+        db.session.add(VehicleNote(
+            vehicle_id=vehicle.id,
+            body=f'Title application REJECTED {filing.rejected_date:%m/%d/%Y} -- {reason}',
+            author=current_user.display_name or 'Tina',
+            created_at=datetime.utcnow(),
+        ))
+        db.session.commit()
+        flash(f'Rejection recorded for {vehicle.display_name} -- back on the '
+              f'title-work list to re-file.', 'warning')
+        return redirect(url_for('vehicles_detail', vehicle_id=vehicle.id))
 
     # ── Print routes ───────────────────────────────────────────────────────────
 
