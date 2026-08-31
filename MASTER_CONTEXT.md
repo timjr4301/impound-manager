@@ -1,5 +1,7 @@
 # [IMPOUND MANAGER — MASTER CONTEXT DOC]
-_Last updated: August 6, 2026 — **Heather live-tested the whole letter system in production over several days
+_Last updated: August 25, 2026 — **every party on a vehicle now gets the same treatment as the owner** (PR #22, merged and deployed as commit `72e553b`). Heather's report was that the owner was the only party with any information showing on a vehicle entry; the 2nd owner / 2nd lienholder turned out to be half-built (no city/state/zip columns, no letter of their own, and the letter inside their envelope was addressed to the FIRST party). New `vehicle_parties` table makes every interested party — owner, 2nd owner, lienholder, driver, insurer, anyone — a first-class row with full address and the owner's whole function set: own letter addressed to them by name, own due dates, own label, tracking, delivery confirmation, POD and returned-to-sender. Verified live on real data (vehicle 11374, 2008 Nissan Frontier: owner Laura Lee Marks + lienholder Wells Fargo Dealer Services, both with addresses and letter status). Full detail in the August 24-25 entry below. **Next session: Tina's title part — see NEXT_SESSION_PROMPT.md, and ask Tim WHICH part before building.**_
+
+_Previous entry: August 6, 2026 — **Heather live-tested the whole letter system in production over several days
 and it held up — found real bugs along the way, all fixed same-day.** In order: (1) the brand-new "View/Print
 UPS Label" button from 08/03 was completely broken for every real letter — an HTML double-quote collision
 (`onclick="...{{ x|tojson }}..."`, and `tojson` also double-quotes) silently truncated the click handler;
@@ -97,7 +99,7 @@ _Earlier: July 30, 2026 (evening) — daily-workflow batch, PRs #14 + #18–#21 
 ## COMPLETED BUILDS (through July 13, 2026)
 Foundation, CSV import, role-based permissions (now 10 roles), auto-seed users, possible-release flagging, Opus damage photos, Base44 API, NADA override, unified nav at /hub, envelope scanner, help system, ghost-vehicle alerts, file restart logic, document viewer, VIN photo verification, /vin-lookup, reference search, task backlog snooze, staff feedback, staff guides, /driver VIN-snap, additional charges, owner/lienholder-2 fields, UPS Phase 1 (labels/POD), damage-photo bulk uploader, staff to-do lists, undo-release, status audit tool + bulk release, police-department rates, 5-letter templates.
 
-### ✅ NEW — August 24, 2026 (every party gets the owner's treatment — branch `feat/vehicle-parties`)
+### ✅ NEW — August 24-25, 2026 (every party gets the owner's treatment — PR #22, MERGED + DEPLOYED)
 
 **Heather's report:** on a vehicle entry, the owner was the only party with any information showing.
 She was right, and it wasn't only a display problem — the other parties were half-built. The 2nd owner /
@@ -152,7 +154,13 @@ ALTER TABLE certified_letters ADD COLUMN party_id INTEGER;
 ```
 The `vehicle_parties` table itself is created from the model on boot, like `vehicle_damage_photos`.
 
-**Verified locally against a purpose-built SQLite DB, not just code-read:** owner clock byte-identical
+**Shipped 08/25:** merged as PR #22 -> `main` commit `72e553b`, Render deployed 11:20 AM, `smoke_check.py` PASS against the live commit. `reset_users.py` was deliberately SKIPPED — this change touched no users, roles, passwords or permissions, so running it would only have reset staff passwords to defaults for no reason. Confirmed live on real production data: vehicle 11374 shows Parties **2** — Laura Lee Marks (Owner, of record, full address, Notification Letter sent 08/04) and Wells Fargo Dealer Services (Lienholder, of record, full address). A vehicle whose BMV search hasn't come back yet correctly shows Parties **0** with "add the registered owner to enable letter printing" — no owner on file to list.
+
+**Two things that surfaced only once parties were visible** (both pre-existing, neither a regression):
+1. **POLICE lienholder notices are never auto-created — but they ARE required.** Tim settled that on 2026-08-04 (real case: 2022 Dodge Charger / Ally Financial): police lienholders get their own separately sent, separately tracked Notice of Lien, letter_number 5, same `notice_of_lien` content addressed to them. The gap is that nothing *opens* it — `letter_triggers.on_vehicle_created` auto-creates the lienholder letter for **PPI only**; on a POLICE impound it exists only once a human generates it from the Generate Letters hub. Wells Fargo on vehicle 11374 reads "No letters opened yet." **So there is very likely a backlog of POLICE vehicles whose lienholder was never mailed a required notice.** Count it before building; the fix is probably a one-line extension of `on_vehicle_created` plus a backfill for existing vehicles. This is compliance, not cosmetics.
+2. **PO Box party addresses.** Wells Fargo's address is a PO Box and UPS won't deliver there. Each party now carries its own `po_box_flag` that routes them to the USPS path; existing party addresses have not been swept for this.
+
+**Verified locally against a purpose-built SQLite DB before shipping:** owner clock byte-identical
 (`letter1`, `letter2`, `title_eligible_date`, `letter_round`, `letter_urgency`) before and after adding a
 third party; an already-mailed 2nd owner adopted rather than re-queued; a third party added through the real
 UI got their own letter, printed addressed to THEM with the lienholder-of-record cross-reference intact,
@@ -727,7 +735,18 @@ Awaiting Title → To Locate → Key Row → Inspection Pool → Needs Repairs
   entry above for full detail.
 
 ### ⬜ Open / not started (next-session queue)
-- ⬜ **PRIORITY (Tim's stated goal for next session) — verify the whole multi-party letter system end to end.**
+- ⬜ **PRIORITY (Tim's stated goal, 2026-08-25) — Tina's title part.** He said "I'd like to now start
+  working on Tina's title part" without saying which piece. **Ask him which before writing anything** —
+  the title-eligibility screen (`/tina/title-eligibility`), the filing step (`app.py::file_title` ->
+  `TitleFiling`), the BMV 4202 packet (`titlebot/pdf_gen.py`), or something not written down. Full
+  starter brief in `NEXT_SESSION_PROMPT.md`. **Raise unprompted:** the BMV 4202 has a lienholder field
+  and the packet was built when a vehicle only really knew one owner and one lienholder — now that
+  parties are first-class, does the packet need to name all of them?
+- ⬜ **Police-impound lienholder notices are never auto-opened** — required since 08/04 but only created when a human generates one from the hub (`on_vehicle_created` auto-creates letter 5 for PPI only). Likely backlog of POLICE vehicles whose lienholder never got a required notice. **Count first, then fix.** Compliance item — see the 08/24-25 entry.
+- ⬜ **PO Box sweep across party addresses** — flag existing parties whose address looks like a PO Box so
+  they get the USPS path instead of a UPS label that can't deliver.
+- ✅ ~~**PRIORITY — verify the whole multi-party letter system end to end.**~~ DONE 2026-08-03 (verified
+  live), and superseded 08/24-25 by the parties rebuild that made every party first-class.
   Confirm the system correctly identifies every party on a call who needs a letter — owner, 2nd address
   (title vs. LKA), lienholder, and eventually the impound-slip owner for POLICE — and that there's a clean,
   clear way to see at a glance which parties on a given vehicle have been sent letters vs. still pending.
