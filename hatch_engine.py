@@ -35,6 +35,7 @@ MAX_ALERTS = 10              # no alert spam — the rest roll into one "+N more
 MAX_CONTEXT_ROWS = 80        # per section, keeps the prompt a sane size
 
 MODES = ('heather', 'tina', 'tim')
+OVERSIGHT_ROLES = ('tim', 'jim')   # full-oversight Hatch, incl. the main dashboard
 
 
 # ── Helpers ──────────────────────────────────────────────────────────────────
@@ -112,9 +113,9 @@ def _missing_file_items(v):
     return missing
 
 
-def _finish(issues_by_vehicle, summary_endpoint):
+def _finish(issues_by_vehicle, summary_endpoint, capped=True):
     """One alert per vehicle (its most urgent issue leads, the rest go in the
-    detail line), most urgent first, capped at MAX_ALERTS."""
+    detail line), most urgent first, capped at MAX_ALERTS unless capped=False."""
     alerts = []
     for v, issues in issues_by_vehicle.items():
         issues.sort(key=lambda i: -i['score'])
@@ -131,6 +132,10 @@ def _finish(issues_by_vehicle, summary_endpoint):
             'vehicle_id': v.id,
         })
     alerts.sort(key=lambda a: (-a['score'], a['vehicle_id']))
+    return _cap(alerts, summary_endpoint) if capped else alerts
+
+
+def _cap(alerts, summary_endpoint):
     extra = len(alerts) - MAX_ALERTS
     alerts = alerts[:MAX_ALERTS]
     if extra > 0:
@@ -150,7 +155,7 @@ def _add(bucket, v, level, score, kind, title, detail=''):
 
 # ── Alerts ───────────────────────────────────────────────────────────────────
 
-def heather_alerts(today=None, vehicles=None):
+def heather_alerts(today=None, vehicles=None, capped=True):
     today = today or date.today()
     if vehicles is None:
         vehicles = _queue_vehicles(heather_cutoff=True)
@@ -193,10 +198,10 @@ def heather_alerts(today=None, vehicles=None):
                      f'Title eligible {when} ({_mdy(elig)})',
                      ('File not ready for Tina — missing ' + ', '.join(missing) + '.')
                      if missing else 'File is complete for Tina.')
-    return _finish(bucket, 'heather.today_view')
+    return _finish(bucket, 'heather.today_view', capped)
 
 
-def tina_alerts(today=None, vehicles=None):
+def tina_alerts(today=None, vehicles=None, capped=True):
     today = today or date.today()
     if vehicles is None:
         vehicles = _queue_vehicles(statuses=('ACTIVE', 'TITLE_FILED'))
@@ -231,13 +236,28 @@ def tina_alerts(today=None, vehicles=None):
                      f'Title application out {_days(filing.days_waiting)} — chase the title office',
                      f'Filed {_mdy(filing.filed_date)}'
                      + (f' at {filing.title_office}' if filing.title_office else '') + '.')
-    return _finish(bucket, 'tina.title_eligibility')
+    return _finish(bucket, 'tina.title_eligibility', capped)
 
 
-def build_alerts(mode, today=None):
-    """Alerts shown on a dashboard. Tim gets the same list as the dashboard
-    he's looking at — his extra reach is in the chat context."""
-    if mode == 'tina':
+def oversight_alerts(today=None):
+    """Letters + titles together for the main (Tim/Jim) dashboard. A car with
+    both a letter and a title problem shows once, under its more urgent one."""
+    best = {}
+    for a in heather_alerts(today, capped=False) + tina_alerts(today, capped=False):
+        cur = best.get(a['vehicle_id'])
+        if cur is None or a['score'] > cur['score']:
+            best[a['vehicle_id']] = a
+    merged = sorted(best.values(), key=lambda a: (-a['score'], a['vehicle_id']))
+    return _cap(merged, 'heather.today_view')
+
+
+def build_alerts(dashboard, today=None):
+    """Alerts for a dashboard: 'heather', 'tina', or 'main' (Tim/Jim oversight).
+    On Heather's/Tina's pages Tim sees that page's list — his extra reach there
+    is in the chat context."""
+    if dashboard == 'main':
+        return oversight_alerts(today)
+    if dashboard == 'tina':
         return tina_alerts(today)
     return heather_alerts(today)
 
@@ -450,8 +470,8 @@ _PERSONA = {
     ),
     'tim': (
         'You are Hatch, the letters and titles oversight assistant for Broad & James Towing. '
-        'You are talking to Tim (owner side), who sees everything: Heather\'s letter '
-        'pipeline AND Tina\'s title pipeline. Give him the honest picture — what is late, '
+        'You are talking to {name} (owner side), who sees everything: Heather\'s letter '
+        'pipeline AND Tina\'s title pipeline. Give them the honest picture — what is late, '
         'what is blocked, who owns the next step (Heather = letters/BMV, Tina = titles), '
         'and where compliance risk is building. Be specific — vehicle descriptions, '
         'dates, days overdue, counts. Never be vague.'
@@ -494,15 +514,15 @@ Ground rules for you:
 - Format for a small chat box: plain sentences and short '-' lists; **bold** is fine. No # headings, tables, horizontal rules or emoji."""
 
 
-def system_prompt(mode, message, today=None):
-    return '\n\n'.join([_PERSONA[mode], _rules(),
+def system_prompt(mode, message, today=None, name='Tim'):
+    return '\n\n'.join([_PERSONA[mode].replace('{name}', name), _rules(),
                         'LIVE DATA (pulled from the database just now):\n'
                         + build_context(mode, message, today)])
 
 
 def resolve_mode(user, dashboard):
-    """Tim (and Wally, who uses role tim) always gets full oversight."""
-    if user.role == 'tim':
+    """Tim, Wally (role tim) and Jim always get full oversight."""
+    if user.role in OVERSIGHT_ROLES:
         return 'tim'
     return 'tina' if dashboard == 'tina' else 'heather'
 

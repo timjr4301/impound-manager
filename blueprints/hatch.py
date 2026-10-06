@@ -55,6 +55,8 @@ def chat():
         allowed = current_user.can_see_tina_dashboard
     elif dashboard == 'heather':
         allowed = current_user.can_see_heather_dashboard
+    elif dashboard == 'main':
+        allowed = current_user.role in hatch_engine.OVERSIGHT_ROLES
     else:
         return jsonify(error='Unknown dashboard.'), 400
     if not allowed:
@@ -72,7 +74,8 @@ def chat():
 
     mode = hatch_engine.resolve_mode(current_user, dashboard)
     try:
-        system = hatch_engine.system_prompt(mode, message)
+        system = hatch_engine.system_prompt(
+            mode, message, name=current_user.display_name or current_user.username)
     except Exception as exc:
         logger.exception('Hatch context build failed: %s', exc)
         from models import db

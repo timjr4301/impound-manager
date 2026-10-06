@@ -1364,8 +1364,12 @@ def create_app():
                 .all()
             )
 
+        import hatch_engine
+        hatch_panel = (hatch_engine.dashboard_panel(current_user, 'main')
+                       if current_user.role in hatch_engine.OVERSIGHT_ROLES else {})
         return render_template('dashboard.html',
             today=today,
+            **hatch_panel,
             total_active=total_active,
             overdue=overdue,
             due_today=due_today,

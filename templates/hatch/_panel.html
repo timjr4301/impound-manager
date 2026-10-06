@@ -95,7 +95,7 @@
   const GREETING = {
     heather: "Hi Heather — ask me what's due next, which letters are overdue, or what's blocking a BMV lookup.",
     tina: "Hi Tina — ask me what's ready to file, which cars need affidavits, or what's stuck at the title office.",
-    tim: "Hi Tim — full oversight mode. Ask me about anything in the letter or title pipeline."
+    tim: "Hi " + {{ (current_user.display_name or current_user.username)|tojson }} + " — full oversight mode. Ask me about anything in the letter or title pipeline."
   }[root.dataset.mode];
 
   let history = [];
