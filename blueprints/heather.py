@@ -14,6 +14,7 @@ from models import db, Vehicle, CertifiedLetter, EnvelopeScan, VehicleNote
 from sqlalchemy import or_, func, cast, Date
 from models import PPI_LETTER1_DAYS, PPI_LETTER2_DAYS, POLICE_LETTER1_DAYS
 from permissions import require_permission
+import hatch_engine
 
 bp = Blueprint('heather', __name__, url_prefix='/heather')
 
@@ -391,6 +392,7 @@ def dashboard():
         can_act=current_user.is_heather,  # Tina can view but not act
         can_snooze=current_user.can_see_all,
         lot_sort=lot_sort,
+        **hatch_engine.dashboard_panel(current_user, 'heather'),
     )
 
 

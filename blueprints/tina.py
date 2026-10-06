@@ -10,6 +10,7 @@ from models import (db, Vehicle, TitleFiling, Invoice, VehicleNote, DamageReport
                     CustodyEvent, AuctionEvent, TITLE_WAIT_ALERT_DAYS)
 import disposition as dispo
 import pipeline_ops as ops
+import hatch_engine
 from pipeline_ops import move_stage as _move_stage, record_custody as _custody
 
 bp = Blueprint('tina', __name__, url_prefix='/tina')
@@ -131,6 +132,7 @@ def dashboard():
         recent_invoices=recent_invoices,
         damage_reports=damage_reports,
         can_snooze=current_user.can_see_all,
+        **hatch_engine.dashboard_panel(current_user, 'tina'),
     )
 
 
