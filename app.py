@@ -760,6 +760,14 @@ STAFF_USER_DEFAULTS = [
     ('test',     'BandJDemo!', 'demo',     'Demo'),
 ]
 
+# Grok Bot — Wally's outside AI agent. Full oversight, so role 'tim' (there is
+# no 'wally' role; an unknown role passes no permission gate). Its password is
+# a real secret, so it lives ONLY in the Render env var GROK_BOT_PASSWORD, never
+# in git — with the var unset, the account is simply not created or reset.
+if os.environ.get('GROK_BOT_PASSWORD'):
+    STAFF_USER_DEFAULTS.append(
+        ('grokbot', os.environ['GROK_BOT_PASSWORD'], 'tim', 'Grok Bot'))
+
 
 def seed_default_users(app):
     """Create default user accounts if they don't exist. Runs on every boot —

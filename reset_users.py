@@ -7,6 +7,9 @@ Uses app.STAFF_USER_DEFAULTS as the single source of truth, so this always
 matches what seed_default_users() creates on boot — no separate list to
 drift out of sync.
 
+Grok Bot (username grokbot, role tim) is included only when the
+GROK_BOT_PASSWORD env var is set in Render — its password is never in git.
+
     [RENDER SHELL] python3 reset_users.py
 """
 from app import app, STAFF_USER_DEFAULTS
