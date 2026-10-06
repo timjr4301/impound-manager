@@ -35,7 +35,7 @@ MAX_ALERTS = 10              # no alert spam — the rest roll into one "+N more
 MAX_CONTEXT_ROWS = 80        # per section, keeps the prompt a sane size
 
 MODES = ('heather', 'tina', 'tim')
-OVERSIGHT_ROLES = ('tim', 'jim')   # full-oversight Hatch, incl. the main dashboard
+OVERSIGHT_ROLES = ('tim', 'jim', 'brady')   # full-oversight Hatch, incl. the main dashboard
 
 
 # ── Helpers ──────────────────────────────────────────────────────────────────
@@ -521,7 +521,7 @@ def system_prompt(mode, message, today=None, name='Tim'):
 
 
 def resolve_mode(user, dashboard):
-    """Tim, Wally (role tim) and Jim always get full oversight."""
+    """Tim, Wally (role tim), Jim and Brady always get full oversight."""
     if user.role in OVERSIGHT_ROLES:
         return 'tim'
     return 'tina' if dashboard == 'tina' else 'heather'
