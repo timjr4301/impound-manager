@@ -16,10 +16,12 @@ STORAGE_2026_DAYS = ['Text82','Text84','Text86','Text88','Text90','Text92',
                      'Text94','Text96','Text98','Text100','Text102','Text104']
 STORAGE_2026_AMTS = ['Text83','Text85','Text87','Text89','Text91','Text93',
                      'Text95','Text97','Text99','Text101','Text103','Text105']
-DAMAGE_DESCS = ['Text50','Text52','Text54','Text56','Text58',
-                'Text60','Text62','Text64','Text66']
-DAMAGE_VALS  = ['Text51','Text53','Text55','Text57','Text59',
-                'Text61','Text63','Text65','Text67']
+# Damage list (page 3): 14 description/value row pairs, Text50/51 .. Text76/77.
+# totaldv in the template sums Text51..Text77, so nothing else may be written here.
+DAMAGE_DESCS = ['Text50','Text52','Text54','Text56','Text58','Text60','Text62',
+                'Text64','Text66','Text68','Text70','Text72','Text74','Text76']
+DAMAGE_VALS  = ['Text51','Text53','Text55','Text57','Text59','Text61','Text63',
+                'Text65','Text67','Text69','Text71','Text73','Text75','Text77']
 
 
 def _s(value):
@@ -30,6 +32,12 @@ def _d(d):
     if not d:
         return ''
     return f'{d.month}/{d.day}/{d.year}'
+
+
+def _join_address(street, city, state, zip_code):
+    """'123 MAIN ST, COLUMBUS, OH 43219' — skips blank parts."""
+    state_zip = ' '.join(p for p in (_s(state).strip(), _s(zip_code).strip()) if p)
+    return ', '.join(p for p in (_s(street).strip(), _s(city).strip(), state_zip) if p)
 
 
 def generate_title_packet(vehicle, template_path, filing_date=None):
@@ -53,23 +61,15 @@ def generate_title_packet(vehicle, template_path, filing_date=None):
     f = {}  # field dict
 
     # ── Vehicle ID ────────────────────────────────────────────────────────
-    # Note: the template reuses lowercase field names ('vin', 'make', 'model',
-    # 'vehich year' [sic], 'mileage') as repeated widgets across pages 1-5, and
-    # separate all-caps fields ('VIN', 'Make', 'Model') only on the last page —
-    # both must be set or the earlier pages render blank.
-    f['VIN']            = _s(vehicle.vin)
-    f['Make']           = _s(vehicle.make)
-    f['Model']          = _s(vehicle.model_name)
+    # The template reuses lowercase field names ('vin', 'make', 'model',
+    # 'vehich year' [sic], 'mileage') as repeated widgets on every page,
+    # including the BMV 4202 (page 6) vehicle row.
     f['vin']            = _s(vehicle.vin)
     f['make']           = _s(vehicle.make)
     f['model']          = _s(vehicle.model_name)
     f['vehich year']    = _s(vehicle.year)
     f['mileage']        = _s(vehicle.mileage)
     f['REFERENCE #']    = vehicle.vin[-6:] if vehicle.vin else ''
-    f['Text68']         = _s(vehicle.year)     # DMG_YEAR_FIELD
-    f['Text69']         = _s(vehicle.make)     # DMG_MAKE_FIELD
-    f['Text70']         = _s(vehicle.model_name)  # DMG_MODEL_FIELD
-    f['Text71']         = _s(vehicle.vin)      # DMG_VIN_FIELD
 
     # ── Owner ─────────────────────────────────────────────────────────────
     f['previous owner name']    = _s(vehicle.owner_name)
@@ -77,10 +77,16 @@ def generate_title_packet(vehicle, template_path, filing_date=None):
     f['PO CITY']                 = _s(vehicle.owner_city)
     f['PO STATE']                = _s(vehicle.owner_state)
     f['PO ZIP']                  = _s(vehicle.owner_zip)
+    # BMV 4202 OWNER'S ADDRESS box: one line, "street, city, state zip".
+    f['previous owner full address'] = _join_address(
+        vehicle.owner_address, vehicle.owner_city, vehicle.owner_state, vehicle.owner_zip)
 
     # ── Lienholder ────────────────────────────────────────────────────────
     f['lien holder name']       = _s(vehicle.lienholder_name) or 'None'
-    f['Lien holder address']    = _s(vehicle.lienholder_address)
+    # BMV 4202 LIENHOLDER'S ADDRESS box: one line, "street, city, state zip".
+    f['Lien holder address']    = _join_address(
+        vehicle.lienholder_address, vehicle.lienholder_city,
+        vehicle.lienholder_state, vehicle.lienholder_zip)
     f['LIENHOLDER NAME']        = _s(vehicle.lienholder_name) or 'None'
     f['LIENHOLDER ADDRESS']     = _s(vehicle.lienholder_address)
     f['LIENHOLDER CITY']        = _s(vehicle.lienholder_city)
@@ -103,14 +109,23 @@ def generate_title_packet(vehicle, template_path, filing_date=None):
     if vehicle.impound_type == 'PPI' and l2:
         f['2nd letter date'] = _d(l2.sent_date)
 
-    signed = None
-    if l2 and l2.delivery_confirmed_date:
-        signed = l2.delivery_confirmed_date
-    elif l1 and l1.delivery_confirmed_date:
-        signed = l1.delivery_confirmed_date
+    l1_signed = l1.delivery_confirmed_date if l1 else None
+    l2_signed = l2.delivery_confirmed_date if l2 else None
+
+    # Page 1 data sheet: latest signed/undeliverable date (unchanged behaviour).
+    signed = l2_signed or l1_signed
     f['date of signed certified or undeliverable notice']  = _d(signed)
     f['date of signed receipts or undeliverable']          = _d(signed)
-    f['DATE OF SIGNED RECEIPT OR UNDELIVERABLE NOTICE']   = _d(signed)
+    # Section A pairs with DATE CERTIFIED MAIL SENT (letter 1), so use letter 1's
+    # delivery date (falling back to letter 2 only if letter 1 has none).
+    f['DATE OF SIGNED RECEIPT OR UNDELIVERABLE NOTICE']   = _d(l1_signed or l2_signed)
+    # Section B "DATES OF SIGNED RECEIPTS OR UNDELIVERABLE NOTICES": both letters.
+    parts = []
+    if l1_signed:
+        parts.append(f'1st: {_d(l1_signed)}')
+    if l2_signed:
+        parts.append(f'2nd: {_d(l2_signed)}')
+    f['signed receipt dates 1st 2nd'] = '    '.join(parts)
 
     f['Title Filing Date'] = _d(filing_date)
     f['notary day']    = str(filing_date.day)
@@ -154,7 +169,7 @@ def generate_title_packet(vehicle, template_path, filing_date=None):
         f[fld] = ''
     items = sorted(vehicle.damage_items, key=lambda d: d.sort_order)
     total_damage = 0.0
-    for i, item in enumerate(items[:9]):
+    for i, item in enumerate(items[:len(DAMAGE_DESCS)]):
         f[DAMAGE_DESCS[i]] = item.description
         f[DAMAGE_VALS[i]]  = f'{item.amount:.2f}'
         total_damage += item.amount
@@ -164,14 +179,21 @@ def generate_title_packet(vehicle, template_path, filing_date=None):
     # ── Financial summary ─────────────────────────────────────────────────
     nada          = vehicle.effective_nada_value or 3499.0
     tow_fee       = vehicle.tow_fee or 0.0
-    additional_charges = vehicle.additional_charges_total  # admin/gate/key-replacement fees etc.
-    vehicle_value = max(0.0, nada - total_damage)
-    owner_payout  = max(0.0, vehicle_value - tow_fee - total_storage_amt - additional_charges)
+    additional_charges = vehicle.additional_charges_total or 0.0  # admin/gate/key-replacement fees etc.
+    # (A) - (B) - (C): may be negative when damage exceeds the wholesale value.
+    vehicle_value = round(nada - total_damage, 2)
+    # AMOUNT PAID TO THE CLERK = vehicle value - (1) tow - (2) storage - additional
+    # charges. May be negative (no floor).
+    owner_payout  = round(vehicle_value - tow_fee - total_storage_amt - additional_charges, 2)
+    f['wsvalue']     = f'{nada:.2f}'    # (A) on page 6 / NADA VALUE on page 1
     f['Text106']     = f'{vehicle_value:.2f}'
+    # Hidden page-6 field so the template's Acrobat calculation for 'amount paid'
+    # subtracts additional charges exactly like owner_payout does.
+    f['additional charges'] = f'{(additional_charges or 0.0):.2f}'
     f['amount paid'] = f'{owner_payout:.2f}'
 
     # ── Checkboxes ────────────────────────────────────────────────────────
-    f['Towing Service that removed the vehicle under'] = '/Yes'
+    f['Towing Service that removed the vehicle under'] = '/On'   # this widget's on-state is /On, not /Yes
     f['Check Box2opiijn'] = '/Yes'
 
     # ── Write PDF ─────────────────────────────────────────────────────────
