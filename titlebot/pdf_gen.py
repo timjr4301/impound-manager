@@ -179,12 +179,17 @@ def generate_title_packet(vehicle, template_path, filing_date=None):
     # ── Financial summary ─────────────────────────────────────────────────
     nada          = vehicle.effective_nada_value or 3499.0
     tow_fee       = vehicle.tow_fee or 0.0
-    additional_charges = vehicle.additional_charges_total  # admin/gate/key-replacement fees etc.
+    additional_charges = vehicle.additional_charges_total or 0.0  # admin/gate/key-replacement fees etc.
     # (A) - (B) - (C): may be negative when damage exceeds the wholesale value.
     vehicle_value = round(nada - total_damage, 2)
-    owner_payout  = max(0.0, vehicle_value - tow_fee - total_storage_amt - additional_charges)
+    # AMOUNT PAID TO THE CLERK = vehicle value - (1) tow - (2) storage - additional
+    # charges. May be negative (no floor).
+    owner_payout  = round(vehicle_value - tow_fee - total_storage_amt - additional_charges, 2)
     f['wsvalue']     = f'{nada:.2f}'    # (A) on page 6 / NADA VALUE on page 1
     f['Text106']     = f'{vehicle_value:.2f}'
+    # Hidden page-6 field so the template's Acrobat calculation for 'amount paid'
+    # subtracts additional charges exactly like owner_payout does.
+    f['additional charges'] = f'{(additional_charges or 0.0):.2f}'
     f['amount paid'] = f'{owner_payout:.2f}'
 
     # ── Checkboxes ────────────────────────────────────────────────────────
