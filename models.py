@@ -1631,9 +1631,10 @@ class PoliceDepartment(db.Model):
 
 
 # How long an application can sit with the title office before the pipeline
-# calls it out. PLACEHOLDER — 30 days is a guess, not a measured turnaround.
-# Tim/Tina: set this to what "too long" actually means at your title office.
-TITLE_WAIT_ALERT_DAYS = 30
+# calls it out. 70 days is TINA'S OWN NUMBER, given 2026-08-31 — it replaces
+# the 30-day placeholder this shipped with, which was a guess. is_overdue
+# fires once an application has been out MORE than this.
+TITLE_WAIT_ALERT_DAYS = 70
 
 
 class TitleFiling(db.Model):
